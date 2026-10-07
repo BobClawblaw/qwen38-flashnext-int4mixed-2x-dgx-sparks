@@ -1,0 +1,2 @@
+[tensorfold] CUDA rank 0 startup estimate 49.04 GiB within 100.78 GiB; native 262144, allocated prompt/reply window 262144, cache slots 262160
+[tensorfold] serving Qwen3.8-Flash-Next-INT4-Mixed at http://0.0.0.0:8890/v1 on CUDA, rank 0 of 2 (sampling: temperature 1.0, top_k 20, top_p 0.95; drafts: on; prompts: bf16 activations; context: 262144; loaded in 61.7s)

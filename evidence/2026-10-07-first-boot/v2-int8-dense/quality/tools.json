@@ -1,0 +1,13 @@
+{
+ "name": "tools",
+ "score": 0.95,
+ "cases": 60,
+ "passed": 57,
+ "seconds": 29.21277403831482,
+ "notes": [
+  "'Walking directions from the Louvre to No': got [('get_directions', {'origin': 'louvre', 'destination': 'notre-dame', 'mode': 'walking'})]",
+  "\"What's 2 to the power of 20?\": got [('calculate', {'expression': '2**20'})]",
+  "'Weather in Reykjavik and the price of BT': got [('get_weather', {'city': 'reykjavik'})]"
+ ],
+ "details": {}
+}

@@ -42,6 +42,28 @@ Files: `families/qwen4_exp/cuda/affine_moe.py` (new), `weights.py` (`moe_affine`
   The converter's unpacking is checked bit for bit against the `compressed-tensors` library on 4-, 6- and 8-bit
   tensors (`tests/test_convert.py`, when torch is present).
 
+### Format 2: int8 dense linears with group scales (`q8.py`, new)
+
+The checkpoint's int6 and int8 linears are kept as their integers in int8 bytes with fp32 group scales
+(`.qweight`, `.qscale`), not dequantized to bf16: exact (the kernel multiplies the stored integers and applies the
+stored scales, 3e-7 relative to an fp32 reference), half the bytes of bf16. `q8.Q8Face` stands where a bf16 face
+stood (`bf16.matmul` dispatches to it), a face can mix int8 rows and bf16 rows (a hyper-connection's down projection
+and its bf16 inject rows), and the tile shape is a function of the weight's shape alone (so drafted, undrafted and
+concurrent rows agree bit for bit). The MTP layer's bf16 linears are quantized to int8 at load (absmax per row and
+64 inputs): they only draft, the main weights verify, so replies are unchanged (drafted equals undrafted 12/12).
+Tests: `tests/cuda/test_flashnext_q8.py`.
+
+### Two fixes the first boot found
+
+- `vision/qwen_cuda.py`: accept the vision config's newer `model_type` name, `qwen4_exp_vision` (this export's).
+- `forward._mm`: a bf16 linear writes fp32 when the caller's buffer is fp32 (two ranks gather fp32 partial sums of
+  the output projections; bf16 linears had only ever run on one GPU).
+
+### A development switch
+
+`TENSORFOLD_STAGE_TIMES=<file>` (with `TENSORFOLD_STAGE_SYNC=1` for isolated timings) records GPU time per forward
+stage with CUDA events and turns decode graphs off; unset, it changes nothing.
+
 ### Carried from this project's earlier TensorFold work
 
 - **EXL3 packs on two ranks and a sixteen-stream EXL3 decode window** (the EXL3 loader, `exl3_mm.py`,

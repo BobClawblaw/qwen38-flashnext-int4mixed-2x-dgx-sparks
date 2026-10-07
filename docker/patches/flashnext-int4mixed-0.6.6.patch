@@ -176,7 +176,7 @@ index 6cb5ba9..9a8ed3b 100644
  
  template <int GS, int M, int EPI>
 diff --git a/src/tensorfold/cuda/geometry.py b/src/tensorfold/cuda/geometry.py
-index 0f9dae5..9cafe26 100644
+index 0f9dae5..bf6d544 100644
 --- a/src/tensorfold/cuda/geometry.py
 +++ b/src/tensorfold/cuda/geometry.py
 @@ -88,20 +88,27 @@ def indexed_weights(world: int, mtp: bool, mapped_tables: bool = True):
@@ -207,9 +207,10 @@ index 0f9dae5..9cafe26 100644
 +                    halve(-1)
                  elif name.endswith((".A_log", ".dt_bias")):
 -                    shape[0] //= world
-+                    halve(0)
-             elif name.endswith(("lm_head.weight", "lm_head.scales", "lm_head.biases")):
+-            elif name.endswith(("lm_head.weight", "lm_head.scales", "lm_head.biases")):
 -                shape[0] //= world
++                    halve(0)
++            elif name.endswith(("lm_head.weight", "lm_head.scales", "lm_head.biases", "lm_head.qweight", "lm_head.qscale")):
 +                halve(0)
          cast = name.endswith((".A_log", ".dt_bias", ".q_norm.weight", ".k_norm.weight", ".hc_norm.weight"))
          amount = padded(info, shape, float32=cast, name=name)
@@ -476,6 +477,35 @@ index 0000000..283b62f
 +    grouped.down(buf.act.view(-1, ex.width), ex.routed_experts, buf.plan_routed, buf.y.view(-1, ex.dims), rows)
 +    buf.y[:rows, top_k] = bf16.matmul(buf.act[:rows, top_k], ex.shared_down, f32=not prompt)
 +    return buf
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/bf16.py b/src/tensorfold/families/qwen4_exp/cuda/bf16.py
+index f43360e..1240cb8 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/bf16.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/bf16.py
+@@ -93,6 +93,10 @@ def matmul(x: torch.Tensor, b: B16, *, out: torch.Tensor | None = None, f32: boo
+ 
+     if not HAS_TRITON:
+         raise RuntimeError("the BF16 matmul needs Triton (the CUDA engine's environment)")
++    if getattr(b, "parts", None) is not None:           # an int8 face (q8.Q8Face) standing where bf16 rows stood
++        from . import q8
++
++        return q8.matmul(x, b, out=out, f32=f32)
+     m, k = x.shape
+     if k != b.k or x.stride(1) != 1:
+         raise ValueError(f"b16 matmul: x {tuple(x.shape)} does not match K={b.k}")
+@@ -160,8 +164,12 @@ class _Routed:
+         return self.b.nbytes()
+ 
+ 
+-def stack_b16(parts: list) -> _Routed:
++def stack_b16(parts: list):
+     """Rows of several _Routed of the same K stacked in order (the hyper-connection's down + inject)."""
++    if any(getattr(p, "parts", None) is not None for p in parts):   # an int8 face among them: a mixed q8 face
++        from . import q8
++
++        return q8.stack(parts)
+ 
+     rows = [p.b.weight if isinstance(p, _Routed) else p.weight for p in parts]
+     return b16_from_rows(torch.cat(rows, dim=0))
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/copy_drafts.py b/src/tensorfold/families/qwen4_exp/cuda/copy_drafts.py
 new file mode 100644
 index 0000000..2e1186e
@@ -599,7 +629,7 @@ index ea765aa..afe811b 100644
      torch.cuda.synchronize()
      seconds = time.perf_counter() - start
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/engine.py b/src/tensorfold/families/qwen4_exp/cuda/engine.py
-index 002ff1f..98d6ed7 100644
+index 002ff1f..a7efb2e 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/engine.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/engine.py
 @@ -61,19 +61,20 @@ class FlashNextEngine:
@@ -629,16 +659,19 @@ index 002ff1f..98d6ed7 100644
          if exl3 and ple_on_ssd:
              raise ValueError("--ple-on-ssd reads the MLX checkpoint's n-gram tables; an EXL3 pack maps its own table "
                               "from its file, so drop --ple-on-ssd")
-@@ -96,6 +97,8 @@ class FlashNextEngine:
+@@ -96,6 +97,11 @@ class FlashNextEngine:
              raise ValueError(f"MTP draft confidence: a probability from 0 to 1, not {confidence}")
          torch.cuda.set_device(0)
          self.tp, self.rank, self.depth, self.confidence = tp, rank, int(depth), float(confidence)
 +        # copy drafts (copy_drafts.py): on unless TENSORFOLD_COPY_DRAFTS=0, and never without MTP drafts
 +        self.copy_drafts = bool(self.depth > 0 and copy_enabled(True if copy_drafts is None else bool(copy_drafts)))
++        from . import stage_times
++        if stage_times.ENABLED:                       # timing events need eager rounds
++            graphs = False
          self.streams, self.master, self.graphs_enabled = int(streams), master, bool(graphs)
          self.kv_dtype = check_kv(kv_dtype)
          self.comm = None
-@@ -136,7 +139,7 @@ class FlashNextEngine:
+@@ -136,7 +142,7 @@ class FlashNextEngine:
                    f"planned peak {peak:.2f} GiB at the admitted window", flush=True)
          self.max_len = self.capacity_plan["cache_slots"]
          if tp == 2:
@@ -647,7 +680,7 @@ index 002ff1f..98d6ed7 100644
          build_kernels(exl3=exl3, nvfp4=not exl3 and quant_method(read_config(model_dir)) == "modelopt",
                        solo=streams == 1 or (graphs and mtp))
          from concurrent.futures import wait
-@@ -165,15 +168,21 @@ class FlashNextEngine:
+@@ -165,15 +171,21 @@ class FlashNextEngine:
          from tensorfold.cuda.markers import resume_points
  
          self.points = resume_points(model_dir)          # a prompt's message starts to keep states at, or None
@@ -671,7 +704,7 @@ index 002ff1f..98d6ed7 100644
          # ``streams`` > 1: up to that many requests decoded together, every stream's chain in one forward
          self.concurrent = streams > 1
          self.refuses_structured_output = (
-@@ -189,6 +198,7 @@ class FlashNextEngine:
+@@ -189,6 +201,7 @@ class FlashNextEngine:
              self.e = None
              self.multi = MultiDecoder(w, slots=streams, capacity=self.max_len, depth=self.depth,
                                        confidence=self.confidence, keep=KEEP, points=self.points,
@@ -679,7 +712,7 @@ index 002ff1f..98d6ed7 100644
                                        kv_dtype=self.kv_dtype, share=share, vision=self.vision,
                                        prefill_rows=self.prefill_rows, workspace_bytes=prompt_workspace, graphs=graphs)
              self.scheduler = Scheduler(self.multi, max_streams=streams)
-@@ -246,10 +256,17 @@ class FlashNextEngine:
+@@ -246,10 +259,17 @@ class FlashNextEngine:
          self.serial = None                                # the serial requests' engine, made on first use
          rule = (f"1 to {self.depth} MTP drafts a round, a chain stops before a later draft under "
                  f"{self.confidence:.0%}" if self.depth else "no drafts: the serial reference, one token a round")
@@ -697,7 +730,7 @@ index 002ff1f..98d6ed7 100644
          if ple_on_ssd:
              how = "read from SSD at each lookup"
          elif tables_read:                             # read during the load: the wait after it, then any lock
-@@ -264,7 +281,7 @@ class FlashNextEngine:
+@@ -264,7 +284,7 @@ class FlashNextEngine:
                f"decode graphs captured; idle prompt pieces {self.prefill_rows} rows; "
                f"prompt kernels warmed in {warm_s:.1f}s", flush=True)
  
@@ -706,7 +739,7 @@ index 002ff1f..98d6ed7 100644
          """Both ranks must decode with the same rule, context, draft vocabulary and KV cache, or they would fall out of step: refuse to start otherwise."""
  
          from .kvcache import BITS_OF
-@@ -273,14 +290,15 @@ class FlashNextEngine:
+@@ -273,14 +293,15 @@ class FlashNextEngine:
          mine = torch.tensor([self.depth, round(self.confidence * 1e6), self.max_len, self.streams,
                               int(self.graphs_enabled),
                               len(ids) if ids is not None else -1, total, BITS_OF[self.kv_dtype],
@@ -724,7 +757,7 @@ index 002ff1f..98d6ed7 100644
                                 f"rank 0 {both[0].tolist()}, rank 1 {both[1].tolist()}")
  
      def _key(self, n: int) -> str:
-@@ -296,13 +314,13 @@ class FlashNextEngine:
+@@ -296,13 +317,13 @@ class FlashNextEngine:
              self.comm.store.set(self._key(self.served), json.dumps({"stop": True}))
  
      def _share(self, prompt: list[int], max_tokens: int, sampling, draft: bool, cached: int, constraint=None,
@@ -741,7 +774,7 @@ index 002ff1f..98d6ed7 100644
                  "sampling": None if sampling is None else [int(sampling.seed), float(sampling.temperature),
                                                             int(sampling.top_k), float(sampling.top_p),
                                                             float(sampling.min_p)],
-@@ -338,7 +356,7 @@ class FlashNextEngine:
+@@ -338,7 +359,7 @@ class FlashNextEngine:
          s = body["sampling"]
          return (body["prompt"], body["max_tokens"], None if s is None else Sampling(*s),
                  body["draft"], body["cached"], body.get("grammar") or [], body.get("stop_eos", True),
@@ -750,7 +783,7 @@ index 002ff1f..98d6ed7 100644
  
      @property
      def context_window(self) -> int:
-@@ -378,7 +396,7 @@ class FlashNextEngine:
+@@ -378,7 +399,7 @@ class FlashNextEngine:
          return self.tp == 1
  
      def _serial(self, prompt: list[int], max_tokens: int, sampling, on_tokens, constraint=None,
@@ -759,7 +792,7 @@ index 002ff1f..98d6ed7 100644
          """One token a round from a fresh prefill in the serial engine's own state (no drafts, no kept states)."""
  
          import torch
-@@ -388,7 +406,8 @@ class FlashNextEngine:
+@@ -388,7 +409,8 @@ class FlashNextEngine:
          if self.serial is None:
              self.serial = self.e.twin()
          t0 = time.perf_counter()
@@ -769,7 +802,7 @@ index 002ff1f..98d6ed7 100644
          torch.cuda.synchronize()
          stats: dict[str, Any] = {"prefill_s": round(time.perf_counter() - t0, 4), "cached": 0, "drafts": False}
          if (on_tokens is not None and on_tokens([first])) or (stop_eos and first in self.eos) or max_tokens <= 1:
-@@ -399,12 +418,14 @@ class FlashNextEngine:
+@@ -399,12 +421,14 @@ class FlashNextEngine:
          return stats
  
      def _decode(self, prompt: list[int], max_tokens: int, sampling, on_tokens, hit, constraint=None,
@@ -785,7 +818,7 @@ index 002ff1f..98d6ed7 100644
          self._start_from(hit)
          from tensorfold.cuda.markers import MIN_GAP
  
-@@ -415,18 +436,26 @@ class FlashNextEngine:
+@@ -415,18 +439,26 @@ class FlashNextEngine:
          stops = [p for p in points if cached + MIN_GAP <= p < end]
          def keep(p, snap, tail):
              self._remember(list(prompt[:p]), {"state": snap, "tail": tail})
@@ -817,7 +850,7 @@ index 002ff1f..98d6ed7 100644
              stats.update(drafted=res.drafted, accepted=res.accepted, min_rows=min(res.widths, default=0))
          else:
              res = serial_decode(self.e, first, max_tokens, sampling, stop_eos=stop_eos, on_tokens=on_tokens,
-@@ -461,18 +490,26 @@ class FlashNextEngine:
+@@ -461,18 +493,26 @@ class FlashNextEngine:
                                           **grammar, **({"background": True} if background else {}),
                                           probabilities=probabilities,
                                           **({"vision": vision} if vision is not None else {}))
@@ -849,7 +882,7 @@ index 002ff1f..98d6ed7 100644
  
      def score_labels(self, prompt_ids, label_ids) -> tuple[list[float], float]:
          """Score the prompt's final row in a fresh state without adding a kept decision prefix."""
-@@ -537,7 +574,9 @@ class FlashNextEngine:
+@@ -537,7 +577,9 @@ class FlashNextEngine:
              request = self._receive()
              if request is None:
                  return
@@ -860,7 +893,7 @@ index 002ff1f..98d6ed7 100644
              constraint = None
              if packed:                                      # the request's grammar, compiled here as on rank 0
                  from tensorfold.engine import grammar
-@@ -551,9 +590,15 @@ class FlashNextEngine:
+@@ -551,9 +593,15 @@ class FlashNextEngine:
                  if hit is None:
                      raise RuntimeError(f"rank 1 has no kept state for the {cached} tokens rank 0 resumes from")
              try:
@@ -1163,7 +1196,7 @@ index 6b0bf41..5a1230c 100644
      w = torch.cat([r.to(torch.float16) for r in rows]).to(device).contiguous()
      n, k = w.shape
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/forward.py b/src/tensorfold/families/qwen4_exp/cuda/forward.py
-index c5fa44d..cdc12b2 100644
+index c5fa44d..360b9d1 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/forward.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/forward.py
 @@ -16,7 +16,7 @@ from tensorfold.cuda.kernels import gdn as shared_gdn
@@ -1175,7 +1208,19 @@ index c5fa44d..cdc12b2 100644
  from . import image_rows
  from .hc_check import fuser as _hc_fuser
  from .state import ATT_ROWS, CAND, Buffers, State, _MoECfg
-@@ -196,14 +196,14 @@ def _prefill_chain(g, st: State, li: int, b: Buffers, a0: int, a1: int, c, cut:
+@@ -33,8 +33,9 @@ def _gather(w: Weights, b: Buffers, part: torch.Tensor, flat: torch.Tensor, R: i
+ 
+ 
+ def _mm(x: torch.Tensor, q: qmm.Q4, xs: torch.Tensor, out: torch.Tensor, b: Buffers, **kw) -> torch.Tensor:
+-    if getattr(q, "kernel", "qmm") == "b16":      # an NVFP4 checkpoint's BF16 linear (non-experts)
+-        return bf16.matmul(x, q, out=out)
++    if getattr(q, "kernel", "qmm") == "b16":      # a BF16 linear (NVFP4 and affine-experts checkpoints' non-experts)
++        # two ranks ask for fp32 partial sums (the output projections' gather); the matmul writes what ``out`` holds
++        return bf16.matmul(x, q, out=out, f32=out is not None and out.dtype == torch.float32)
+     if not isinstance(q, qmm.Q4):                 # an EXL3 pack's matrix (``exl3_mm``): prompts on its prompt path
+         return q.prefill(x, out) if b.prefill else q(x, out)
+     mm = qmm.prefill_matmul if b.prefill else qmm.matmul
+@@ -196,14 +197,14 @@ def _prefill_chain(g, st: State, li: int, b: Buffers, a0: int, a1: int, c, cut:
  def _out_proj(w: Weights, b: Buffers, x: torch.Tensor, q: qmm.Q4, xs: torch.Tensor, R: int):
      """A block's output projection: (1, bf16 branch) on one GPU; (3, gathered fp32 partials) across ranks."""
  
@@ -1192,7 +1237,7 @@ index c5fa44d..cdc12b2 100644
      return 3, _gather(w, b, b.part_branch, b.g_branch, R)
  
  
-@@ -321,10 +321,13 @@ def moe_block(layer: LayerW, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -321,10 +322,13 @@ def moe_block(layer: LayerW, w: Weights, b: Buffers, R: int) -> tuple:
      """Routed experts + the shared expert. Returns the pending write-back: (2, slots y, weights) on one GPU, (3, gathered fp32 partials, None) across ranks."""
  
      m = layer.moe
@@ -1208,7 +1253,7 @@ index c5fa44d..cdc12b2 100644
          return _exl3_moe(m, w, b, R)
      else:
          buf = moe_mod.moe(b.mixed[:R], m.router, m.experts, b.moe, w.cfg.top_k, w.cfg.experts)
-@@ -344,6 +347,8 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -344,6 +348,8 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
      buf = b.moe
      moe_mod.router(b.mixed[:R], m.router, buf.logits[:R])
      moe_mod.select_rows(buf.logits[:R], buf, w.cfg.top_k, w.cfg.experts)
@@ -1217,7 +1262,7 @@ index c5fa44d..cdc12b2 100644
      if not b.prefill and R <= MOE_WINDOW:
          y = routed(b.mixed[:R], buf.pick[:R], None, m.experts, w.x3.moe, None, R)
          return 2, y.view(R, buf.slots, -1), buf.wts[:R]
-@@ -354,6 +359,28 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -354,6 +360,28 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
      return 2, buf.y[:R], buf.wts[:R]
  
  
@@ -1246,6 +1291,39 @@ index c5fa44d..cdc12b2 100644
  def _writeback(h: torch.Tensor, b: Buffers, R: int, c, pending) -> None:
      """Apply a pending branch to the streams (in place), no read-out."""
  
+@@ -610,3 +638,19 @@ def cut_snapshot(w: Weights, st: State, b: Buffers, cut: Cut, mtp_len: int) -> d
+         shift_windows(tail[None], b.ple_nrow[None, cut.at:cut.at + cut.row], cut.row, tail.shape[1])
+     return {"pos": st.pos + cut.row, "rec": cut.rec, "conv": cut.conv, "ple_tail": tail,
+             "ple_history": None if history is None else history.copy(), "mtp_len": mtp_len}
++
++
++# TENSORFOLD_STAGE_TIMES (a development tool): GPU time per stage; a no-op when unset
++from . import stage_times as _st  # noqa: E402
++
++if _st.ENABLED:
++    for _name in ("ple_block", "hc_block", "gdn_block", "attn_block", "moe_block", "finish", "_gather",
++                  "candidates", "_writeback", "_embed", "_readout_b16"):
++        globals()[_name] = _st.wrap(_name, globals()[_name])
++    _mm = _st.wrap(lambda x, q, *a, **k: f"mm {getattr(q, 'n', '?')}x{getattr(q, 'k', '?')}", _mm)
++    affine_moe.moe = _st.wrap("experts+shared", affine_moe.moe)
++    for _mod, _fns in ((attn_mod, ("attention", "qsa_pool", "qsa_rows", "qsa_select")), (gdn_mod, ("chain",)),
++                       (glue, ("hc_writeback", "hc_normed", "moe_partial")), (nvfp4_moe, ())):
++        for _f in _fns:
++            if hasattr(_mod, _f):
++                setattr(_mod, _f, _st.wrap(f"{_mod.__name__.rsplit('.', 1)[-1]}.{_f}", getattr(_mod, _f)))
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/graphs.py b/src/tensorfold/families/qwen4_exp/cuda/graphs.py
+index f6f515f..8aab773 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/graphs.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/graphs.py
+@@ -43,6 +43,8 @@ class Graphs:
+ 
+     @torch.no_grad()
+     def forward(self, tokens) -> torch.Tensor:
++        from .stage_times import forward_tick
++        forward_tick()                       # TENSORFOLD_PROFILE_FORWARDS (an nsys capture range); a no-op unset
+         e = self.e
+         w, st, b = e.w, e.st, e.buf
+         segs = stage(w, b, [(st, tokens)])
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/image_rows.py b/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
 index 73e8278..35b2a01 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
@@ -1272,6 +1350,20 @@ index 73e8278..35b2a01 100644
  
  
  def attach(st, encoded, length: int) -> None:
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/mtp.py b/src/tensorfold/families/qwen4_exp/cuda/mtp.py
+index 2a29110..107bb27 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/mtp.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/mtp.py
+@@ -72,3 +72,9 @@ def mtp_forward(w: Weights, st: State, b: Buffers, next_tokens: Sequence[int], s
+     """Process bf16 main-model streams and next tokens into last-row or all-row logits plus b.streams[:n], appending n cache entries while the caller advances ``st.mtp_len``."""
+ 
+     return mtp_compute(w, mtp_stage(w, b, [(st, next_tokens, streams)]), b, last_only=last_only)
++
++
++from . import stage_times as _st  # noqa: E402
++
++if _st.ENABLED:
++    mtp_compute = _st.wrap("mtp_compute", mtp_compute)
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi.py b/src/tensorfold/families/qwen4_exp/cuda/multi.py
 index e4326b4..e040b8a 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/multi.py
@@ -1537,6 +1629,306 @@ index 5dcc6b9..6e69045 100644
                  try:
                      self.admit(s, told=plan)
                  except (ValueError, NoRoom, OutOfStep) as exc:
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/q8.py b/src/tensorfold/families/qwen4_exp/cuda/q8.py
+new file mode 100644
+index 0000000..effa4f1
+--- /dev/null
++++ b/src/tensorfold/families/qwen4_exp/cuda/q8.py
+@@ -0,0 +1,196 @@
++"""Int8 linears with a scale per output row and group of inputs, for checkpoints whose non-expert linears are int6 or
++int8 (symmetric): the stored integers widened to int8 bytes, half the bytes of bf16 and exact.
++
++``Q8Face`` stands where a bf16 face stood (``kernel == "b16"``, ``.b`` returns itself), so every call site that runs
++``bf16.matmul`` runs it; ``bf16.matmul`` hands a ``Q8Face`` to ``matmul`` here. A face is one or more row parts, each
++int8 with its group scales or plain bf16 rows (a hyper-connection's down projection is int8 and its inject rows
++bf16), written side by side into the output's columns. Arithmetic: per K block (inside one scale group) the bf16
++dot of x and the integers (exact products, fp32 sums), times the group scale, summed over K blocks in order; K
++slices summed in slice order. A row's bits depend only on its own inputs and the weight's shape.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++import torch
++import triton
++import triton.language as tl
++
++BN = 64
++BK = 64
++
++
++@triton.jit
++def _q8mm(X, W, S, OUT, PART, M, x_stride, out_stride, col0,
++          N: tl.constexpr, K: tl.constexpr, GS: tl.constexpr, SK: tl.constexpr, BM: tl.constexpr,
++          BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, SCALED: tl.constexpr, F32: tl.constexpr):
++    pid_n = tl.program_id(1)
++    pid_s = tl.program_id(2)
++    rm = tl.program_id(0) * BM + tl.arange(0, BM)
++    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
++    rk = tl.arange(0, BLOCK_K)
++    m_ok = rm < M
++    n_ok = rn < N
++    KS: tl.constexpr = K // SK
++    NB: tl.constexpr = KS // BLOCK_K
++    acc = tl.zeros((BM, BLOCK_N), dtype=tl.float32)
++    for i in range(NB):
++        k0 = (pid_s * NB + i) * BLOCK_K
++        x = tl.load(X + rm[:, None] * x_stride + (k0 + rk)[None, :], mask=m_ok[:, None], other=0.0)
++        w = tl.load(W + rn[:, None] * K + (k0 + rk)[None, :], mask=n_ok[:, None], other=0)
++        d = tl.dot(x, tl.trans(w.to(tl.bfloat16)), out_dtype=tl.float32)
++        if SCALED:
++            s = tl.load(S + rn * (K // GS) + k0 // GS, mask=n_ok, other=0.0)
++            acc += d * s[None, :]
++        else:
++            acc += d
++    mask = m_ok[:, None] & n_ok[None, :]
++    if SK == 1:
++        tl.store(OUT + rm[:, None] * out_stride + col0 + rn[None, :], acc if F32 else acc.to(tl.bfloat16), mask=mask)
++    else:
++        tl.store(PART + (pid_s * M + rm[:, None]) * N + rn[None, :], acc, mask=mask)
++
++
++@triton.jit
++def _reduce(PART, OUT, M, out_stride, col0, N: tl.constexpr, SK: tl.constexpr, BLOCK: tl.constexpr,
++            F32: tl.constexpr):
++    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
++    ok = offs < M * N
++    acc = tl.load(PART + offs, mask=ok, other=0.0)
++    for s in tl.static_range(1, SK):
++        acc = acc + tl.load(PART + s * M * N + offs, mask=ok, other=0.0)
++    r, c = offs // N, offs % N
++    tl.store(OUT + r * out_stride + col0 + c, acc if F32 else acc.to(tl.bfloat16), mask=ok)
++
++
++def config(n: int, k: int, gs: int, m: int) -> tuple[int, int, int, int, int, int]:
++    """(BM, BLOCK_N, BLOCK_K, SK, warps, stages) by the weight's shape (BM by the row count's bucket only).
++
++    Measured on an idle GB10 with the weights cycling through 300 MB of copies (every call reads DRAM, as a decode
++    round does), 4 and 16 rows: these reach 190-240 GB/s, the bf16 kernel's rate on half the bytes. A row's bits
++    depend on this choice, which depends on the shape alone, so drafted, undrafted and concurrent rows agree.
++    """
++    bm = 128 if m > 128 else 16
++    if m > 128:                                     # prompts: wide tiles, compute-bound
++        return bm, 64, 64, 1, 4, 3
++    if n >= 65536 and gs % 128 == 0 and k % 128 == 0:    # the head: long rows of whole 128-groups
++        return bm, 128, 128, 1, 8, 4
++    if n <= 512:                                    # few outputs, long inputs (hyper-connection down)
++        return bm, 32, 64, 8 if (k // 64) % 8 == 0 else 1, 4, 4
++    if k <= 512:                                    # many outputs, short inputs (hyper-connection up)
++        return bm, 128, 64, 1, 4, 3
++    if n < 4096:                                    # output projections
++        return bm, 128, 64, 4 if (k // 64) % 4 == 0 else 1, 4, 3
++    return bm, 32, 64, 4 if (k // 64) % 4 == 0 else 1, 8, 4     # input projections
++
++
++def split_k(n: int, k: int, gs: int = 64, m: int = 16) -> int:
++    return config(n, k, gs, m)[3]
++
++
++@dataclass
++class Part:
++    weight: torch.Tensor                 # [n, k] int8, or bf16 rows
++    scale: torch.Tensor | None           # [n, k / gs] fp32, None for bf16 rows
++    gs: int = 0
++
++    @property
++    def n(self) -> int:
++        return int(self.weight.shape[0])
++
++    def nbytes(self) -> int:
++        return self.weight.numel() * self.weight.element_size() + (0 if self.scale is None else self.scale.numel() * 4)
++
++
++@dataclass
++class Q8Face:
++    parts: list[Part] = field(default_factory=list)
++    kernel: str = "b16"                  # routed like a bf16 face; ``bf16.matmul`` dispatches here
++
++    @property
++    def n(self) -> int:
++        return sum(p.n for p in self.parts)
++
++    @property
++    def k(self) -> int:
++        return int(self.parts[0].weight.shape[1])
++
++    @property
++    def b(self) -> "Q8Face":
++        return self
++
++    def nbytes(self) -> int:
++        return sum(p.nbytes() for p in self.parts)
++
++    def dequantize(self) -> torch.Tensor:
++        """[n, k] fp32 values (tests and the draft head's 4-bit copy)."""
++        rows = []
++        for p in self.parts:
++            w = p.weight.float()
++            if p.scale is not None:
++                w = (w.view(p.n, -1, p.gs) * p.scale[:, :, None]).view(p.n, -1)
++            rows.append(w)
++        return torch.cat(rows)
++
++
++def part_from_ints(q: torch.Tensor, scale: torch.Tensor, gs: int) -> Part:
++    if q.dtype != torch.int8 or q.dim() != 2 or q.shape[1] % gs or scale.shape != (q.shape[0], q.shape[1] // gs):
++        raise ValueError(f"q8: int8 [n, k] with scales [n, k/{gs}] expected, got {tuple(q.shape)} {q.dtype} and {tuple(scale.shape)}")
++    if gs % BK:
++        raise ValueError(f"q8: groups of {gs} do not hold whole K blocks of {BK}")
++    return Part(q.contiguous(), scale.float().contiguous(), gs)
++
++
++def part_from_bf16(w: torch.Tensor) -> Part:
++    return Part(w.to(torch.bfloat16).contiguous(), None, 0)
++
++
++def stack(faces: list) -> Q8Face:
++    """Rows of several faces (Q8Face or bf16 ``_Routed``) of the same K in order; adjacent bf16 rows merge."""
++    parts: list[Part] = []
++    for f in faces:
++        for p in (f.parts if isinstance(f, Q8Face) else [part_from_bf16(f.weight)]):
++            if parts and p.scale is None and parts[-1].scale is None:
++                parts[-1] = Part(torch.cat([parts[-1].weight, p.weight]), None, 0)
++            elif parts and p.scale is not None and parts[-1].scale is not None and p.gs == parts[-1].gs:
++                parts[-1] = Part(torch.cat([parts[-1].weight, p.weight]), torch.cat([parts[-1].scale, p.scale]), p.gs)
++            else:
++                parts.append(p)
++    return Q8Face(parts)
++
++
++def matmul(x: torch.Tensor, face: Q8Face, *, out: torch.Tensor | None = None, f32: bool = False) -> torch.Tensor:
++    """x [M, K] bf16 @ face.T -> [M, N] bf16 (or fp32 sums); each part into its own columns."""
++    m, k = x.shape
++    if k != face.k or x.stride(1) != 1 or k % BK:
++        raise ValueError(f"q8 matmul: x {tuple(x.shape)} does not match K={face.k}")
++    n_all = face.n
++    if out is None:
++        out = torch.empty((m, n_all), dtype=torch.float32 if f32 else torch.bfloat16, device=x.device)
++    elif out.shape != (m, n_all) or out.stride(1) != 1 or (out.dtype == torch.float32) != f32:
++        raise ValueError(f"q8 matmul: out {tuple(out.shape)} {out.dtype} must be ({m}, {n_all}) with f32={f32}")
++    col0 = 0
++    for p in face.parts:
++        n = p.n
++        bm, bn, bk, sk, warps, stages = config(n, k, p.gs if p.scale is not None else 128, m)
++        part = torch.empty((sk, m, n), dtype=torch.float32, device=x.device) if sk > 1 else out
++        grid = (triton.cdiv(m, bm), triton.cdiv(n, bn), sk)
++        _q8mm[grid](x, p.weight, p.scale if p.scale is not None else p.weight, out, part, m, x.stride(0),
++                    out.stride(0), col0, N=n, K=k, GS=max(p.gs, 1), SK=sk, BM=bm, BLOCK_N=bn, BLOCK_K=bk,
++                    SCALED=p.scale is not None, F32=f32, num_warps=warps, num_stages=stages)
++        if sk > 1:
++            _reduce[(triton.cdiv(m * n, 1024),)](part, out, m, out.stride(0), col0, N=n, SK=sk, BLOCK=1024, F32=f32,
++                                                 num_warps=4)
++        col0 += n
++    return out
++
++
++def quantize_rows(w: torch.Tensor, gs: int = 64) -> Part:
++    """bf16 [n, k] -> int8 with an absmax/127 scale per row and group of ``gs`` inputs, for weights that only draft
++    (the MTP layer): its replies are verified by the main weights, so the drafts' precision moves speed, not text."""
++    n, k = w.shape
++    g = w.float().view(n, k // gs, gs)
++    scale = (g.abs().amax(-1) / 127.0).clamp(min=1e-12)
++    q = torch.round(g / scale[:, :, None]).clamp(-127, 127).to(torch.int8).view(n, k)
++    return part_from_ints(q, scale, gs)
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/stage_times.py b/src/tensorfold/families/qwen4_exp/cuda/stage_times.py
+new file mode 100644
+index 0000000..f489ed1
+--- /dev/null
++++ b/src/tensorfold/families/qwen4_exp/cuda/stage_times.py
+@@ -0,0 +1,92 @@
++"""TENSORFOLD_STAGE_TIMES=<file>: GPU time per forward stage, from CUDA events around each stage (decode runs eager,
++no graphs, while it is set). A background thread folds finished events into totals and rewrites <file> every 5 s.
++A development tool: it changes nothing when the variable is unset."""
++
++from __future__ import annotations
++
++import functools
++import json
++import os
++import threading
++import time
++from collections import defaultdict
++
++import torch
++
++PATH = os.environ.get("TENSORFOLD_STAGE_TIMES")
++ENABLED = bool(PATH)
++SYNC = os.environ.get("TENSORFOLD_STAGE_SYNC") == "1"
++_pending: list = []
++_lock = threading.Lock()
++_totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0])
++_depth = threading.local()
++
++
++def wrap(name: str, fn):
++    if not ENABLED:
++        return fn
++
++    @functools.wraps(fn)
++    def timed(*a, **kw):
++        if torch.cuda.is_current_stream_capturing():
++            return fn(*a, **kw)
++        if SYNC:                                     # isolated cost: the stage alone, launch included
++            label = name(*a, **kw) if callable(name) else name
++            torch.cuda.synchronize()
++            t0 = time.perf_counter()
++            out = fn(*a, **kw)
++            torch.cuda.synchronize()
++            with _lock:
++                t = _totals[label]
++                t[0] += (time.perf_counter() - t0) * 1e3
++                t[1] += 1
++            return out
++        s, e = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
++        s.record()
++        out = fn(*a, **kw)
++        e.record()
++        with _lock:
++            _pending.append((name(*a, **kw) if callable(name) else name, s, e))
++        return out
++
++    return timed
++
++
++def _fold() -> None:
++    while True:
++        time.sleep(5)
++        with _lock:
++            done = [p for p in _pending if p[2].query()]
++            for p in done:
++                _pending.remove(p)
++        for name, s, e in done:
++            t = _totals[name]
++            t[0] += s.elapsed_time(e)
++            t[1] += 1
++        try:
++            with open(PATH, "w") as f:
++                json.dump({k: {"ms": v[0], "calls": v[1]} for k, v in sorted(_totals.items())}, f, indent=1)
++        except OSError:
++            pass
++
++
++if ENABLED:
++    threading.Thread(target=_fold, daemon=True, name="stage-times").start()
++
++
++# TENSORFOLD_PROFILE_FORWARDS=a:b: cudaProfilerStart at the a-th main forward, Stop at the b-th (an nsys capture range)
++_prof = os.environ.get("TENSORFOLD_PROFILE_FORWARDS")
++_count = [0]
++
++
++def forward_tick() -> None:
++    if not _prof:
++        return
++    a, b = (int(x) for x in _prof.split(":"))
++    _count[0] += 1
++    if _count[0] == a:
++        torch.cuda.synchronize()
++        torch.cuda.cudart().cudaProfilerStart()
++    elif _count[0] == b:
++        torch.cuda.synchronize()
++        torch.cuda.cudart().cudaProfilerStop()
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py b/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py
 new file mode 100644
 index 0000000..d21d7eb
@@ -1689,7 +2081,7 @@ index 6043ec8..74a8637 100644
  class HC:
      down: Q4                  # [low (+ streams), S*D]: input_mix_weight_down (then block_inject_weight)
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/weights.py b/src/tensorfold/families/qwen4_exp/cuda/weights.py
-index 5159a73..051253f 100644
+index 5159a73..a5404f3 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/weights.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/weights.py
 @@ -8,13 +8,15 @@ import numpy as np
@@ -1709,7 +2101,79 @@ index 5159a73..051253f 100644
  
  
  _PLAIN = (torch.bfloat16, torch.float16, torch.float32)
-@@ -317,6 +319,36 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+@@ -84,8 +86,35 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+         return HC(stack_q4(parts, "tiled"), make_q4(*up, "tiled"), cscale(name + ".hc_norm.weight"), inject,
+                   stack_q4(parts, "frag"), make_q4(*up, "frag"))
+ 
++    def q8_part(name: str, rows=None, cols: slice | None = None):
++        """An int8 linear (``qweight`` + group ``qscale``) as a q8 part, optionally a rank's rows or input columns."""
++        from . import q8
++
++        w, s = raw(name + ".qweight"), raw(name + ".qscale")
++        gs = w.shape[1] // s.shape[1]
++        if rows is not None:
++            w, s = w[rows], s[rows]
++        if cols is not None:
++            if cols.start % gs or cols.stop % gs:
++                raise ValueError(f"{name}: a rank's input columns [{cols.start}, {cols.stop}) cut groups of {gs}")
++            w, s = w[:, cols], s[:, cols.start // gs:cols.stop // gs]
++        return q8.part_from_ints(w.contiguous(), s.contiguous(), gs)
++
++    def is_q8(name: str) -> bool:
++        return rd.has(prefix + name + ".qweight")
++
++    def draft_q8(name: str) -> bool:
++        """The MTP layer's bf16 linears on an affine-experts checkpoint: int8 at load (they only draft)."""
++        return cfg.quant == "affine-experts" and name.startswith("mtp.") and not is_q8(name)
++
+     def b16(name: str):
+-        """One linear as the NVFP4 checkpoint stores it (BF16, torch layout [out, in]), on the qmm matmul face."""
++        """One linear as bf16 rows (NVFP4 checkpoints) or int8 rows with group scales (affine-experts format 2)."""
++        if is_q8(name) or draft_q8(name):
++            from . import q8
++
++            if draft_q8(name):
++                return q8.Q8Face([q8.quantize_rows(raw(name + ".weight").to(torch.bfloat16))])
++            return q8.Q8Face([q8_part(name)])
+         return b16_from_rows(raw(name + ".weight"))
+ 
+     def dense(name: str, rows=None, cols: slice | None = None):
+@@ -112,6 +141,21 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+     def face(*parts):
+         """Linears of one input as one face by their storage: bf16 rows on ``bf16.matmul``, MXFP8 on the lane matmul."""
+ 
++        if any(is_q8(p[0]) or draft_q8(p[0]) for p in parts):   # format 2 / the MTP layer: int8 rows, bf16 beside
++            from . import q8
++
++            pieces = []
++            for p in parts:
++                name, rows, cols = (list(p) + [None, None])[:3]
++                if is_q8(name):
++                    pieces.append(q8.Q8Face([q8_part(name, rows, cols)]))
++                elif draft_q8(name):
++                    w, _ = dense(name, rows, cols)
++                    pieces.append(q8.Q8Face([q8.quantize_rows(w.to(torch.bfloat16).contiguous())]))
++                else:
++                    w, _ = dense(name, rows, cols)
++                    pieces.append(b16_rows(w.to(torch.bfloat16)))
++            return q8.stack(pieces)
+         got = [dense(*p) for p in parts]
+         if any(isinstance(s, tuple) for _, s in got):     # block FP8: its own lane-matmul face; bf16 parts beside it
+             from tensorfold.cuda.nvfp4.linear import Concat, Fp8BlockLinear
+@@ -204,6 +248,12 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+     def weight_bf16(name: str, index: torch.Tensor | None = None) -> torch.Tensor:
+         """A linear's weight as bf16 rows: block FP8 (``weight_scale_inv``) dequantized in row chunks, else cast."""
+ 
++        if is_q8(name):                               # int8 rows: dequantized (the draft head's 4-bit copy)
++            q, s = raw(name + ".qweight"), raw(name + ".qscale")
++            if index is not None:
++                q, s = q.index_select(0, index), s.index_select(0, index)
++            gs = q.shape[1] // s.shape[1]
++            return (q.float().view(q.shape[0], -1, gs) * s.float()[:, :, None]).view(q.shape[0], -1).to(torch.bfloat16)
+         full = raw(name + ".weight")
+         w = full if index is None else full.index_select(0, index)
+         if w.dtype != torch.float8_e4m3fn or not rd.has(prefix + name + ".weight_scale_inv"):
+@@ -317,6 +367,48 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
              moe4 = nvfp4_moe.moe4_from_bf16(gu, dn, shared)
          return MoEW(router, moe4)
  
@@ -1738,15 +2202,27 @@ index 5159a73..051253f 100644
 +        routed = grouped.make([gu(triple(name + ".switch_mlp.gate_proj")), gu(triple(name + ".switch_mlp.up_proj"))],
 +                              dn(triple(name + ".switch_mlp.down_proj")), gs)
 +        se = f"{name}.shared_expert."
++        if is_q8(se + "gate_proj"):                   # format 2: the shared expert's int6 values as int8 rows
++            from . import q8
++
++            gu = q8.stack([q8.Q8Face([q8_part(se + "gate_proj", slice(lo, hi))]),
++                           q8.Q8Face([q8_part(se + "up_proj", slice(lo, hi))])])
++            dn = q8.Q8Face([q8_part(se + "down_proj", None, slice(lo, hi))])
++            return MoEW(router, affine_moe.MoEA(routed, gu, dn))
 +        gate = _plain(se + "gate_proj", raw(se + "gate_proj.weight")).to(torch.bfloat16)[lo:hi]
 +        up = _plain(se + "up_proj", raw(se + "up_proj.weight")).to(torch.bfloat16)[lo:hi]
 +        down = _plain(se + "down_proj", raw(se + "down_proj.weight")).to(torch.bfloat16)[:, lo:hi]
++        if draft_q8(se + "gate_proj"):               # the MTP layer's shared expert: int8 (drafts only)
++            from . import q8
++
++            return MoEW(router, affine_moe.MoEA(routed, q8.Q8Face([q8.quantize_rows(torch.cat([gate, up]).contiguous())]),
++                                                q8.Q8Face([q8.quantize_rows(down.contiguous())])))
 +        return MoEW(router, affine_moe.MoEA(routed, bf16_mod.make_b16(torch.cat([gate, up])), bf16_mod.make_b16(down)))
 +
      def attention(name: str) -> AttnW:
          hd = full.head_dim
          hl, kl = full.heads // world, full.kv_heads // world
-@@ -368,23 +400,28 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+@@ -368,23 +460,28 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
  
      def layer(i: int, base: str, kind: str, with_ple: bool) -> LayerW:
          linear = kind == "linear"
@@ -1786,7 +2262,7 @@ index 5159a73..051253f 100644
                   else triple("model.embed_tokens"))
          loaded = []
          ahead = rd.layer_names(prefix, mbase, chosen, mtp)   # read ahead of the layer that takes them
-@@ -400,7 +437,7 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+@@ -400,7 +497,7 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
              rd.release()
              if i % 8 == 7:                        # each release waits for the device; a layer leaves few temporaries
                  torch.cuda.empty_cache()
@@ -1795,16 +2271,20 @@ index 5159a73..051253f 100644
          vl = full.vocab // world
          if cfg.quant == "modelopt" and rd.has(prefix + "lm_head.weight_scale_inv"):     # block FP8: its stored bytes
              from dataclasses import replace
-@@ -409,7 +446,7 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+@@ -409,7 +506,11 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
  
              head = replace(Fp8BlockLinear.from_checkpoint(raw("lm_head.weight"), raw("lm_head.weight_scale_inv")),
                             lane=True)
 -        elif cfg.quant == "modelopt":
++        elif plain and is_q8("lm_head"):              # int8 head rows with group scales: this rank's vocabulary
++            from . import q8
++
++            head = q8.Q8Face([q8_part("lm_head", slice(rank * vl, (rank + 1) * vl))])
 +        elif plain:
              head = b16_rows(weight_bf16("lm_head")[rank * vl:(rank + 1) * vl])
          else:
              head_raw = triple("lm_head")
-@@ -422,21 +459,21 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+@@ -422,21 +523,21 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
              ids = np.array_split(ids[ids < full.vocab], world)[rank]
              ids = torch.from_numpy(ids).to(device)
              draft_ids = ids
@@ -2010,6 +2490,67 @@ index 0000000..656a585
 +    # the shared slot was never touched by the grouped kernels: its activation is the bf16 shared SwiGLU
 +    want_act = layer.shared_act(x)
 +    assert torch.equal(buf.act[:rows, top_k], want_act)
+diff --git a/tests/cuda/test_flashnext_q8.py b/tests/cuda/test_flashnext_q8.py
+new file mode 100644
+index 0000000..069068d
+--- /dev/null
++++ b/tests/cuda/test_flashnext_q8.py
+@@ -0,0 +1,55 @@
++"""Int8 linears with group scales (affine-experts format 2): exact against the dequantized weight, row-invariant,
++mixed int8/bf16 faces, and the bf16 matmul's dispatch."""
++
++import pytest
++
++torch = pytest.importorskip("torch")
++pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="the q8 kernel needs a GPU")
++
++
++def _face(n, k, gs, lo=-32, hi=32, seed=0):
++    from tensorfold.families.qwen4_exp.cuda import q8
++
++    g = torch.Generator(device="cuda").manual_seed(seed)
++    q = torch.randint(lo, hi, (n, k), dtype=torch.int8, device="cuda", generator=g)
++    s = torch.rand(n, k // gs, device="cuda", generator=g) * 0.01 + 1e-3
++    ref = (q.float().view(n, -1, gs) * s[:, :, None]).view(n, k)
++    return q8.Q8Face([q8.part_from_ints(q, s, gs)]), ref
++
++
++@pytest.mark.parametrize("n,k,gs,m", [(8240, 2560, 64, 1), (2560, 3072, 64, 16), (320, 10240, 64, 7), (1000, 2560, 128, 300)])
++def test_matches_the_dequantized_weight(n, k, gs, m) -> None:
++    from tensorfold.families.qwen4_exp.cuda import q8
++
++    face, ref = _face(n, k, gs)
++    x = (torch.randn(m, k, device="cuda") * 0.5).to(torch.bfloat16)
++    got = q8.matmul(x, face, f32=True)
++    want = x.float() @ ref.T
++    assert (got - want).abs().max().item() <= 1e-3 * want.abs().max().item()
++    bf = q8.matmul(x, face)
++    assert bf.dtype == torch.bfloat16 and torch.equal(bf, got.to(torch.bfloat16))
++
++
++def test_rows_do_not_depend_on_the_batch() -> None:
++    from tensorfold.families.qwen4_exp.cuda import q8
++
++    face, _ = _face(2560, 3072, 64)
++    x = (torch.randn(16, 3072, device="cuda")).to(torch.bfloat16)
++    full = q8.matmul(x, face, f32=True)
++    for r in (0, 5, 15):
++        assert torch.equal(q8.matmul(x[r:r + 1], face, f32=True)[0], full[r])
++
++
++def test_mixed_face_and_bf16_dispatch() -> None:
++    from tensorfold.families.qwen4_exp.cuda import bf16, q8
++
++    face, ref = _face(320, 10240, 64, -128, 128)
++    tail = torch.randn(4, 10240, device="cuda").to(torch.bfloat16)
++    mixed = bf16.stack_b16([face, bf16.b16_from_rows(tail)])
++    assert isinstance(mixed, q8.Q8Face) and mixed.n == 324 and mixed.b is mixed
++    x = torch.randn(3, 10240, device="cuda").to(torch.bfloat16)
++    out = torch.empty(3, 324, dtype=torch.float32, device="cuda")
++    bf16.matmul(x, mixed, out=out, f32=True)
++    want = torch.cat([x.float() @ ref.T, x.float() @ tail.float().T], 1)
++    assert (out - want).abs().max().item() <= 1e-3 * want.abs().max().item()
++    assert torch.allclose(mixed.dequantize(), torch.cat([ref, tail.float()]))
 diff --git a/tests/cuda/test_qwen4_exp_exl3.py b/tests/cuda/test_qwen4_exp_exl3.py
 index 560152c..daf7187 100644
 --- a/tests/cuda/test_qwen4_exp_exl3.py

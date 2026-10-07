@@ -1,0 +1,2 @@
+[tensorfold] CUDA rank 1 startup estimate 46.77 GiB within 102.98 GiB; native 262144, allocated prompt/reply window 262144, cache slots 262160
+[tensorfold] Flash Next on CUDA: 1 to 15 MTP drafts a round, a chain stops before a later draft under 70%, or up to 15 copy drafts where the reply repeats earlier text; 262144-token prompt/reply window; 262160-token cache; int8 KV cache (fp16 scale per 32 values); n-gram tables locked in memory in 10.3s; 48 decode graphs captured; idle prompt pieces 2048 rows; prompt kernels warmed in 3.2s

@@ -101,7 +101,7 @@ class ServeArgsTests(unittest.TestCase):
             self.assertNotIn(flag, r)
 
     def test_model_folder_follows_the_profile(self) -> None:
-        self.assertTrue(load().model_in_container.endswith("/affine-experts-v1"))
+        self.assertTrue(load().model_in_container.endswith("/affine-experts-v2"))
         self.assertTrue(load(PROFILE="long").model_in_container.endswith("/long-1048576"))
 
     def test_container_env(self) -> None:

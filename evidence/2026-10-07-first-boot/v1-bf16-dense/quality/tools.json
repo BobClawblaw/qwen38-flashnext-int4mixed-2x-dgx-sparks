@@ -1,0 +1,14 @@
+{
+ "name": "tools",
+ "score": 0.9333333333333333,
+ "cases": 60,
+ "passed": 56,
+ "seconds": 32.0566771030426,
+ "notes": [
+  "'Walking directions from the Louvre to No': got [('get_directions', {'origin': 'louvre, paris', 'destination': 'notre-dame, paris', 'mode': 'walking'})]",
+  "'Set two timers: 10 minutes for pasta and': got [('set_timer', {'seconds': 600, 'label': 'pasta'})]",
+  "\"What's 2 to the power of 20?\": got [('calculate', {'expression': '2**20'})]",
+  "'Weather in Reykjavik and the price of BT': got [('get_weather', {'city': 'reykjavik'})]"
+ ],
+ "details": {}
+}

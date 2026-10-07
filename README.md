@@ -15,11 +15,32 @@ dependencies.
 
 ## Measured on this pair
 
-Measurements in progress: the first boot on the pair and the suite run are under way; this section fills from `evidence/`.
+Work in progress (2026-10-07). Serial profile (one stream, CUDA graphs), int8 KV, MTP drafts up to 15, vision on,
+TP=2 over the RoCE link. `bench/ruler.py`, greedy, thinking off, 256-token replies, median of 3 runs.
+Receipts: [`evidence/2026-10-07-first-boot/`](evidence/2026-10-07-first-boot/).
 
-## Quality, same harness, three quantizations on the same pair
+| Build | prose | code | structured | list |
+|---|---:|---:|---:|---:|
+| v1: dense linears as bf16 | 54.0 | 87.1 | 72.2 | 91.8 |
+| v2: dense linears as int8 + group scales (exact) | 69.2 | 97.8 | 84.6 | 110.3 |
+| v2 + int8 MTP layer + retuned int8 tiles | **68.9** | **121.5** | **88.6** | **117.4** |
 
-In progress: the EXL3 4.05 bpw pack is measured on the same suite as the baseline; int4-mixed follows.
+Tokens a second for one user. Undrafted (one token a round): 35 tok/s. Load: about 60 s from start to serving;
+startup estimate 49 GiB on rank 0 with the full 262,144-token window.
+
+Quality so far (the suite below, v2): drafted equals undrafted 12/12, four streams together equal alone 12/12,
+streaming equals non-streaming, multi-turn recall 8/8, stop strings, thinking mode 10/10, verbatim copy, exact
+`max_tokens`, tool calls 57/60, JSON schemas 30/30. The long-running checks (IFEval, GSM8K, MGSM, MMLU, HumanEval)
+are being rerun on the final build.
+
+## Where a decode round goes
+
+A round on rank 0 reads about 3 GB: the routed experts it picks (int4), the int8 dense projections (DeltaNet,
+attention, shared expert, hyper-connection mixers replicated on both ranks, its half of the head) and the cache.
+The int8 kernel streams those at 190-240 GB/s on an idle GB10 (DRAM-cycled measurement in
+`evidence/.../tuning`), against 75-100 GB/s for TensorFold's bf16 kernel at these shapes under load, which is what
+the v1 to v2 step bought. The two ranks exchange partial sums twice a layer (96 gathers a forward); measured
+between the nodes they cost 15 us eager and 44-71 us inside a CUDA graph.
 
 ## Requirements
 

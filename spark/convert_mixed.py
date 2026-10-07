@@ -6,7 +6,9 @@ TensorFold's Flash Next CUDA loader reads as ``affine-experts``:
   words are bit-identical (both pack eight nibbles little-endian per int32); each 128-group scale becomes two
   64-group scales (fp16 -> bf16) with bias -8 x scale, so a weight is scale x (u - 8) as the source defines it.
 - every other quantized linear (int6 groups of 64: DeltaNet, attention, shared expert; int8: hyper-connection
-  mixers, embeddings, lm_head, indexer and PLE projections): dequantized to bf16, scale x q rounded once.
+  mixers, lm_head, indexer and PLE projections): the stored integers as int8 bytes (`<name>.qweight`, int6 widened
+  losslessly) with the group scales as fp32 (`<name>.qscale`, [n, k / group]); exact, half the bytes of bf16.
+  The embedding table is dequantized to bf16 (a gather reads one row a token).
 - the n-gram table (bf16 rows): e4m3 with one table scale (the form NVIDIA's NVFP4 export uses), half the bytes,
   so it fits beside the weights on a 128 GB node.
 - MTP experts (bf16): MLX affine 4-bit in groups of 64 (min/max per group); they only draft, verification is exact.
@@ -32,6 +34,7 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 
 GS_OUT = 64          # MLX affine group the loader's expert kernel takes
+FORMAT = 2           # 1: dense linears bf16; 2: dense linears int8 + group scales
 PASS_FILES = ("chat_template.jinja", "generation_config.json", "merges.txt", "vocab.json", "tokenizer.json",
               "tokenizer_config.json", "preprocessor_config.json", "processor_config.json",
               "video_preprocessor_config.json", "special_tokens_map.json", "added_tokens.json")
@@ -73,6 +76,15 @@ def dequant_bf16(packed: torch.Tensor, scale: torch.Tensor, bits: int, shape: tu
     g = k // scale.shape[1]
     w = q.reshape(n, -1, g) * scale.float()[:, :, None]
     return w.reshape(n, k).to(torch.bfloat16)
+
+
+def dense_int8(packed: torch.Tensor, scale: torch.Tensor, bits: int, shape: tuple[int, int]):
+    """int6 / int8 symmetric -> (int8 [n, k], fp32 scales [n, k / group]): the same integers, the same scales."""
+    n, k = shape
+    q = unpack(packed, bits, k)
+    if bits > 8:
+        raise ValueError(f"{bits}-bit values do not fit int8")
+    return q.to(torch.int8).contiguous(), scale.float().contiguous()
 
 
 def experts_affine(packed: torch.Tensor, scale: torch.Tensor, shape: tuple[int, int]):
@@ -198,8 +210,11 @@ def convert_group(src: Source, names: list[str], *, device: str) -> dict[str, to
                 m = re.match(r"(.*\.mlp)\.experts\.(\d+)\.(gate_proj|up_proj|down_proj)$", base)
                 key = f"{m.group(1)}.switch_mlp.{m.group(3)}"
                 experts[key][int(m.group(2))] = experts_affine(packed, scale, shape)
-            else:
+            elif base.endswith("embed_tokens"):
                 out[base + ".weight"] = dequant_bf16(packed, scale, bits, shape)
+            else:
+                q, sc = dense_int8(packed, scale, bits, shape)
+                out[base + ".qweight"], out[base + ".qscale"] = q, sc
             continue
         t = src.get(name)
         if name.startswith("mtp.") and ".mlp.experts." in name and t.dtype in (torch.bfloat16, torch.float16):
@@ -313,8 +328,8 @@ def main() -> None:
         if isinstance(cfg.get(sub), dict):
             cfg[sub].pop("quantization_config", None)
     cfg["quantization_config"] = {
-        "quant_method": "affine-experts", "bits": 4, "group_size": GS_OUT,
-        "dense": "bf16", "ngram": "fp8-e4m3-table-scale", "mtp_experts": "affine-4bit-g64-minmax",
+        "quant_method": "affine-experts", "bits": 4, "group_size": GS_OUT, "format": FORMAT,
+        "dense": "int8-group-scales", "ngram": "fp8-e4m3-table-scale", "mtp_experts": "affine-4bit-g64-minmax",
         "source": {"repo": "Minachist/Qwen3.8-Flash-Next-INT4-Mixed-AutoRound",
                    "format": (source_q or {}).get("format"), "config_groups": (source_q or {}).get("config_groups")},
     }
