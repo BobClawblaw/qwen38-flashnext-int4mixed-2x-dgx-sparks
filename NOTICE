@@ -1,0 +1,13 @@
+This repository's own files (the spark/ orchestrator, the quality suite, the bench ruler, the tests and the
+documents) are MIT, see LICENSE.
+
+docker/patches/flashnext-int4mixed-0.6.6.patch is a change set to TensorFold (https://github.com/ashhart/TensorFold,
+Apache License 2.0, copyright the TensorFold contributors) and is distributed under the Apache License 2.0 like the
+code it modifies (LICENSES/Apache-2.0.txt). The image build applies it on top of TensorFold at the pinned commit.
+
+The checkpoint this recipe serves, Minachist/Qwen3.8-Flash-Next-INT4-Mixed-AutoRound, is a quantization of
+Qwen/Qwen3.8-Flash-Next and carries the Qwen Community License; the recipe downloads it from Hugging Face and
+converts it locally, it does not redistribute weights.
+
+The quality suite downloads two public datasets at run time, each pinned to a commit: GSM8K's test split
+(openai/grade-school-math, MIT) and IFEval's prompts (google-research/google-research, Apache License 2.0).

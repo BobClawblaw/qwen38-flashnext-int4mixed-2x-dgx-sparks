@@ -1,0 +1,25 @@
+# Autostart the pair at boot. Install:
+#   sed -e "s|USER|$USER|g" -e "s|/opt/recipe|$PWD|g" systemd/qwen38-int4mixed.service | sudo tee /etc/systemd/system/qwen38-int4mixed.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now qwen38-int4mixed
+# A different profile: a drop-in with Environment=PROFILE=concurrent (systemctl edit qwen38-int4mixed).
+[Unit]
+Description=Qwen3.8-Flash-Next INT4-Mixed on two DGX Sparks (TensorFold, TP=2)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+# oneshot + RemainAfterExit: `up` starts both ranks as detached containers and returns; `down` stops them.
+Type=oneshot
+RemainAfterExit=yes
+User=USER
+WorkingDirectory=/opt/recipe
+Environment=HOME=/home/USER
+Environment=PATH=/home/USER/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 -m spark up
+ExecStop=/usr/bin/python3 -m spark down
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=2700
+
+[Install]
+WantedBy=multi-user.target

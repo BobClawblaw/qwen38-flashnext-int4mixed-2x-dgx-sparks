@@ -1,0 +1,63 @@
+# The recipe's defaults. `cluster.toml` next to this file overrides them per cluster (copy cluster.example.toml),
+# an environment variable of the same name in upper case overrides both (PORT=8001 python3 -m spark up).
+
+[model]
+repo = "Minachist/Qwen3.8-Flash-Next-INT4-Mixed-AutoRound"
+revision = "f6f90ddc39e9d212aa5b96f43999183deb4ce192"
+served_name = "Qwen3.8-Flash-Next-INT4-Mixed"
+# the folder the engine serves: the snapshot converted by spark/convert_mixed.py, under tf_cache. `up` downloads it
+# ready-made from converted_repo at converted_revision when both are set (the bytes the converter produces, published
+# with its hash in the model card); with converted_repo empty it converts the snapshot locally (about 25 GPU minutes).
+converted = "affine-experts-v1"
+converted_repo = ""
+converted_revision = ""
+
+[engine]
+tensorfold_repo = "https://github.com/ashhart/TensorFold.git"
+tensorfold_sha = "cb2ebf0540f42604e2759b2ddef497861e928248"
+patch = "flashnext-int4mixed-0.6.6.patch"
+# sha256 of docker/patches/<patch>; the image carries it as a label and `up` refuses a mismatch
+patch_sha256 = "275a82ecea7727ee41fdf76c5cf2d576c30a9a14166eb74497114237fa414f4a"
+image = "tf-qwen38-int4mixed:0.6.6"
+base_image = "nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c"
+container = "tf-qwen38-int4mixed"
+
+[cluster]
+head_ip = "10.100.8.1"           # the head's address on the RoCE link (rank 1 rendezvous)
+worker = "user@10.100.8.2"       # ssh login of the worker; rank 1 runs there
+iface = "enp1s0f1np1"            # NCCL_SOCKET_IFNAME
+hca = "rocep1s0f1"               # NCCL_IB_HCA (pin one; GB10 exposes dead HCAs too)
+master_port = 29561
+port = 8000
+hf_cache = "~/.cache/huggingface"
+tf_cache = "~/.cache/tensorfold-qwen38-int4mixed"
+
+[serve]
+tp = 2
+profile = "serial"               # serial (one stream, CUDA graphs) | concurrent (16 streams) | long (1M, YaRN x4)
+context = 262144
+kv_dtype = "int8"
+mtp_drafts = 15
+mtp_confidence = "0.70"
+parallel = 1
+thinking = false
+max_tokens = 32768
+vision = true
+vision_urls = false
+vision_max_images = 0            # 0: the engine's default (4)
+tool_system = "Tool calls: include only the arguments the user explicitly provided or clearly implied. Never fill in optional arguments with default or guessed values."
+memory_reserve_gib = 0           # 0: the engine's default
+extra_args = ""
+extra_env = ""
+settle_seconds = 30              # wait after a stop before a rank starts (NCCL's first ibv_reg_mr on the worker)
+memguard = true
+memguard_min_avail_mb = 3072
+memguard_min_swap_free_mb = 2048
+
+[profiles.concurrent]
+parallel = 16
+
+[profiles.long]
+context = 1048576
+yarn_factor = 4
+trained_context = 262144

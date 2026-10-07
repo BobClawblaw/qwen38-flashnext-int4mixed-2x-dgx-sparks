@@ -1,0 +1,2600 @@
+diff --git a/docs/recipes/cuda.md b/docs/recipes/cuda.md
+index f36bfc7..4fb0eac 100644
+--- a/docs/recipes/cuda.md
++++ b/docs/recipes/cuda.md
+@@ -29,7 +29,7 @@ the checkpoint you name; it picks none by itself.
+ | Family | NVFP4 | EXL3 | MLX 4-bit |
+ | --- | --- | --- | --- |
+ | Qwen3.8-27B | `nvidia/Qwen3.8-27B-NVFP4`, one rank | `turboderp/Qwen3.8-27B-exl3`, one rank | one or two ranks |
+-| Flash Next | `Mia-AiLab/Qwen3.8-Flash-Next-NVFP4` (a mirror of local-inference-lab's), `local-inference-lab/Qwen3.8-Flash-Next-NVFP4`, `RadixArk/Qwen3.8-Flash-Next-NVFP4`, one rank | `turboderp/Qwen3.8-Flash-Next-exl3`, one rank | one or two ranks |
++| Flash Next | `Mia-AiLab/Qwen3.8-Flash-Next-NVFP4` (a mirror of local-inference-lab's), `local-inference-lab/Qwen3.8-Flash-Next-NVFP4`, `RadixArk/Qwen3.8-Flash-Next-NVFP4`, one rank | `turboderp/Qwen3.8-Flash-Next-exl3`, one or two ranks | one or two ranks |
+ | GLM-5.3-Flash | not read | `brandonmusic/GLM-5.3-Flash-tr3-4bpw` (Brandon M. Music's; re-hosted as `Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw`), two ranks (experimental) | two ranks |
+ | Qwen3.6-35B-A3B | not read yet | not read yet | one rank |
+ | Nemotron 3.5 Lightning | not read yet | not read yet | one or two ranks |
+diff --git a/docs/recipes/qwen3.8-flash-next.md b/docs/recipes/qwen3.8-flash-next.md
+index 8af9581..e1c6d02 100644
+--- a/docs/recipes/qwen3.8-flash-next.md
++++ b/docs/recipes/qwen3.8-flash-next.md
+@@ -57,7 +57,7 @@ to one stream, while successful checks allow the lane engine to combine requests
+ ## CUDA
+ 
+ On CUDA Flash Next serves NVFP4 and EXL3 checkpoints, and the MLX 4-bit checkpoint as the portable option: the same
+-files a Mac serves, and the only format two ranks and `--ple-on-ssd` read. `tensorfold serve` loads the checkpoint
++files a Mac serves, and the only format `--ple-on-ssd` reads. Two ranks read the MLX checkpoint or an EXL3 pack. `tensorfold serve` loads the checkpoint
+ you name; it picks none by itself. Use the [container setup](../../RUNBOOK.md#nvidia-gpus) for any of them. Prompts
+ take bf16 activations by default; what that costs against the FP8 prompt path (`--prefill-fp8`) depends on the
+ format ([prompt precision](cuda.md#prompt-precision)):
+@@ -133,9 +133,9 @@ Not supported here:
+ 
+ ### EXL3 checkpoints (experimental)
+ 
+-The CUDA engine also serves EXL3 packs of Flash Next (`quant_method: exl3`) on one GPU through the shared EXL3
+-module ([EXL3 weights](exl3.md)): any codebook, and a width per tensor, so mixed-K packs whose experts range from
+-2 to 8 bits within a layer load as they are. turboderp publishes a 3.05 bpw pack on the branch `3.05bpw_h5_ng5`.
++The CUDA engine also serves EXL3 packs of Flash Next (`quant_method: exl3`) on one GPU or two through the shared
++EXL3 module ([EXL3 weights](exl3.md)): any codebook, and a width per tensor, so mixed-K packs whose experts range
++from 2 to 8 bits within a layer load as they are. turboderp publishes a 3.05 bpw pack on the branch `3.05bpw_h5_ng5`.
+ Download that branch, then serve the folder:
+ 
+ ```bash
+@@ -144,8 +144,15 @@ python -m tensorfold.cuda.exl3.inspect flashnext-exl3-3.05bpw   # bits per tenso
+ tensorfold serve flashnext-exl3-3.05bpw --host 0.0.0.0 --port 8080
+ ```
+ 
+-A pack maps its n-gram table from its own file and runs on one GPU: `--tp 2` and `--ple-on-ssd` are for the MLX
+-checkpoint, and an EXL3 pack refuses both.
++A pack maps its n-gram table from its own file, so `--ple-on-ssd` is for the MLX checkpoint and an EXL3 pack
++refuses it. Two ranks (`--tp 2`, the pack on both) split the pack as the MLX loader splits its checkpoint, on
++whole 16x16 tiles and whole 128-wide Hadamard blocks: each rank takes its heads' rows of q (with their gates), k,
++v, the DeltaNet q/k/v and z projections and its half of the head's vocabulary, and the input columns of o_proj and
++out_proj, whose partial outputs the ranks add. The experts cannot split that way (640 wide, five Hadamard blocks),
++so each rank holds whole experts: 256 of the 512 and, layer by layer in turn, the shared expert. Both ranks route
++every token; a rank runs the picks it holds (`remap` sends the others past its table, which the grouped kernel
++skips) and the weighted partial sums are gathered as the MLX path's are. A rank reads half the expert bytes and
++half the dense projections a token, and the draft head's rows come out of the whole head, read once at load.
+ 
+ - Dense projections (attention, DeltaNet, the MTP head's fc layers, the head) run on the row-invariant EXL3
+   linear (`cuda/exl3/linear.py`). Routed experts and the shared expert (as expert 512 of the same table) run on
+@@ -258,6 +265,17 @@ tensorfold serve TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP --tp 2 --rank 1 --ma
+ tensorfold serve TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP --tp 2 --rank 0 --master 192.0.2.1 --name bench --host 0.0.0.0
+ ```
+ 
++### 1M context with YaRN (CUDA)
++
++Qwen3.8 Flash Next is trained to 262,144 tokens; Qwen's card reaches 1M with static YaRN at factor 4. The CUDA
++loaders read it from `config.json` the way the card describes: `rope_parameters` with `rope_type: "yarn"`,
++`factor: 4.0` and `original_max_position_embeddings: 262144` (optional `beta_fast` 32, `beta_slow` 1,
++`attention_factor`, `truncate`), with `max_position_embeddings` raised to the served window. The frequencies and the
++attention factor follow transformers' `_compute_yarn_parameters`; the factor is folded into the rotated dims of the
++q, k and indexer norm scales, since the kernels build cos and sin from the frequencies and the position. A static
++factor also shifts short prompts, so serve it as a profile beside the plain checkpoint, not instead of it: a folder of
++links to the checkpoint's files with its own `config.json`. The Metal engine does not read these fields.
++
+ ### Serving
+ 
+ The default CUDA cap is six MTP drafts, with chains stopping below the configured confidence threshold.
+diff --git a/src/tensorfold/cli.py b/src/tensorfold/cli.py
+index 58121f1..0def950 100644
+--- a/src/tensorfold/cli.py
++++ b/src/tensorfold/cli.py
+@@ -306,7 +306,8 @@ def _serve_cuda(args: argparse.Namespace, family: Any, model_dir: Path, context:
+                     vision_max_images=getattr(args, "vision_max_images", None),
+                     **({"vision_image_tokens": args.vision_image_tokens}
+                        if getattr(args, "vision_image_tokens", None) is not None else {}),
+-                    aliases=list(args.alias), background_ids=frozenset(_name_priority(args)))
++                    aliases=list(args.alias), background_ids=frozenset(_name_priority(args)),
++                    **({"tool_system": args.tool_system} if getattr(args, "tool_system", None) else {}))
+     shown = "greedy" if float(sampling.get("temperature", 1.0)) <= 0 else ", ".join(
+         f"{k} {v}" for k, v in sampling.items())
+     effective_context = app.effective_context_window
+diff --git a/src/tensorfold/cli_args.py b/src/tensorfold/cli_args.py
+index cd4fa5b..6128d72 100644
+--- a/src/tensorfold/cli_args.py
++++ b/src/tensorfold/cli_args.py
+@@ -31,6 +31,10 @@ def build_parser(handlers: dict[str, Callable[[argparse.Namespace], int]]) -> ar
+     endpoint.add_argument("--name-priority", action="append", default=[], metavar="ID=background",
+                           help="a request naming ID (--name or --alias) with no priority of its own is treated as "
+                                "priority: background; CUDA only, repeatable")
++    endpoint.add_argument("--tool-system", default=None, metavar="TEXT",
++                          help="a system message the server adds to a chat request that offers tools and carries no "
++                               "system message of its own; a request's own system message wins and requests without "
++                               "tools are untouched (CUDA server)")
+     endpoint.add_argument("--api-key", action="append", default=[], help="require this API key; repeat for more keys")
+     endpoint.add_argument("--api-key-file", help="restricted key file, one key or label: key per line; # comments")
+     endpoint.add_argument("--metrics-open", action="store_true", help="allow metrics without an API key")
+diff --git a/src/tensorfold/cuda/exl3/experts.py b/src/tensorfold/cuda/exl3/experts.py
+index f4569ec..2ac1250 100644
+--- a/src/tensorfold/cuda/exl3/experts.py
++++ b/src/tensorfold/cuda/exl3/experts.py
+@@ -75,6 +75,10 @@ class Exl3RoutedExperts:
+     k2_d: tuple[int, int]
+     trellis_bytes: torch.Tensor   # int64 [E], gate + up + down trellis bytes of each expert (for GB/s)
+     keep: list = field(default_factory=list, repr=False)
++    # Expert parallelism: this rank's table holds a share of a larger layer. ``remap`` (int32 [full count]) sends
++    # a pick of the full layer to its row here, or to ``count`` (past the table, which every kernel skips) for an
++    # expert another rank holds; ``trellis_bytes`` then spans the full layer, zero where this rank holds nothing.
++    remap: torch.Tensor | None = field(default=None, repr=False)
+ 
+     def nbytes_read(self, ids: Sequence[int]) -> int:
+         return int(self.trellis_bytes[list(ids)].sum())
+@@ -202,6 +206,18 @@ def routed(x: torch.Tensor, pick: torch.Tensor, wts: torch.Tensor | None, ex: Ex
+     return out
+ 
+ 
++def share(ex: Exl3RoutedExperts, pick: torch.Tensor, wts: torch.Tensor, pick_out: torch.Tensor | None = None,
++          wts_out: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
++    """A window's picks and weights as this rank sees them: picks through ``remap`` (an expert held elsewhere lands
++    on ``count``, which the kernels skip) and those slots' weights zeroed, since ``down_combine`` takes a skipped
++    slot's output from ``y`` as the caller left it. ``pick_out`` / ``wts_out`` are flat buffers of the window's size."""
++
++    local = torch.index_select(ex.remap, 0, pick.reshape(-1), out=pick_out).view(pick.shape)
++    held = local < ex.count
++    weights = torch.mul(wts, held, out=None if wts_out is None else wts_out.view(wts.shape))   # a skipped slot: 0
++    return local, weights
++
++
+ def dequant(trellis: torch.Tensor, codebook: int | str) -> torch.Tensor:
+     """W_q [K, N] fp16 of one matrix through the kernels' own lane decode (ExLlamaV3's ``reconstruct``); for tests."""
+ 
+diff --git a/src/tensorfold/cuda/experts.cu b/src/tensorfold/cuda/experts.cu
+index 6cb5ba9..9a8ed3b 100644
+--- a/src/tensorfold/cuda/experts.cu
++++ b/src/tensorfold/cuda/experts.cu
+@@ -222,7 +222,7 @@ __global__ void __launch_bounds__(PLAN_THREADS)
+   for (int p = tid; p < P; p += PLAN_THREADS) {
+     const int e = picks[p];
+     pk[p] = e;
+-    atomicAdd(&cnt[e], 1);
++    if (e < E) atomicAdd(&cnt[e], 1);           // a pick past the table (e >= E) is left out of the plan
+   }
+   __syncthreads();
+   const int o = place_items(tid < E ? cnt[tid] : 0, E, T, items, counts);
+@@ -230,6 +230,7 @@ __global__ void __launch_bounds__(PLAN_THREADS)
+   __syncthreads();
+   for (int p = tid; p < P; p += PLAN_THREADS) {
+     const int e = pk[p];
++    if (e >= E) continue;
+     int rank = 0;
+     for (int q = 0; q < p; ++q) rank += pk[q] == e;
+     members[off[e] + rank] = p;
+@@ -244,7 +245,7 @@ __global__ void __launch_bounds__(PLAN_THREADS)
+   for (int e = tid; e < E; e += PLAN_THREADS) cnt[e] = 0;
+   __syncthreads();
+   const int p = blockIdx.x * PLAN_THREADS + tid;
+-  const bool ok = p < P;
++  const bool ok = p < P && picks[p] < E;       // a pick past the table is left out of the plan
+   const int e = ok ? picks[p] : -1 - lane;
+   const unsigned same = __match_any_sync(0xffffffffu, e);
+   const int below = __popc(same & ((1u << lane) - 1u));
+@@ -281,7 +282,7 @@ __global__ void __launch_bounds__(PLAN_THREADS)
+ __global__ void plan_scatter(const int* __restrict__ picks, int P, int E, const int* __restrict__ rank,
+                              const int* __restrict__ hist, int* __restrict__ members) {
+   const int p = blockIdx.x * blockDim.x + threadIdx.x;
+-  if (p < P) members[hist[(size_t)(p / PLAN_THREADS) * E + picks[p]] + rank[p]] = p;
++  if (p < P && picks[p] < E) members[hist[(size_t)(p / PLAN_THREADS) * E + picks[p]] + rank[p]] = p;
+ }
+ 
+ template <int GS, int M, int EPI>
+diff --git a/src/tensorfold/cuda/geometry.py b/src/tensorfold/cuda/geometry.py
+index 0f9dae5..9cafe26 100644
+--- a/src/tensorfold/cuda/geometry.py
++++ b/src/tensorfold/cuda/geometry.py
+@@ -88,20 +88,27 @@ def indexed_weights(world: int, mtp: bool, mapped_tables: bool = True):
+         if ".ngram_embedding.shard_" in name or name.endswith(".ngram_embedding.trellis"):     # host pages if mapped
+             return 0, size(info, name) if mapped_tables else 0
+         shape = list(info["shape"])
+-        if world > 1 and not info.get("split"):
+-            if ".switch_mlp." in name or ".shared_expert." in name:
+-                axis = -1 if ".down_proj." in name else -2
++
++        def halve(axis: int) -> None:          # a rank's share of that axis (a marker or odd tensor stays whole)
++            if len(shape) > abs(axis) - (1 if axis < 0 else 0) and shape[axis] % world == 0:
+                 shape[axis] //= world
++
++        exl3 = name.endswith((".trellis", ".suh", ".svh", ".su", ".sv"))
++        if world > 1 and not info.get("split"):
++            if exl3 and (".experts." in name or ".shared_expert." in name or name.startswith("lm_head.")):
++                halve(0)                       # an EXL3 pack: whole experts a rank, half the head's vocabulary
++            elif ".switch_mlp." in name or ".shared_expert." in name:
++                halve(-1 if ".down_proj." in name else -2)
+             elif ".indexer." not in name and (".self_attn." in name or ".linear_attn." in name):
+                 if any(f".{part}." in name for part in ("q_proj", "k_proj", "v_proj", "in_proj_qkv", "in_proj_z",
+                                                         "in_proj_a", "in_proj_b", "conv1d")):
+-                    shape[0] //= world
++                    halve(0)
+                 elif any(f".{part}." in name for part in ("o_proj", "out_proj")):
+-                    shape[-1] //= world
++                    halve(-1)
+                 elif name.endswith((".A_log", ".dt_bias")):
+-                    shape[0] //= world
++                    halve(0)
+             elif name.endswith(("lm_head.weight", "lm_head.scales", "lm_head.biases")):
+-                shape[0] //= world
++                halve(0)
+         cast = name.endswith((".A_log", ".dt_bias", ".q_norm.weight", ".k_norm.weight", ".hc_norm.weight"))
+         amount = padded(info, shape, float32=cast, name=name)
+         if mtp and "lm_head." in name:
+diff --git a/src/tensorfold/cuda/moe.py b/src/tensorfold/cuda/moe.py
+index 9f0ae90..e637a0e 100644
+--- a/src/tensorfold/cuda/moe.py
++++ b/src/tensorfold/cuda/moe.py
+@@ -95,6 +95,8 @@ class MoEBuffers:
+         self.pick = torch.empty((rows, slots), dtype=torch.int32, device=device)
+         self.wts = torch.empty((rows, slots), dtype=torch.float32, device=device)
+         self.plan = grouped.Plan(rows, slots, cfg.num_experts + 1, device, prefill=prefill)
++        # the routed experts alone (affine-experts checkpoints: the shared expert runs bf16 beside the table)
++        self.plan_routed = grouped.Plan(rows, slots, cfg.num_experts, device, prefill=prefill)
+         self.act = torch.empty((rows, slots, cfg.moe_intermediate_size), dtype=torch.bfloat16, device=device)
+         self.y = torch.empty((rows, slots, cfg.hidden_size), dtype=torch.bfloat16 if prefill else torch.float32,
+                              device=device)
+diff --git a/src/tensorfold/cuda/reply_text.py b/src/tensorfold/cuda/reply_text.py
+index 6fa1026..4568661 100644
+--- a/src/tensorfold/cuda/reply_text.py
++++ b/src/tensorfold/cuda/reply_text.py
+@@ -9,7 +9,7 @@ from typing import Any
+ 
+ from tensorfold.server.stopping import StopPolicy
+ from tensorfold.server.tools import parse_glm_tool_call_block
+-from tensorfold.tool_parameters import decode_parameter, parameter_schemas
++from tensorfold.tool_parameters import decode_parameter, keeps_parameter, parameter_schemas
+ 
+ _CALL_OPEN, _CALL_CLOSE = "<tool_call>", "</tool_call>"
+ _TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.IGNORECASE | re.DOTALL)
+@@ -132,7 +132,8 @@ def parse_tool_calls(text: str, tools: list[dict[str, Any]], *, max_calls: int |
+                 props = schemas.get(name.lower(), {})
+                 args = {key: decode_parameter(value, props.get(key, {}))
+                         for key, value in ((p.group(1).strip(), p.group(2))
+-                                           for p in _TOOL_PARAMETER_BLOCK_RE.finditer(m.group(2)))}
++                                           for p in _TOOL_PARAMETER_BLOCK_RE.finditer(m.group(2)))
++                        if keeps_parameter(key, props)}
+             else:
+                 glm = parse_glm_tool_call_block(block, tools, complete=max_calls is not None)
+                 if glm is not None:
+diff --git a/src/tensorfold/cuda/server.py b/src/tensorfold/cuda/server.py
+index 12e8edc..a31233b 100644
+--- a/src/tensorfold/cuda/server.py
++++ b/src/tensorfold/cuda/server.py
+@@ -74,7 +74,7 @@ class App:
+                  context_window: int | None = None, reasoning_effort: str | None = None, thinking_budget: int = 0,
+                  aliases: tuple[str, ...] | list[str] = (), vision_max_images: int | None = None,
+                  vision_image_tokens: int | None = None,
+-                 background_ids: tuple[str, ...] | frozenset[str] = ()):
++                 background_ids: tuple[str, ...] | frozenset[str] = (), tool_system: str | None = None):
+         from tokenizers import Tokenizer
+ 
+         self.engine = engine
+@@ -85,6 +85,7 @@ class App:
+         self.served = served
+         self.aliases = tuple(str(alias).strip() for alias in aliases if str(alias).strip())
+         self.background_ids = frozenset(background_ids)   # --name-priority ID=background: a default for this id
++        self.tool_system = (tool_system or "").strip() or None   # --tool-system: added to tool requests without one
+         self.model_dir = Path(model_dir)
+         self.tok = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
+         self.template = ChatTemplate(model_dir)
+@@ -262,6 +263,12 @@ class App:
+                 raise RequestError("messages must be a list")
+             from tensorfold.server.prompts import has_images, prepare_images
+ 
++            messages = body["messages"]
++            if tools and getattr(self, "tool_system", None) and not any(
++                    isinstance(m, dict) and m.get("role") == "system" for m in messages):
++                # --tool-system: the server's instruction for tool calls, only where the client sent none
++                messages = [{"role": "system", "content": self.tool_system}] + list(messages)
++
+             def render(messages: list[dict[str, Any]], **images: bool) -> str:   # text renders as it always has
+                 try:
+                     return self.template.render(messages, tools=tools, enable_thinking=thinking, extra=kwargs,
+@@ -269,15 +276,15 @@ class App:
+                 except TemplateError as exc:     # the checkpoint's template refuses the request (``raise_exception``)
+                     raise RequestError(f"the chat template rejected the request: {exc}") from exc
+ 
+-            if has_images(body["messages"]):
+-                rendered = prepare_images(self.vision, body["messages"],
++            if has_images(messages):
++                rendered = prepare_images(self.vision, messages,
+                                           lambda messages: render(messages, allow_images=True),
+                                           context_limit=self._context_limit(),
+                                           limits=getattr(self, "image_limits", DEFAULT_LIMITS))
+                 return PreparedRequest(rendered.tokens, max_tokens, tools, thinking,
+                                        self.sampling_for(body, rendered.tokens), ignore_eos=ignore_eos, stop=stop,
+                                        vision=rendered.vision, grammar=compiled, think_budget=budget)
+-            text = render(body["messages"])
++            text = render(messages)
+             prompt = self.tok.encode(text, add_special_tokens=False).ids
+         elif isinstance(body.get("prompt"), list):       # token ids (vLLM's and OpenAI's form): served as given
+             prompt = self.token_ids(body["prompt"])
+diff --git a/src/tensorfold/engine/tool_draft.py b/src/tensorfold/engine/tool_draft.py
+index bd64ae6..2240b6e 100644
+--- a/src/tensorfold/engine/tool_draft.py
++++ b/src/tensorfold/engine/tool_draft.py
+@@ -5,7 +5,7 @@ from __future__ import annotations
+ import re
+ from typing import Any, Sequence
+ 
+-from tensorfold.tool_parameters import decode_parameter, parameter_schemas, typed_parameter
++from tensorfold.tool_parameters import decode_parameter, keeps_parameter, parameter_schemas, typed_parameter
+ 
+ _OPEN = "<tool_call>"
+ _END = "\x00end"  # placeholder: after a closed call the draft is the end-of-turn token
+@@ -261,6 +261,7 @@ class ToolCallStreamer:
+         self.lead = False       # the framing newline after <parameter=NAME> has not arrived yet
+         self.held = ""
+         self.streamed = False
++        self.skip = False       # the current parameter is one the tool does not declare: no delta for it
+ 
+     def _args(self, fragment: str) -> dict[str, Any]:
+         return {"tool_calls": [{"index": self.index, "function": {"arguments": fragment}}]}
+@@ -305,12 +306,15 @@ class ToolCallStreamer:
+             elif self.state == "function":
+                 m = re.match(r"\s*<parameter=([^>\n]+)>\n?", rest)
+                 if m is not None:
+-                    self.value_schema = self.current_schema.get(m.group(1).strip(), {})
++                    key = m.group(1).strip()
++                    self.skip = not keeps_parameter(key, self.current_schema)
++                    self.value_schema = self.current_schema.get(key, {})
+                     self.typed = typed_parameter(self.value_schema)
+                     self.value_buffer = ""
+-                    out.append(self._args(("," if self.args_open else "{")
+-                                          + self._esc_key(m.group(1).strip()) + (':' if self.typed else ':"')))
+-                    self.args_open = True
++                    if not self.skip:
++                        out.append(self._args(("," if self.args_open else "{")
++                                              + self._esc_key(key) + (':' if self.typed else ':"')))
++                        self.args_open = True
+                     self.pos += m.end()
+                     self.state = "value"
+                     self.lead = not m.group(0).endswith("\n")
+@@ -337,13 +341,17 @@ class ToolCallStreamer:
+                 else:
+                     keep = piece.rstrip()   # its last newline may be the framing one
+                     self.held = piece[len(keep):]
+-                if self.typed:
++                if self.skip:
++                    pass
++                elif self.typed:
+                     self.value_buffer += keep
+                 elif keep:
+                     out.append(self._args(self._esc(keep)))
+                 if end < 0:
+                     break
+-                if self.typed:
++                if self.skip:
++                    self.skip = False
++                elif self.typed:
+                     import json
+                     out.append(self._args(json.dumps(decode_parameter(self.value_buffer, self.value_schema), ensure_ascii=False)))
+                 else:
+diff --git a/src/tensorfold/families/qwen4_exp/__init__.py b/src/tensorfold/families/qwen4_exp/__init__.py
+index 979582b..aecc7d2 100644
+--- a/src/tensorfold/families/qwen4_exp/__init__.py
++++ b/src/tensorfold/families/qwen4_exp/__init__.py
+@@ -12,7 +12,8 @@ LANES = True
+ MODELS = ("TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP", "turboderp/Qwen3.8-Flash-Next-exl3",
+           "local-inference-lab/Qwen3.8-Flash-Next-NVFP4", "RadixArk/Qwen3.8-Flash-Next-NVFP4")
+ NVFP4_MODELS = MODELS[2:]
+-QUANT_METHODS = {"cuda": ("mlx", "exl3", "modelopt")}  # MLX affine 4-bit, EXL3 packs and NVFP4 (ModelOpt)
++# MLX affine 4-bit, EXL3 packs, NVFP4 (ModelOpt) and affine-experts (affine 4-bit routed experts, bf16 elsewhere)
++QUANT_METHODS = {"cuda": ("mlx", "exl3", "modelopt", "affine-experts")}
+ EXL3_VARIANT = "any"                           # every EXL3 codebook and width (tensorfold.families.EXL3_VARIANT_ANY)
+ KERNEL_PACKAGE = "tensorfold.kernels.qwen.flash_next.v1"
+ KERNEL_VERSION = "v1"
+@@ -55,6 +56,17 @@ def check(model_dir: Path) -> None:
+         if (Path(model_dir) / "model.safetensors.index.json").is_file() and not has_mtp(model_dir):
+             print("[tensorfold] this EXL3 checkpoint has no MTP head: decoding without MTP drafts", flush=True)
+         return
++    if quant_method(config) == "affine-experts":
++        # affine 4-bit routed experts in groups of 32 or 64 (stacked MLX arrays), the shared expert and every other
++        # linear bf16, the n-gram tables bf16, FP8 or MLX 4-bit: a converted checkpoint (its config names the source)
++        found = config.get("quantization") or config.get("quantization_config") or {}
++        bits, group = int(found.get("bits", 4)), int(found.get("group_size", 64))
++        if bits != 4 or group not in (32, 64):
++            raise ValueError(f"TensorFold's Flash Next kernels read affine-experts checkpoints with 4-bit routed experts "
++                             f"in groups of 32 or 64; this one declares {bits}-bit g{group}. {OWN_MODEL_HELP}")
++        if (Path(model_dir) / "model.safetensors.index.json").is_file() and not has_mtp(model_dir):
++            print("[tensorfold] this affine-experts checkpoint has no MTP head: decoding without MTP drafts", flush=True)
++        return
+     if quant_method(config) == "modelopt":
+         from tensorfold.vision.qwen_checkpoint import vision_key
+ 
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/affine_moe.py b/src/tensorfold/families/qwen4_exp/cuda/affine_moe.py
+new file mode 100644
+index 0000000..283b62f
+--- /dev/null
++++ b/src/tensorfold/families/qwen4_exp/cuda/affine_moe.py
+@@ -0,0 +1,74 @@
++"""Flash Next's ``affine-experts`` MoE: MLX affine 4-bit routed experts on the grouped kernel, the shared expert bf16.
++
++A checkpoint whose routed experts are affine 4-bit (groups of 32 or 64) while every other linear, the shared expert
++included, is bf16: the routed experts run on the grouped MLX kernel as a table of E experts, the shared expert on the
++bf16 matmul (``bf16.matmul``, K slices summed in order), its SwiGLU rounded as the NVFP4 path rounds it. The
++selection kernel puts the shared expert's id (E) in the last slot; the routed plan is built over E experts, so that
++slot falls past the table and the plan leaves it out (``experts.cu``), exactly as the NVFP4 kernels skip it.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++import torch
++
++from tensorfold.cuda import experts as grouped
++from tensorfold.cuda import moe as moe_mod
++
++from . import bf16
++
++
++@dataclass
++class MoEA:
++    """One layer's experts: the routed ones as grouped affine blocks, the shared one as bf16 rows."""
++
++    routed_experts: grouped.Experts   # E experts (no shared row)
++    shared_gu: bf16.B16               # [2 * NI, D] bf16: the gate rows, then the up rows
++    shared_down: bf16.B16             # [D, NI] bf16
++    kernel: str = "affine"
++
++    capturable = True                 # the plan stays on the device
++
++    @property
++    def routed(self) -> int:
++        return self.routed_experts.count
++
++    @property
++    def count(self) -> int:
++        return self.routed + 1
++
++    @property
++    def width(self) -> int:
++        return self.routed_experts.width
++
++    @property
++    def dims(self) -> int:
++        return self.routed_experts.dims
++
++    def nbytes(self) -> int:
++        ex = self.routed_experts
++        return (ex.up.numel() + ex.down.numel()) * 4 + self.shared_gu.nbytes() + self.shared_down.nbytes()
++
++    def shared_act(self, x: torch.Tensor) -> torch.Tensor:
++        """x [R, D] bf16 -> the shared expert's SwiGLU [R, NI] bf16: bf16(bf16(silu(g)) * u) on bf16 g and u."""
++
++        g = bf16.matmul(x, self.shared_gu)
++        gate, up = g[:, :self.width].to(torch.float32), g[:, self.width:].to(torch.float32)
++        return ((gate / (1.0 + torch.exp(-gate))).to(torch.bfloat16).to(torch.float32) * up).to(torch.bfloat16)
++
++
++def moe(x: torch.Tensor, router_rows: torch.Tensor, ex: MoEA, buf: moe_mod.MoEBuffers, top_k: int,
++        experts: int) -> moe_mod.MoEBuffers:
++    """Route x [R, D] and run its experts into buf.y [R, k + 1, D] (bf16 in prefill); slot k is the shared expert."""
++
++    rows = x.shape[0]
++    moe_mod.router(x, router_rows, buf.logits[:rows])
++    moe_mod.select_rows(buf.logits[:rows], buf, top_k, experts)
++    grouped.route(buf.pick[:rows], buf.plan_routed)      # slot k's pick is E: past the table, left out of the plan
++    prompt = buf.y.dtype != torch.float32                 # a prompt's buffers keep bf16 slots
++    grouped.gate_up(x, ex.routed_experts, buf.plan_routed, buf.act.view(-1, ex.width), rows)
++    buf.act[:rows, top_k] = ex.shared_act(x)
++    grouped.down(buf.act.view(-1, ex.width), ex.routed_experts, buf.plan_routed, buf.y.view(-1, ex.dims), rows)
++    buf.y[:rows, top_k] = bf16.matmul(buf.act[:rows, top_k], ex.shared_down, f32=not prompt)
++    return buf
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/copy_drafts.py b/src/tensorfold/families/qwen4_exp/cuda/copy_drafts.py
+new file mode 100644
+index 0000000..2e1186e
+--- /dev/null
++++ b/src/tensorfold/families/qwen4_exp/cuda/copy_drafts.py
+@@ -0,0 +1,48 @@
++"""Copy drafts for Flash Next on CUDA: a repeated tail drafts its earlier continuation, the same chain on both ranks."""
++
++from __future__ import annotations
++
++import os
++from collections.abc import Sequence
++
++COPY_MATCH = 8          # the context's last this many tokens must have appeared before, and at least this many follow
++
++
++def enabled(default: bool = True) -> bool:
++    """TENSORFOLD_COPY_DRAFTS=0 (or off, false, no) turns copy drafts off."""
++    value = os.environ.get("TENSORFOLD_COPY_DRAFTS")
++    return default if value is None else value.strip().lower() not in ("0", "off", "false", "no")
++
++
++class CopyIndex:
++    """Longest continuation of an earlier copy of the last ``min_match`` tokens; n-gram starts keep a round O(new)."""
++
++    def __init__(self, context: Sequence[int], min_match: int = COPY_MATCH):
++        self.m = int(min_match)
++        self.ctx: list[int] = []
++        self.starts: dict[tuple, list[int]] = {}
++        self.extend(context)
++
++    def extend(self, tokens: Sequence[int]) -> None:
++        for t in tokens:
++            self.ctx.append(int(t))
++            s = len(self.ctx) - self.m
++            if s >= 0:
++                self.starts.setdefault(tuple(self.ctx[s:]), []).append(s)
++
++    def chain(self, max_nodes: int) -> list[int]:
++        """Up to ``max_nodes`` tokens after the tail's latest earlier copy; [] without one or under ``min_match``."""
++
++        ctx, m = self.ctx, self.m
++        if len(ctx) < 2 * m or max_nodes < m:
++            return []
++        best: list[int] = []
++        for start in reversed(self.starts.get(tuple(ctx[-m:]), [])):
++            if start > len(ctx) - m - 1:                 # the needle itself
++                continue
++            cont = ctx[start + m:start + m + max_nodes]
++            if len(cont) > len(best):
++                best = cont
++                if len(best) == max_nodes:
++                    break
++        return best if len(best) >= m else []
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/decode.py b/src/tensorfold/families/qwen4_exp/cuda/decode.py
+index ea765aa..afe811b 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/decode.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/decode.py
+@@ -194,7 +194,7 @@ class Engine:
+     def forward(self, tokens: Sequence[int]) -> torch.Tensor:
+         """A decode step's forward (a CUDA graph when enabled): logits [R, V]."""
+ 
+-        if self.graphs is not None:
++        if self.graphs is not None and self.st.image_positions is None:    # graphs are captured for text rows
+             return self.graphs.forward(tokens)
+         return forward(self.w, self.st, self.buf, tokens)
+ 
+@@ -245,7 +245,7 @@ class Engine:
+         return int(tok), float(np.exp(float(got[hit[0]]) - float(got[k]))) if len(hit) else 0.0
+ 
+     def mtp_forward(self, next_tokens: Sequence[int], streams: torch.Tensor) -> torch.Tensor:
+-        if self.graphs is not None:
++        if self.graphs is not None and self.st.image_positions is None:
+             return self.graphs.mtp_forward(next_tokens, streams)
+         return mtp_forward(self.w, self.st, self.mbuf, next_tokens, streams)
+ 
+@@ -443,9 +443,17 @@ def serial_decode(e: Engine, pending: int, count: int, sampling: Sampling | None
+ @torch.no_grad()
+ def mtp_decode(e: Engine, pending: int, count: int, sampling: Sampling | None, *, depth: int = DEPTH,
+                confidence: float = CONFIDENCE, stop_eos: bool = False, on_tokens=None, constraint=None,
+-               probabilities=None) -> DecodeResult:
++               probabilities=None, copies=None) -> DecodeResult:  # copies: a CopyIndex over the prompt and pending
+     """Verify pending and drafted tokens from the prefill state, commit rows before the first mismatched draft, and call ``on_tokens(new)`` with kept tokens after pending, stopping on True."""
+ 
++    def propose(streams, next_tokens, n):
++        """Copy drafts when the index has a chain (the MTP cache still absorbs the kept rows), else the MTP chain."""
++        copied = copies.chain(n) if copies is not None else []
++        if copied:
++            absorb(e, streams, next_tokens)
++            return copied
++        return draft(e, streams, next_tokens, st.pos + 1, n, sampling, confidence)
++
+     w, st, b = e.w, e.st, e.buf
+     out = [pending]
+     rounds = drafted = accepted = 0
+@@ -455,7 +463,7 @@ def mtp_decode(e: Engine, pending: int, count: int, sampling: Sampling | None, *
+     unabsorbed = None                                  # the last round's kept rows, not yet in the MTP cache
+     torch.cuda.synchronize()
+     start = time.perf_counter()
+-    drafts = draft(e, e.last_streams, [pending], st.pos + 1, min(depth, count - len(out)), sampling, confidence)
++    drafts = propose(e.last_streams, [pending], min(depth, count - len(out)))
+     while len(out) < count and not (stop_eos and out[-1] in w.cfg.eos):
+         tokens = [out[-1]] + drafts
+         window = constraint.window(tokens, list(range(-1, len(tokens) - 1))) if constraint is not None else None
+@@ -485,6 +493,8 @@ def mtp_decode(e: Engine, pending: int, count: int, sampling: Sampling | None, *
+         if constraint is not None:
+             constraint.advance(sampled[:keep])
+         out.extend(sampled[:keep])
++        if copies is not None:
++            copies.extend(sampled[:keep])
+         if on_tokens is not None and new and on_tokens(new):
+             break
+         if len(out) >= count or (stop_eos and out[-1] in w.cfg.eos):
+@@ -492,7 +502,7 @@ def mtp_decode(e: Engine, pending: int, count: int, sampling: Sampling | None, *
+         n = min(depth, count - len(out))
+         drafts = []
+         if n > 0:
+-            drafts = draft(e, b.streams[:keep], sampled[:keep], st.pos + 1, n, sampling, confidence)
++            drafts = propose(b.streams[:keep], sampled[:keep], n)
+             unabsorbed = None
+     torch.cuda.synchronize()
+     seconds = time.perf_counter() - start
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/engine.py b/src/tensorfold/families/qwen4_exp/cuda/engine.py
+index 002ff1f..98d6ed7 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/engine.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/engine.py
+@@ -61,19 +61,20 @@ class FlashNextEngine:
+                  draft_vocab: str | int | None = "default", max_len: int | None = None,
+                  context_explicit: bool | None = None, tp: int = 1, rank: int = 0, master: str = "", port: int = 29551,
+                  prefetch: bool = True, graphs: bool = True, streams: int = 1, ple_on_ssd: bool = False,
+-                 kv_dtype: str = "bf16", share: float = 0.0, vision: bool = False, vision_urls: bool = False) -> None:
++                 kv_dtype: str = "bf16", share: float = 0.0, vision: bool = False, vision_urls: bool = False,
++                 copy_drafts: bool | None = None) -> None:
+         import torch
+ 
++        from .copy_drafts import enabled as copy_enabled
++
+         from .exl3_pack import admission, extra_files, is_exl3
+ 
+         from tensorfold.families import quant_method, read_config
+ 
+         exl3 = is_exl3(model_dir)
+-        if (exl3 or quant_method(read_config(model_dir)) == "modelopt") and tp != 1:
+-            raise ValueError(f"{'EXL3 packs' if exl3 else 'NVFP4 checkpoints'} of Flash Next run on one GPU: drop --tp "
+-                             "2, or serve the MLX checkpoint (TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP) on two")
+-        if vision and (streams < 2 or tp != 1):
+-            raise ValueError("image input on Flash Next runs on one GPU with --parallel 2 or more")
++        if not exl3 and quant_method(read_config(model_dir)) == "modelopt" and tp != 1:
++            raise ValueError("NVFP4 checkpoints of Flash Next run on one GPU: drop --tp 2, or serve the MLX "
++                             "checkpoint (TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP) or an EXL3 pack on two")
+         if exl3 and ple_on_ssd:
+             raise ValueError("--ple-on-ssd reads the MLX checkpoint's n-gram tables; an EXL3 pack maps its own table "
+                              "from its file, so drop --ple-on-ssd")
+@@ -96,6 +97,8 @@ class FlashNextEngine:
+             raise ValueError(f"MTP draft confidence: a probability from 0 to 1, not {confidence}")
+         torch.cuda.set_device(0)
+         self.tp, self.rank, self.depth, self.confidence = tp, rank, int(depth), float(confidence)
++        # copy drafts (copy_drafts.py): on unless TENSORFOLD_COPY_DRAFTS=0, and never without MTP drafts
++        self.copy_drafts = bool(self.depth > 0 and copy_enabled(True if copy_drafts is None else bool(copy_drafts)))
+         self.streams, self.master, self.graphs_enabled = int(streams), master, bool(graphs)
+         self.kv_dtype = check_kv(kv_dtype)
+         self.comm = None
+@@ -136,7 +139,7 @@ class FlashNextEngine:
+                   f"planned peak {peak:.2f} GiB at the admitted window", flush=True)
+         self.max_len = self.capacity_plan["cache_slots"]
+         if tp == 2:
+-            self._same_settings(torch, ids)
++            self._same_settings(torch, ids, vision)
+         build_kernels(exl3=exl3, nvfp4=not exl3 and quant_method(read_config(model_dir)) == "modelopt",
+                       solo=streams == 1 or (graphs and mtp))
+         from concurrent.futures import wait
+@@ -165,15 +168,21 @@ class FlashNextEngine:
+         from tensorfold.cuda.markers import resume_points
+ 
+         self.points = resume_points(model_dir)          # a prompt's message starts to keep states at, or None
+-        if vision:
++        if vision and rank == 0:
+             from tensorfold.vision.qwen_cuda import QwenCudaVision
+ 
+             self.vision = QwenCudaVision(model_dir, torch.device("cuda", 0),
+                                          allow_urls=vision_urls)
+             torch.cuda.empty_cache()
++            ranks = "; rank 1 receives each request's image features from this rank" if tp == 2 else ""
+             print(f"[tensorfold] vision: image{' and video' if self.vision.videos else ''} input, a "
+                   f"{self.vision.weight_bytes / 2**30:.2f} GiB tower with {vision_workspace() / 2**30:.2f} GiB of "
+-                  f"workspace reserved{'; https URLs allowed' if vision_urls else ''}", flush=True)
++                  f"workspace reserved{'; https URLs allowed' if vision_urls else ''}"
++                  f"{ranks}",
++                  flush=True)
++        elif vision:                                   # rank 1: no tower; rank 0's features arrive with each admission
++            print("[tensorfold] vision: image input on two ranks; this rank attaches the features rank 0 encodes",
++                  flush=True)
+         # ``streams`` > 1: up to that many requests decoded together, every stream's chain in one forward
+         self.concurrent = streams > 1
+         self.refuses_structured_output = (
+@@ -189,6 +198,7 @@ class FlashNextEngine:
+             self.e = None
+             self.multi = MultiDecoder(w, slots=streams, capacity=self.max_len, depth=self.depth,
+                                       confidence=self.confidence, keep=KEEP, points=self.points,
++                                      copy=getattr(self, "copy_drafts", False),
+                                       kv_dtype=self.kv_dtype, share=share, vision=self.vision,
+                                       prefill_rows=self.prefill_rows, workspace_bytes=prompt_workspace, graphs=graphs)
+             self.scheduler = Scheduler(self.multi, max_streams=streams)
+@@ -246,10 +256,17 @@ class FlashNextEngine:
+         self.serial = None                                # the serial requests' engine, made on first use
+         rule = (f"1 to {self.depth} MTP drafts a round, a chain stops before a later draft under "
+                 f"{self.confidence:.0%}" if self.depth else "no drafts: the serial reference, one token a round")
++        if self.copy_drafts:
++            rule += f", or up to {self.depth} copy drafts where the reply repeats earlier text"
+         where = (f"up to {streams} streams, each growing to {self.context_window} prompt/reply tokens while memory "
+                  f"lasts ({self.multi.memory_gate.room / 2**30:.1f} GiB free for their caches, "
+                  f"{self.multi.window_bytes / 2**30:.2f} GiB for one at the full window), eager" if self.concurrent else
+                  f"{self.context_window}-token prompt/reply window; {self.max_len}-token cache")
++        if w.cfg.rope_scaling:                        # a YaRN profile (config.json's rope_parameters)
++            y = w.cfg.rope_scaling
++            print(f"[tensorfold] rotary: YaRN x{float(y.get('factor')):g} over the "
++                  f"{int(y.get('original_max_position_embeddings'))}-token trained window (static: short prompts "
++                  f"see the scaled rotary too; serve the plain checkpoint for them)", flush=True)
+         if ple_on_ssd:
+             how = "read from SSD at each lookup"
+         elif tables_read:                             # read during the load: the wait after it, then any lock
+@@ -264,7 +281,7 @@ class FlashNextEngine:
+               f"decode graphs captured; idle prompt pieces {self.prefill_rows} rows; "
+               f"prompt kernels warmed in {warm_s:.1f}s", flush=True)
+ 
+-    def _same_settings(self, torch, ids) -> None:
++    def _same_settings(self, torch, ids, vision: bool = False) -> None:
+         """Both ranks must decode with the same rule, context, draft vocabulary and KV cache, or they would fall out of step: refuse to start otherwise."""
+ 
+         from .kvcache import BITS_OF
+@@ -273,14 +290,15 @@ class FlashNextEngine:
+         mine = torch.tensor([self.depth, round(self.confidence * 1e6), self.max_len, self.streams,
+                              int(self.graphs_enabled),
+                              len(ids) if ids is not None else -1, total, BITS_OF[self.kv_dtype],
+-                             self.prefill_rows, int(prompt_precision.fp8())], dtype=torch.int64, device="cuda")
++                             self.prefill_rows, int(bool(vision)), int(prompt_precision.fp8())],
++                            dtype=torch.int64, device="cuda")
+         both = torch.empty((2 * mine.numel(),), dtype=torch.int64, device="cuda")
+         self.comm.all_gather(mine, both)
+         both = both.view(2, -1).cpu()
+         prompt_precision.same_on_ranks(int(both[0, -1]), int(both[1, -1]))
+         if not torch.equal(both[0], both[1]):
+             raise RuntimeError(f"the two ranks were started with different settings (drafts, confidence, context, "
+-                               f"parallel streams, graphs, draft vocabulary, KV cache, prompt rows): "
++                               f"parallel streams, graphs, draft vocabulary, KV cache, prompt rows, --vision): "
+                                f"rank 0 {both[0].tolist()}, rank 1 {both[1].tolist()}")
+ 
+     def _key(self, n: int) -> str:
+@@ -296,13 +314,13 @@ class FlashNextEngine:
+             self.comm.store.set(self._key(self.served), json.dumps({"stop": True}))
+ 
+     def _share(self, prompt: list[int], max_tokens: int, sampling, draft: bool, cached: int, constraint=None,
+-               stop_eos: bool = True) -> tuple:
++               stop_eos: bool = True, images: dict | None = None) -> tuple:
+         from tensorfold.engine.grammar import pack
+ 
+         points = getattr(self, "points", None)
+         body = {"prompt": prompt, "max_tokens": max_tokens, "draft": bool(draft), "cached": int(cached),
+-                "points": list(points(prompt)) if draft and points is not None else [],
+-                "stop_eos": bool(stop_eos),
++                "points": list(points(prompt)) if draft and points is not None and images is None else [],
++                "stop_eos": bool(stop_eos), "images": images,       # an image prompt's rows, offset and feature shape
+                 "sampling": None if sampling is None else [int(sampling.seed), float(sampling.temperature),
+                                                            int(sampling.top_k), float(sampling.top_p),
+                                                            float(sampling.min_p)],
+@@ -338,7 +356,7 @@ class FlashNextEngine:
+         s = body["sampling"]
+         return (body["prompt"], body["max_tokens"], None if s is None else Sampling(*s),
+                 body["draft"], body["cached"], body.get("grammar") or [], body.get("stop_eos", True),
+-                body.get("points", []))
++                body.get("images"), body.get("points", []))      # the points stay last (older followers)
+ 
+     @property
+     def context_window(self) -> int:
+@@ -378,7 +396,7 @@ class FlashNextEngine:
+         return self.tp == 1
+ 
+     def _serial(self, prompt: list[int], max_tokens: int, sampling, on_tokens, constraint=None,
+-                stop_eos: bool = True, probabilities=None) -> dict[str, Any]:
++                stop_eos: bool = True, probabilities=None, vision=None) -> dict[str, Any]:
+         """One token a round from a fresh prefill in the serial engine's own state (no drafts, no kept states)."""
+ 
+         import torch
+@@ -388,7 +406,8 @@ class FlashNextEngine:
+         if self.serial is None:
+             self.serial = self.e.twin()
+         t0 = time.perf_counter()
+-        first = prefill(self.serial, prompt, sampling, mtp=False, constraint=constraint, probabilities=probabilities)
++        first = prefill(self.serial, prompt, sampling, mtp=False, constraint=constraint, probabilities=probabilities,
++                        vision=vision)
+         torch.cuda.synchronize()
+         stats: dict[str, Any] = {"prefill_s": round(time.perf_counter() - t0, 4), "cached": 0, "drafts": False}
+         if (on_tokens is not None and on_tokens([first])) or (stop_eos and first in self.eos) or max_tokens <= 1:
+@@ -399,12 +418,14 @@ class FlashNextEngine:
+         return stats
+ 
+     def _decode(self, prompt: list[int], max_tokens: int, sampling, on_tokens, hit, constraint=None,
+-                stop_eos: bool = True, probabilities=None, points=None) -> dict[str, Any]:
++                stop_eos: bool = True, probabilities=None, points=None, vision=None) -> dict[str, Any]:
+         import torch
+ 
+         from .decode import entry_end, mtp_decode, prefill, serial_decode
+ 
+         t0 = time.perf_counter()
++        if vision is not None:
++            hit = None                                  # an image prompt prefills from its start
+         self._start_from(hit)
+         from tensorfold.cuda.markers import MIN_GAP
+ 
+@@ -415,18 +436,26 @@ class FlashNextEngine:
+         stops = [p for p in points if cached + MIN_GAP <= p < end]
+         def keep(p, snap, tail):
+             self._remember(list(prompt[:p]), {"state": snap, "tail": tail})
+-        first = prefill(self.e, prompt, sampling, resume=hit[1] if hit else None, constraint=constraint,
+-                        probabilities=probabilities, keep_at=end, stops=stops, keep=keep)
+-        # the state one token before the prompt's end, so the same prompt or a next turn resumes from it
+-        self._remember(list(prompt[:end]), self.e.kept)
++        if vision is not None:
++            # image prompts prefill eagerly with no kept snapshot: the captured graphs know no image positions
++            first = prefill(self.e, prompt, sampling, constraint=constraint, probabilities=probabilities, vision=vision)
++        else:
++            first = prefill(self.e, prompt, sampling, resume=hit[1] if hit else None, constraint=constraint,
++                            probabilities=probabilities, keep_at=end, stops=stops, keep=keep)
++            # the state one token before the prompt's end, so the same prompt or a next turn resumes from it
++            self._remember(list(prompt[:end]), self.e.kept)
+         torch.cuda.synchronize()
+         stats: dict[str, Any] = {"prefill_s": round(time.perf_counter() - t0, 4), "cached": len(hit[0]) if hit else 0,
+                                  "drafts": True}
+         if (on_tokens is not None and on_tokens([first])) or (stop_eos and first in self.eos) or max_tokens <= 1:
+             return stats
+         if self.depth > 0:
++            from .copy_drafts import CopyIndex
++
++            copies = CopyIndex(list(prompt) + [first]) if getattr(self, "copy_drafts", False) and constraint is None else None
+             res = mtp_decode(self.e, first, max_tokens, sampling, depth=self.depth, confidence=self.confidence,
+-                             stop_eos=stop_eos, on_tokens=on_tokens, constraint=constraint, probabilities=probabilities)
++                             stop_eos=stop_eos, on_tokens=on_tokens, constraint=constraint, probabilities=probabilities,
++                             copies=copies)
+             stats.update(drafted=res.drafted, accepted=res.accepted, min_rows=min(res.widths, default=0))
+         else:
+             res = serial_decode(self.e, first, max_tokens, sampling, stop_eos=stop_eos, on_tokens=on_tokens,
+@@ -461,18 +490,26 @@ class FlashNextEngine:
+                                          **grammar, **({"background": True} if background else {}),
+                                          probabilities=probabilities,
+                                          **({"vision": vision} if vision is not None else {}))
+-        hit = self._resume(prompt) if draft else None
++        hit = self._resume(prompt) if draft and vision is None else None
+         points = None
++        # rank 0 encodes before sharing (a refused image fails here alone), then sends rank 1 the same features
++        encoded = self.vision.encode(vision, prompt) if vision is not None else None
+         if self.tp == 2:                     # rank 0 decodes exactly what it hands rank 1
+-            prompt, max_tokens, sampling, draft, _, _, stop_eos, points = self._share(
+-                prompt, max_tokens, sampling, draft, len(hit[0]) if hit else 0, constraint, stop_eos)
++            from .vision_ranks import describe, exchange
++
++            prompt, max_tokens, sampling, draft, _, _, stop_eos, images, points = self._share(
++                prompt, max_tokens, sampling, draft, len(hit[0]) if hit else 0, constraint, stop_eos,
++                images=describe(encoded))
+             self.served += 1
++            if images is not None:
++                encoded = exchange(self.comm, 0, len(prompt), images, encoded, hidden=int(self.w.cfg.hidden))
+             emit = on_tokens
+             on_tokens = lambda new: (emit(new), False)[1]       # noqa: E731  both ranks decode to the end
+         if not draft:
+-            return self._serial(prompt, max_tokens, sampling, on_tokens, constraint, stop_eos, probabilities=probabilities)
++            return self._serial(prompt, max_tokens, sampling, on_tokens, constraint, stop_eos,
++                                probabilities=probabilities, vision=encoded)
+         return self._decode(prompt, max_tokens, sampling, on_tokens, hit, constraint, stop_eos,
+-                            probabilities=probabilities, points=points)
++                            probabilities=probabilities, points=points, vision=encoded)
+ 
+     def score_labels(self, prompt_ids, label_ids) -> tuple[list[float], float]:
+         """Score the prompt's final row in a fresh state without adding a kept decision prefix."""
+@@ -537,7 +574,9 @@ class FlashNextEngine:
+             request = self._receive()
+             if request is None:
+                 return
+-            prompt, max_tokens, sampling, draft, cached, packed, stop_eos, points = request
++            prompt, max_tokens, sampling, draft, cached, packed, stop_eos = request[:7]
++            # eight fields from a leader without image support, nine with the image description before the points
++            images, points = (None, request[7]) if len(request) == 8 else request[7:9]
+             constraint = None
+             if packed:                                      # the request's grammar, compiled here as on rank 0
+                 from tensorfold.engine import grammar
+@@ -551,9 +590,15 @@ class FlashNextEngine:
+                 if hit is None:
+                     raise RuntimeError(f"rank 1 has no kept state for the {cached} tokens rank 0 resumes from")
+             try:
++                encoded = None
++                if images is not None:                      # rank 0's image features, attached as it attaches them
++                    from .vision_ranks import exchange
++
++                    encoded = exchange(self.comm, 1, len(prompt), images, hidden=int(self.w.cfg.hidden))
+                 if draft:
+-                    self._decode(prompt, max_tokens, sampling, None, hit, constraint, stop_eos, points=points)
++                    self._decode(prompt, max_tokens, sampling, None, hit, constraint, stop_eos, points=points,
++                                 vision=encoded)
+                 else:
+-                    self._serial(prompt, max_tokens, sampling, None, constraint, stop_eos)
++                    self._serial(prompt, max_tokens, sampling, None, constraint, stop_eos, vision=encoded)
+             except ValueError as exc:                       # rank 0 raised at the same point on the same input
+                 print(f"[tensorfold] request {self.served} failed on both ranks: {exc}", flush=True)
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/exl3.py b/src/tensorfold/families/qwen4_exp/cuda/exl3.py
+index 64a0bf5..84b270f 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/exl3.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/exl3.py
+@@ -1,4 +1,4 @@
+-"""Flash Next from an EXL3 pack into the MLX path's ``Weights``: trellis matrices, fp16 tensors, routed experts at their own widths."""
++"""Flash Next from an EXL3 pack into the MLX path's ``Weights``: trellis matrices, fp16 tensors, routed experts at their own widths; on two ranks, heads split on Hadamard blocks and whole experts a rank."""
+ 
+ from __future__ import annotations
+ 
+@@ -19,10 +19,19 @@ PREFILL_ROWS = 2048       # the prompt buffers' rows (``decode.PREFILL_ROWS``):
+ __all__ = ["is_exl3", "load"]
+ 
+ 
+-def expert_table(pk: Pack, prefix: str, count: int, shared: str, device) -> x3experts.Exl3RoutedExperts:
+-    """Experts ``prefix.{0..count-1}`` and the shared expert (as expert ``count``), trellises read in large runs into one buffer."""
++def expert_table(pk: Pack, prefix: str, count: int, shared: str, device, *, rank: int = 0, world: int = 1,
++                 shared_rank: int = 0) -> x3experts.Exl3RoutedExperts:
++    """Experts ``prefix.{0..count-1}`` and the shared expert (as expert ``count``), trellises read in large runs into one buffer.
+ 
+-    names = [f"{prefix}.{e}" for e in range(count)] + [shared]
++    On ``world`` ranks each rank holds whole experts: ``[rank * count // world, (rank + 1) * count // world)`` and,
++    on rank ``shared_rank``, the shared expert (a 640-wide expert has five Hadamard blocks, which two ranks cannot
++    halve). The table's ``remap`` sends a pick of the full layer to this rank's row, or past the table for an
++    expert held elsewhere, which the grouped kernel skips; the ranks' weighted partial sums add up to the layer.
++    """
++
++    lo, hi = rank * count // world, (rank + 1) * count // world
++    with_shared = shared_rank % world == rank
++    names = [f"{prefix}.{e}" for e in range(lo, hi)] + ([shared] if with_shared else [])
+     projs = ("gate_proj", "up_proj", "down_proj")
+     codebooks = {pk.codebook(f"{nm}.{p}") for nm in names for p in projs}
+     if len(codebooks) > 1:
+@@ -80,6 +89,18 @@ def expert_table(pk: Pack, prefix: str, count: int, shared: str, device) -> x3ex
+                   scales(f"{nm}.{p}", parts[f"{nm}.{p}"][1])) for nm in names] for p in projs}
+     ex = x3experts.prepare(lists["gate_proj"], lists["up_proj"], lists["down_proj"], codebooks.pop(), device=device)
+     ex.keep.append(big)
++    if world > 1:
++        local = len(names)
++        remap = torch.full((count + 1,), local, dtype=torch.int32)
++        remap[lo:hi] = torch.arange(hi - lo, dtype=torch.int32)
++        if with_shared:
++            remap[count] = local - 1
++        ex.remap = remap.to(device)
++        spans = torch.zeros((count + 1,), dtype=torch.int64)
++        spans[lo:hi] = ex.trellis_bytes[:hi - lo]
++        if with_shared:
++            spans[count] = ex.trellis_bytes[-1]
++        ex.trellis_bytes = spans
+     return ex
+ 
+ 
+@@ -126,12 +147,25 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+     from .qmm import make_q4
+     from tensorfold.cuda.direct_read import in_background
+ 
+-    from .weights import GDNW, HC, AttnW, Config, LayerW, MoEW, MTPW, PLEW, Weights, draft_token_ids
++    from .weights import (GDNW, HC, AttnW, Config, LayerW, MoEW, MTPW, PLEW, Weights, draft_token_ids,
++                          rotary_inv_freq, scale_rotary)
++
++    from dataclasses import replace
++
++    from .exl3_mm import x3_part
+ 
+-    if tp is not None and tp[1] > 1:
+-        raise ValueError("EXL3 packs of Flash Next run on one GPU; two ranks read the MLX checkpoint")
++    rank, world = tp if tp is not None else (0, 1)
++    if world not in (1, 2):
++        raise ValueError(f"rank {rank} of {world}: Flash Next runs on one GPU or two")
+     model_dir = Path(model_dir)
+-    cfg = Config.read(model_dir)
++    full = Config.read(model_dir)
++    # Two ranks split heads as the MLX loader does; the experts stay whole (a rank holds half of them), so the
++    # MoE widths stay the layer's.
++    cfg = full if world == 1 else replace(full, heads=full.heads // world, kv_heads=full.kv_heads // world,
++                                          nk=full.nk // world, nv=full.nv // world)
++    if world > 1 and (full.vocab % (world * 128) or full.heads % world or full.kv_heads % world or full.nk % world
++                      or full.nv % world):
++        raise ValueError(f"the pack's vocabulary and heads do not split across {world} ranks on whole Hadamard blocks")
+     pk = Pack(model_dir)
+     sc = Scratch(cfg.top_k + 1)
+     T = "model.language_model."
+@@ -151,26 +185,53 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+         down, up = f16(sc, rows, device), f16(sc, [pk.get(name + ".input_mix_weight_up.weight")], device)
+         return HC(down, up, centred(name + ".hc_norm.weight"), inject, down, up)
+ 
+-    def moe(name: str) -> MoEW:
++    def moe(name: str, index: int) -> MoEW:
+         router = torch.cat([pk.get(name + ".gate.weight").to(torch.bfloat16),
+                             pk.get(name + ".shared_expert_gate.weight").to(torch.bfloat16)]).to(device).contiguous()
+-        return MoEW(router, expert_table(pk, name + ".experts", cfg.experts, name + ".shared_expert", device))
++        # the shared expert alternates ranks layer by layer, so both carry the same expert work over the model
++        return MoEW(router, expert_table(pk, name + ".experts", cfg.experts, name + ".shared_expert", device,
++                                         rank=rank, world=world, shared_rank=index % world))
+ 
+     def attention(name: str) -> AttnW:
+-        proj = stack(sc, [x3(sc, pk, name + p, device) for p in (".q_proj", ".k_proj", ".v_proj",
+-                                                                  ".indexer.index_qk_proj")])
++        if world == 1:
++            proj = stack(sc, [x3(sc, pk, name + p, device) for p in (".q_proj", ".k_proj", ".v_proj",
++                                                                      ".indexer.index_qk_proj")])
++            o = x3(sc, pk, name + ".o_proj", device)
++        else:                               # this rank's heads: q (with its gates), k, v; the indexer on every rank
++            hd, hl, kl = full.head_dim, cfg.heads, cfg.kv_heads
++            proj = stack(sc, [x3_part(sc, pk, name + ".q_proj", device, rows=(rank * hl * 2 * hd, (rank + 1) * hl * 2 * hd)),
++                              x3_part(sc, pk, name + ".k_proj", device, rows=(rank * kl * hd, (rank + 1) * kl * hd)),
++                              x3_part(sc, pk, name + ".v_proj", device, rows=(rank * kl * hd, (rank + 1) * kl * hd)),
++                              x3(sc, pk, name + ".indexer.index_qk_proj", device)])
++            o = x3_part(sc, pk, name + ".o_proj", device, cols=(rank * hl * hd, (rank + 1) * hl * hd), bias=rank == 0)
+         return AttnW(proj, centred(name + ".q_norm.weight"), centred(name + ".k_norm.weight"),
+-                     centred(name + ".indexer.q_layernorm.weight"), centred(name + ".indexer.k_layernorm.weight"),
+-                     x3(sc, pk, name + ".o_proj", device))
++                     centred(name + ".indexer.q_layernorm.weight"), centred(name + ".indexer.k_layernorm.weight"), o)
+ 
+     def gdn(name: str) -> GDNW:
+-        proj = stack(sc, [x3(sc, pk, name + ".in_proj_qkv", device), x3(sc, pk, name + ".in_proj_z", device),
+-                          f16(sc, [pk.get(name + ".in_proj_b.weight"), pk.get(name + ".in_proj_a.weight")], device)])
+-        conv = plain(name + ".conv1d.weight").reshape(cfg.conv_dim, cfg.conv_kernel).to(torch.bfloat16).contiguous()
+-        return GDNW(proj, conv, plain(name + ".A_log").float().contiguous(),
+-                    plain(name + ".dt_bias").float().contiguous(),
+-                    plain(name + ".norm.weight").to(torch.bfloat16).contiguous(),
+-                    x3(sc, pk, name + ".out_proj", device))
++        conv = plain(name + ".conv1d.weight").reshape(full.conv_dim, full.conv_kernel).to(torch.bfloat16)
++        a_log, dt_bias = plain(name + ".A_log").float(), plain(name + ".dt_bias").float()
++        if world == 1:
++            proj = stack(sc, [x3(sc, pk, name + ".in_proj_qkv", device), x3(sc, pk, name + ".in_proj_z", device),
++                              f16(sc, [pk.get(name + ".in_proj_b.weight"), pk.get(name + ".in_proj_a.weight")], device)])
++            out = x3(sc, pk, name + ".out_proj", device)
++        else:                               # this rank's DeltaNet heads: q, k, v rows of in_proj_qkv, then z, b, a
++            kl, vl, dk, dv = cfg.nk, cfg.nv, full.dk, full.dv
++            q0, k0, v0 = rank * kl * dk, full.nk * dk + rank * kl * dk, 2 * full.nk * dk + rank * vl * dv
++            heads = slice(rank * vl, (rank + 1) * vl)
++            qkv = name + ".in_proj_qkv"
++            proj = stack(sc, [x3_part(sc, pk, qkv, device, rows=(q0, q0 + kl * dk)),
++                              x3_part(sc, pk, qkv, device, rows=(k0, k0 + kl * dk)),
++                              x3_part(sc, pk, qkv, device, rows=(v0, v0 + vl * dv)),
++                              x3_part(sc, pk, name + ".in_proj_z", device, rows=(rank * vl * dv, (rank + 1) * vl * dv)),
++                              f16(sc, [pk.get(name + ".in_proj_b.weight")[heads], pk.get(name + ".in_proj_a.weight")[heads]],
++                                  device)])
++            channels = torch.cat([torch.arange(q0, q0 + kl * dk), torch.arange(k0, k0 + kl * dk),
++                                  torch.arange(v0, v0 + vl * dv)]).to(conv.device)
++            conv, a_log, dt_bias = conv.index_select(0, channels), a_log[heads], dt_bias[heads]
++            out = x3_part(sc, pk, name + ".out_proj", device, cols=(rank * vl * dv, (rank + 1) * vl * dv),
++                          bias=rank == 0)
++        return GDNW(proj, conv.contiguous(), a_log.contiguous(), dt_bias.contiguous(),
++                    plain(name + ".norm.weight").to(torch.bfloat16).contiguous(), out)
+ 
+     def ple_layer(name: str, ple_index: int) -> PLEW:
+         ngram = cfg.ngram(ple_index)
+@@ -190,7 +251,7 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+         linear = kind == "linear"
+         entry = LayerW(i, linear, hc(base + ".attn_hyper_connection", True), hc(base + ".mlp_hyper_connection", True),
+                        gdn(base + ".linear_attn") if linear else None,
+-                       None if linear else attention(base + ".self_attn"), moe(base + ".mlp"))
++                       None if linear else attention(base + ".self_attn"), moe(base + ".mlp", i))
+         if with_ple and i in cfg.ple_layers:
+             entry.ple = ple_layer(base + ".ple", cfg.ple_layers.index(i))
+         return entry
+@@ -205,25 +266,36 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+         if i % 8 == 7:                            # each release waits for the device; a layer leaves few temporaries
+             torch.cuda.empty_cache()
+     mixer = hc(T + "hyper_connection_mixer", False)
+-    head = x3(sc, pk, "lm_head", device, head=True)
+-    inv = torch.tensor(cfg.rope_theta, dtype=torch.float64) ** (
+-        -torch.arange(0, cfg.rotary_dim // 2, dtype=torch.float64) / (cfg.rotary_dim // 2))
+-    w = Weights(cfg, (embed.contiguous(),), loaded, mixer, head, inv.to(torch.float32).to(device), around_one=True)
+-    w.meta.update(rank=0, world=1, vocab_offset=0, full=cfg, centred_offset=offset)
++    vl = full.vocab // world
++    head = (x3(sc, pk, "lm_head", device, head=True) if world == 1 else
++            x3_part(sc, pk, "lm_head", device, rows=(rank * vl, (rank + 1) * vl), head=True))
++    inv, rope_factor = rotary_inv_freq(cfg)
++    w = Weights(cfg, (embed.contiguous(),), loaded, mixer, head, inv.to(device), around_one=True)
++    w.meta.update(rank=rank, world=world, vocab_offset=rank * vl, full=full, centred_offset=offset)
+     if mtp and pk.has("mtp.fc_embedding.trellis"):
+         w.mtp = MTPW(centred("mtp.pre_fc_norm_embedding.weight"), centred("mtp.pre_fc_norm_hidden.weight"),
+                      x3(sc, pk, "mtp.fc_embedding", device), x3(sc, pk, "mtp.fc_hidden", device),
+                      layer(-1, "mtp.layers.0", "attention", False), hc("mtp.hyper_connection_mixer", False))
++    scale_rotary(w, rope_factor)
+     ple = next((lay.ple for lay in loaded if lay.ple is not None), None)
+-    sc.allocate(device, experts=loaded[0].moe.experts, rows=PREFILL_ROWS,
++    # the routed scratch spans the largest table this rank holds (two ranks: the layers with the shared expert)
++    sc.allocate(device, experts=max((lay.moe.experts for lay in loaded), key=lambda ex: ex.count), rows=PREFILL_ROWS,
+                 ple_words=ple.table.words_per_row if ple else 0, ple_heads=ple.ngram.heads if ple else 0,
+                 ple_dim=cfg.ple_dim)
+     w.x3 = sc
+     ids = draft_token_ids(draft_vocab)
+     if ids is not None and w.mtp is not None:
+         ids = ids[ids < cfg.vocab]
++        if world > 1:                             # each rank scores a share of the draft vocabulary (global ids)
++            ids = np.array_split(ids, world)[rank]
+         w.draft_ids = torch.from_numpy(ids).to(device)
+-        w.draft_head = make_q4(*requant_rows(head, w.draft_ids, device))
++        if world == 1:
++            w.draft_head = make_q4(*requant_rows(head, w.draft_ids, device))
++        else:                                     # the rows come out of the whole head, read once and dropped
++            whole = x3(sc, pk, "lm_head", device, head=True)
++            w.draft_head = make_q4(*requant_rows(whole, w.draft_ids, device))
++            sc.users = [u for u in sc.users if u is not whole]      # by identity: the dataclasses compare tensors
++            del whole
+     pk.release()
+     torch.cuda.empty_cache()
+     w.meta["load_seconds"] = time.time() - t0
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/exl3_mm.py b/src/tensorfold/families/qwen4_exp/cuda/exl3_mm.py
+index 6b0bf41..5a1230c 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/exl3_mm.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/exl3_mm.py
+@@ -40,8 +40,8 @@ class Scratch:
+                 xh = max(xh, ROWS * u.lin.k)
+                 if u.lin.split[0] > 1:
+                     z = max(z, u.lin.split[0] * ROWS * u.lin.n)
+-            elif isinstance(u, F16):
+-                part = max(part, u.sk * ROWS * u.n)
++            elif isinstance(u, F16):            # ``partials`` of a decode window: up to ``rows`` rows (16 streams x 16)
++                part = max(part, u.sk * max(ROWS, rows) * u.n)
+             elif isinstance(u, Stack) and len(u.parts) > 1:
+                 tmp = max(tmp, ROWS * max(p.n for p in u.parts))
+         self.xh = torch.empty((xh,), dtype=torch.float16, device=device)
+@@ -49,6 +49,9 @@ class Scratch:
+         self.tmp = torch.empty((tmp,), dtype=torch.bfloat16, device=device)
+         self.part = torch.empty((part,), dtype=torch.float32, device=device)
+         self.moe = x3experts.Scratch(experts, MOE_WINDOW, self.slots, device=device)
++        # two ranks: a window's picks sent through the layer's ``remap`` (this rank's rows, or past its table)
++        self.pick_local = torch.empty((MOE_WINDOW * self.slots,), dtype=torch.int32, device=device)
++        self.wts_local = torch.empty((MOE_WINDOW * self.slots,), dtype=torch.float32, device=device)
+         if ple_words:
+             pin = torch.cuda.is_available()
+             self.ple_host = torch.zeros((rows * ple_heads, ple_words), dtype=torch.int16, pin_memory=pin)
+@@ -123,11 +126,11 @@ class F16:
+         return self.w.numel() * 2
+ 
+     def partials(self, x: torch.Tensor) -> torch.Tensor:
+-        """Unreduced fp32 slices [sk, M, n] (shared scratch) for a consumer that sums them in order; M <= ROWS."""
++        """Unreduced fp32 slices [sk, M, n] (shared scratch) for a consumer that sums them in order; M up to the scratch's rows."""
+ 
+         m = x.shape[0]
+-        if m > ROWS:
+-            raise ValueError(f"F16.partials takes at most {ROWS} rows")
++        if self.sk * m * self.n > self.sc.part.numel():
++            raise ValueError(f"F16.partials: {m} rows exceed the scratch ({self.sc.part.numel() // (self.sk * self.n)})")
+         out = self.sc.part[:self.sk * m * self.n].view(self.sk, m, self.n)
+         self._launch(x, out, True)
+         return out
+@@ -202,6 +205,41 @@ def x3(sc: Scratch, pk, prefix: str, device, *, head: bool = False) -> X3:
+     return got
+ 
+ 
++HAD = 128                # the Hadamard block: a slice of an EXL3 layer keeps whole blocks (and whole 16x16 tiles)
++
++
++def x3_part(sc: Scratch, pk, prefix: str, device, *, rows: tuple[int, int] | None = None,
++            cols: tuple[int, int] | None = None, head: bool = False, bias: bool = True) -> X3:
++    """``prefix``'s matrix cut to output rows [n0, n1) and/or input columns [k0, k1), both on 128-boundaries.
++
++    A layer is y = ((x * suh) @ H_K @ W_q) @ H_N * svh + bias with H a 128-block Hadamard, so a cut on whole
++    blocks is exact: by outputs, columns of tiles and of svh with all of suh; by inputs, rows of tiles and of suh
++    with all of svh, the ranks' partial outputs added (``bias`` on one rank only). Two ranks of Flash Next cut
++    q/k/v, z and the head by outputs and o_proj / out_proj by inputs, as the MLX checkpoint's loader does.
++    """
++
++    t = pk.get(prefix + ".trellis")
++    k, n = 16 * t.shape[0], 16 * t.shape[1]
++    suh = pk.scales(prefix, "su", "suh").reshape(k)
++    svh = pk.scales(prefix, "sv", "svh").reshape(n)
++    b = pk.get(prefix + ".bias") if bias and pk.has(prefix + ".bias") else None
++    if cols is not None:
++        k0, k1 = cols
++        if k0 % HAD or k1 % HAD or not 0 <= k0 < k1 <= k:
++            raise ValueError(f"{prefix}: input columns [{k0}, {k1}) are not whole Hadamard blocks of K={k}")
++        t, suh = t[k0 // 16:k1 // 16], suh[k0:k1]
++    if rows is not None:
++        n0, n1 = rows
++        if n0 % HAD or n1 % HAD or not 0 <= n0 < n1 <= n:
++            raise ValueError(f"{prefix}: output rows [{n0}, {n1}) are not whole Hadamard blocks of N={n}")
++        t, svh = t[:, n0 // 16:n1 // 16], svh[n0:n1]
++        b = None if b is None else b.reshape(n)[n0:n1]
++    lin = Exl3Linear.from_tensors(t.contiguous(), suh.contiguous(), svh.contiguous(), pk.codebook(prefix), b, device)
++    got = X3(lin, sc, head)
++    sc.users.append(got)
++    return got
++
++
+ def f16(sc: Scratch, rows: list[torch.Tensor], device) -> F16:
+     w = torch.cat([r.to(torch.float16) for r in rows]).to(device).contiguous()
+     n, k = w.shape
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/forward.py b/src/tensorfold/families/qwen4_exp/cuda/forward.py
+index c5fa44d..cdc12b2 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/forward.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/forward.py
+@@ -16,7 +16,7 @@ from tensorfold.cuda.kernels import gdn as shared_gdn
+ 
+ from . import attention as attn_mod
+ from . import gdn as gdn_mod
+-from . import attn_multi, bf16, gdn_io, gdn_multi, glue, nvfp4_moe, qmm
++from . import affine_moe, attn_multi, bf16, gdn_io, gdn_multi, glue, nvfp4_moe, qmm
+ from . import image_rows
+ from .hc_check import fuser as _hc_fuser
+ from .state import ATT_ROWS, CAND, Buffers, State, _MoECfg
+@@ -196,14 +196,14 @@ def _prefill_chain(g, st: State, li: int, b: Buffers, a0: int, a1: int, c, cut:
+ def _out_proj(w: Weights, b: Buffers, x: torch.Tensor, q: qmm.Q4, xs: torch.Tensor, R: int):
+     """A block's output projection: (1, bf16 branch) on one GPU; (3, gathered fp32 partials) across ranks."""
+ 
+-    if not isinstance(q, qmm.Q4):      # an NVFP4 checkpoint's BF16 face, or an EXL3 pack (one GPU): the bf16 branch
++    if not isinstance(q, qmm.Q4) and w.comm is None:     # an NVFP4 checkpoint's BF16 face, or an EXL3 pack on one GPU
+         return 1, _mm(x, q, xs, b.branch[:R], b)
+     if w.comm is None:
+         got = _mm(x, q, xs, b.branch[:R], b, reduce=False)
+         if got.dim() == 3:
+             return 4, got            # K slices: the write-back sums them in order (the bits of reduce, then round)
+         return 1, got
+-    _mm(x, q, xs, b.part_branch[:R], b, f32=True)
++    _mm(x, q, xs, b.part_branch[:R], b, f32=True)        # this rank's heads, fp32 (the EXL3 linear writes fp32 too)
+     return 3, _gather(w, b, b.part_branch, b.g_branch, R)
+ 
+ 
+@@ -321,10 +321,13 @@ def moe_block(layer: LayerW, w: Weights, b: Buffers, R: int) -> tuple:
+     """Routed experts + the shared expert. Returns the pending write-back: (2, slots y, weights) on one GPU, (3, gathered fp32 partials, None) across ranks."""
+ 
+     m = layer.moe
+-    if getattr(m.experts, "kernel", "qmm") == "nvfp4":      # an NVFP4 checkpoint: the FP4 experts
++    kernel = getattr(m.experts, "kernel", "qmm")
++    if kernel == "nvfp4":                               # an NVFP4 checkpoint: the FP4 experts
+         buf = b.moe
+         nvfp4_moe.moe(b.mixed[:R], b.xs_mixed[:R], m.router, m.experts, buf, _MoECfg(w.cfg))
+-    elif w.x3 is not None:                              # an EXL3 pack: each expert at its own width, one GPU
++    elif kernel == "affine":                            # affine 4-bit routed experts, the shared expert bf16
++        buf = affine_moe.moe(b.mixed[:R], m.router, m.experts, b.moe, w.cfg.top_k, w.cfg.experts)
++    elif w.x3 is not None:                              # an EXL3 pack: each expert at its own width
+         return _exl3_moe(m, w, b, R)
+     else:
+         buf = moe_mod.moe(b.mixed[:R], m.router, m.experts, b.moe, w.cfg.top_k, w.cfg.experts)
+@@ -344,6 +347,8 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
+     buf = b.moe
+     moe_mod.router(b.mixed[:R], m.router, buf.logits[:R])
+     moe_mod.select_rows(buf.logits[:R], buf, w.cfg.top_k, w.cfg.experts)
++    if m.experts.remap is not None:                   # two ranks: whole experts a rank, the partial sums gathered
++        return 3, _exl3_moe_partial(m, w, b, R, buf), None
+     if not b.prefill and R <= MOE_WINDOW:
+         y = routed(b.mixed[:R], buf.pick[:R], None, m.experts, w.x3.moe, None, R)
+         return 2, y.view(R, buf.slots, -1), buf.wts[:R]
+@@ -354,6 +359,28 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
+     return 2, buf.y[:R], buf.wts[:R]
+ 
+ 
++def _exl3_moe_partial(m, w: Weights, b: Buffers, R: int, buf) -> torch.Tensor:
++    """This rank's weighted sum over the experts it holds, [world, R, D] after the gather (summed rank 0 first).
++
++    Each window's picks go through the layer's ``remap`` (``experts.share``): an expert held here becomes its row
++    in this rank's table, any other lands past the table, which the grouped kernel skips and whose weight is
++    zeroed, so ``down_combine`` adds exactly this rank's experts with the router's weights; the other rank's
++    partial carries the rest.
++    """
++
++    from tensorfold.cuda.exl3.experts import routed, share
++
++    from .exl3_pack import MOE_WINDOW
++
++    sc, ex = w.x3, m.experts
++    for r0 in range(0, R, MOE_WINDOW):
++        n = min(MOE_WINDOW, R - r0)
++        local, weights = share(ex, buf.pick[r0:r0 + n], buf.wts[r0:r0 + n], sc.pick_local[:n * buf.slots],
++                               sc.wts_local[:n * buf.slots])
++        routed(b.mixed[r0:r0 + n], local, weights, ex, sc.moe, b.part_moe[r0:r0 + n], n)
++    return _gather(w, b, b.part_moe, b.g_moe, R)
++
++
+ def _writeback(h: torch.Tensor, b: Buffers, R: int, c, pending) -> None:
+     """Apply a pending branch to the streams (in place), no read-out."""
+ 
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/image_rows.py b/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
+index 73e8278..35b2a01 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
+@@ -24,13 +24,17 @@ def rope_axis(pos, ROPE, DELTA, length, index, MODE: tl.constexpr, S1: tl.conste
+ 
+ 
+ def begin(engine, stream, tower) -> None:
+-    """Encode an image request on its admitted slot before the normal prompt passes."""
++    """Encode an image request on its slot before the prompt passes; on two ranks both attach rank 0's features."""
+ 
+-    if stream.vision is not None:
++    if stream.vision is None:
++        return
++    encoded = stream.vision if hasattr(stream.vision, "features") else None
++    if encoded is None:
+         if tower is None:
+             raise ValueError("image inputs require starting this server with --vision")
+-        attach(engine.st, tower.encode(stream.vision, stream.prompt), len(stream.prompt))
+-        stream.vision = None
++        encoded = tower.encode(stream.vision, stream.prompt)
++    attach(engine.st, encoded, len(stream.prompt))
++    stream.vision = None
+ 
+ 
+ def attach(st, encoded, length: int) -> None:
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi.py b/src/tensorfold/families/qwen4_exp/cuda/multi.py
+index e4326b4..e040b8a 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/multi.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/multi.py
+@@ -23,6 +23,7 @@ from . import attn_multi, gdn_multi, image_rows, prefixes
+ from .forward import commit, compute, compute_mixed, converges, stage
+ from .mtp import mtp_compute, mtp_stage
+ from .state import Buffers, State
++from .copy_drafts import CopyIndex
+ from .multi_solo import Alone, solo
+ from .multi_fill import FILL_GUARD, PASS_MIN, PromptPasses
+ from .multi_tp import Link as Link
+@@ -49,8 +50,10 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+ 
+     def __init__(self, w, *, slots: int, capacity: int, depth: int = DEPTH, confidence: float = CONFIDENCE,
+                  stop_eos: bool = True, keep: int = 8, kv_dtype: str = "bf16", prefill_rows: int = PREFILL_ROWS,
+-                 share: float = SHARE, points=None, graphs: bool = True, vision=None, workspace_bytes: int = 0) -> None:
++                 share: float = SHARE, points=None, graphs: bool = True, vision=None, workspace_bytes: int = 0,
++                 copy: bool = True) -> None:
+         self.link = self.follower = None
++        self.copy = bool(copy)                       # copy drafts (copy_drafts.py) for streams that draft
+         self.planning, self.pass_plan, self.mixed_plan = False, None, None
+         self.pass_index, self.pass_width = 0, prefill_rows
+         self.w, self.depth, self.confidence, self.capacity = w, depth, confidence, capacity
+@@ -250,10 +253,15 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+         s.count = max(1, min(s.count, room))
+         if any(x.waiting for x in self.streams.values()):
+             raise NoRoom("streams already wait for memory; a new request waits until one finishes")
+-        if self.w.comm is not None and any(x is not None for x in (s.constraint, s.vision, s.probabilities)):
++        if self.w.comm is not None and any(x is not None for x in (s.constraint, s.probabilities)):
+             raise ValueError("concurrent Flash Next on two ranks serves text without grammars or logprobs")
+         t0 = time.perf_counter()
+         if self.w.comm is not None:
++            if s.vision is not None and self.link is not None and not hasattr(s.vision, "features"):
++                # rank 0 encodes first, so a refused image fails here alone; a readmitted request keeps its features
++                if self.vision is None:
++                    raise ValueError("image inputs require starting this server with --vision")
++                s.vision = self.vision.encode(s.vision, s.prompt)
+             st, resume, s.cached = self._prepare_admission(s, told)
+         else:
+             st, resume, s.cached = self._slot_for(list(s.prompt), s.draft and s.vision is None)
+@@ -399,6 +407,8 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+                     s.error = exc
+             last = s.error is not None or len(s.out) + len(new) >= s.count or end in self._ends(s)
+             kept.append((s, a0, rows[:len(path)], new, last))
++            if s.copies is not None:                     # the copy index sees the round's tokens before the next draft
++                s.copies.extend(new)
+         self._draft_all([(s, a0, keep) for s, a0, keep, _, last in kept if s.draft and not last])
+         for s, _, _, new, _ in kept:
+             if s.error is not None:
+@@ -415,7 +425,7 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+         return failed + done + ended
+ 
+     def _draft_all(self, streams: list) -> None:
+-        """Every drafting stream absorbs its kept rows and chains drafts, all streams in one step a depth."""
++        """Streams absorb kept rows and chain drafts one step a depth; a copying stream still absorbs, then sits out."""
+ 
+         for s, _, _ in streams:
+             s.drafts = []
+@@ -423,6 +433,13 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+         todo = [(s, a0, keep) for s, a0, keep in streams if room[s.sid] > 0 and self.mbuf is not None]
+         if not todo:
+             return
++        copying: set[int] = set()
++        for s, _, _ in todo:
++            if s.copies is not None:
++                copied = s.copies.chain(room[s.sid])
++                if copied:
++                    s.drafts = copied
++                    copying.add(s.sid)
+         for s, _, _ in todo:
+             st = s.st
+             if st.mtp_drafted:
+@@ -434,10 +451,15 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+         for (s, _, keep), (st, a0, a1) in zip(todo, segs):
+             st.set_mtp_len(st.mtp_len + len(keep))
+         active = [(s, a1 - 1) for s, (_, _, a1) in zip([t[0] for t in todo], segs)]
++        if len(copying) == len(active):
++            return
+         for j in range(self.depth):
++            # level one picks for every absorbed stream (the two-rank gather reads them in order); copiers drop out
+             picks = self._picks(logits, [s.st.pos + 1 + j for s, _ in active], [s.sampling for s, _ in active])
+             nxt = []
+             for (s, row), (d, p) in zip(active, picks):
++                if s.sid in copying:
++                    continue
+                 low = self.confidence > 0 and p < self.confidence
+                 if low and j > 0:
+                     continue
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi_fill.py b/src/tensorfold/families/qwen4_exp/cuda/multi_fill.py
+index d909da0..8dfd8ac 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/multi_fill.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/multi_fill.py
+@@ -10,7 +10,8 @@ from tensorfold.cuda.logprobs import capture
+ from tensorfold.cuda.streams import Stream
+ 
+ from . import image_rows
+-from .decode import _gathered_fits, choose_gathered, entry_end, draft, tp_sample_rows
++from .copy_drafts import CopyIndex
++from .decode import _gathered_fits, absorb, choose_gathered, entry_end, draft, tp_sample_rows
+ from .forward import Cut, commit, compute, cut_snapshot, stage
+ from .mtp import mtp_compute, mtp_stage
+ from .state import CAND, ENDS
+@@ -216,8 +217,16 @@ class PromptPasses:
+                 s.constraint.advance([first])
+             head += 1
+             s.context = list(s.prompt)
+-            s.drafts = draft(e, last, [first], st.pos + 1, min(self.depth, s.count - 1), s.sampling,
+-                             self.confidence) if mtp and s.count > 1 else []
++            s.copies = CopyIndex(list(s.prompt) + [first]) if mtp and getattr(self, "copy", False) and s.constraint is None else None
++            s.drafts = []
++            if mtp and s.count > 1:
++                room = min(self.depth, s.count - 1)
++                copied = s.copies.chain(room) if s.copies is not None else []
++                if copied:                               # the MTP cache absorbs the prompt's last row either way
++                    absorb(e, last, [first])
++                    s.drafts = copied
++                else:
++                    s.drafts = draft(e, last, [first], st.pos + 1, room, s.sampling, self.confidence)
+             s.started = time.perf_counter()
+             self.streams[s.sid] = s
+             s.take([first], self._ends(s))
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi_plan.py b/src/tensorfold/families/qwen4_exp/cuda/multi_plan.py
+index 0c83983..7270a0e 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/multi_plan.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/multi_plan.py
+@@ -19,6 +19,7 @@ class Shadow:
+     def __init__(self, st, index: int, actions: list) -> None:
+         self.source, self.index, self.actions = st, index, actions
+         self.capacity, self.limit, self.pos, self.mtp_len = st.capacity, st.limit, st.pos, st.mtp_len
++        self.images = getattr(st, "image_positions", None) is not None     # an image prompt's rotary positions
+ 
+     def cache_bytes(self, rows=None):
+         return self.source.cache_bytes(self.capacity if rows is None else rows)
+@@ -86,7 +87,8 @@ def layout(p) -> dict:
+ 
+ def admission(dec, s) -> dict:
+     p = view(dec)
+-    st, resume, cached = p._slot_for(list(s.prompt), s.draft)
++    text = getattr(s, "vision", None) is None            # image prompts reuse no kept prefix (as on one GPU)
++    st, resume, cached = p._slot_for(list(s.prompt), s.draft and text)
+     source = next((st.index for ids, st, snap, _ in p.kept
+                    if resume is not None and snap is resume["state"] and ids == list(s.prompt[:cached])), None)
+     error = None
+@@ -96,7 +98,7 @@ def admission(dec, s) -> dict:
+         else:
+             p._remember(list(s.prompt[:cached]), st, resume["state"], resume["tail"])
+         error = f"a {len(s.prompt)}-token prompt waits for memory until a live stream finishes"
+-    markers = p.points(s.prompt) if s.draft and p.points is not None else []
++    markers = p.points(s.prompt) if s.draft and text and p.points is not None else []   # image prompts keep none
+     points = sorted({n for n in markers if cached + MIN_GAP <= n < entry_end(s.prompt)})
+     return {**layout(p), "slot": st.index, "cached": cached, "resume_slot": source, "error": error, "points": points}
+ 
+@@ -107,7 +109,7 @@ def round_plan(dec) -> dict:
+     live = [s for s in p.streams.values() if not s.done and not s.waiting]
+     solo = None
+     if (p.solo_on and not ended and not p.filling and len(p.streams) == 1
+-            and len(live) == 1 and live[0].draft and live[0].constraint is None):
++            and len(live) == 1 and live[0].draft and live[0].constraint is None and not live[0].st.images):
+         s = live[0]
+         if s.st is not p.solo.st:
+             p._move_to_solo(s)
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi_solo.py b/src/tensorfold/families/qwen4_exp/cuda/multi_solo.py
+index 23bc86a..30b4808 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/multi_solo.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/multi_solo.py
+@@ -8,7 +8,7 @@ from tensorfold.cuda.kernels import gdn
+ from tensorfold.cuda.logprobs import capture
+ from tensorfold.cuda.streams import Stream, accept
+ 
+-from .decode import Engine, draft
++from .decode import absorb, Engine, draft
+ from .forward import commit
+ from .state import Buffers
+ 
+@@ -120,8 +120,15 @@ class Alone:
+         last = len(s.out) + len(new) >= s.count or end in self._ends(s)
+         s.drafts = []
+         room = min(self.depth, s.count - len(s.out) - len(path))
++        if s.copies is not None:                         # the copy index sees the round's tokens before the next draft
++            s.copies.extend(new)
+         if not last and room > 0:
+-            s.drafts = draft(e, e.buf.streams[:len(path)], rows[:len(path)], st.pos + 1, room, s.sampling,
+-                             self.confidence)
++            copied = s.copies.chain(room) if s.copies is not None else []
++            if copied:                                   # copy drafts; the MTP cache still absorbs the kept rows
++                absorb(e, e.buf.streams[:len(path)], rows[:len(path)])
++                s.drafts = copied
++            else:
++                s.drafts = draft(e, e.buf.streams[:len(path)], rows[:len(path)], st.pos + 1, room, s.sampling,
++                                 self.confidence)
+         s.take(new, self._ends(s))
+         return [s] if s.done else []
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi_tp.py b/src/tensorfold/families/qwen4_exp/cuda/multi_tp.py
+index 5dcc6b9..6e69045 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/multi_tp.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/multi_tp.py
+@@ -108,7 +108,8 @@ class OutOfStep(RuntimeError):
+ def shape(dec) -> list:
+     """The logical state both ranks must share; cache contents are checked when a prefix is selected."""
+ 
+-    return [dec.next_id, [[s.capacity, s.limit, s.pos, s.mtp_len, list(s.cur), s.kv_dtype] for s in dec.slots],
++    return [dec.next_id, [[s.capacity, s.limit, s.pos, s.mtp_len, list(s.cur), s.kv_dtype,
++                           getattr(s, "image_positions", None) is not None] for s in dec.slots],
+             [[s.sid, dec._index(s.st), len(s.out), s.out[-1] if s.out else None, list(s.drafts),
+               bool(s.done), bool(s.waiting), s.background, s.draft, s.stop_eos, s.count, _pack(s.sampling)]
+              for s in [*dec.streams.values(), *dec.filling]],
+@@ -168,11 +169,16 @@ class TwoRanks:
+         resume = next(({"state": k[2], "tail": k[3]} for k in self.kept
+                        if self._index(k[1]) == source and len(k[0]) == cached and s.prompt[:cached] == k[0]), None)
+         valid = 0 <= slot < len(self.slots) and (cached == 0 or resume is not None)
++        # an image prompt: both ranks agree on its rows, decode offset and feature shape before the tensors cross
++        vision = getattr(s, "vision", None)
++        images = None if vision is None else vision if isinstance(vision, dict) else {
++            "rows": [int(r) for r in vision.rows], "delta": int(vision.rope_delta),
++            "shape": [int(n) for n in vision.features.shape]}
+         if self.link is not None:
+             self.link.send(["admit", self.next_id, list(s.prompt), s.count, _pack(s.sampling), bool(s.draft),
+-                            bool(s.stop_eos), bool(s.background), plan])
++                            bool(s.stop_eos), bool(s.background), plan, images])
+         valid, fits = self._agree("admission", [shape(self), plan, list(s.prompt), s.count, _pack(s.sampling),
+-                                               bool(s.draft), bool(s.stop_eos), bool(s.background)],
++                                               bool(s.draft), bool(s.stop_eos), bool(s.background), images],
+                                   (valid, ready(self, plan)))
+         if not valid:
+             raise OutOfStep("the agreed prefix is not available on both ranks")
+@@ -180,12 +186,26 @@ class TwoRanks:
+             if not self.streams and not self.filling:
+                 raise ValueError("the prompt cannot fit available memory; shorten it or lower the server context")
+             raise NoRoom("the proposed prompt cache growth does not fit on both ranks")
++        if images is not None:                       # both ranks reach this point or neither does
++            s.vision = self._share_vision(s, images)
+         apply(self, plan)
+         if plan["error"]:
+             raise NoRoom(plan["error"])
+         s.stops = list(plan["points"])
+         return self.slots[slot], resume, cached
+ 
++    def _share_vision(self, s, images: dict):
++        """Rank 0 sends its image features and positions after the agreed plan, before any round collective."""
++
++        from .vision_ranks import exchange
++
++        leader = self.link is not None
++        try:
++            return exchange(self.w.comm, 0 if leader else 1, len(s.prompt), images, s.vision if leader else None,
++                            hidden=int(self.w.cfg.hidden))
++        except ValueError as exc:
++            raise OutOfStep(str(exc)) from exc
++
+     def _prepare_round(self, told):
+         from .multi_plan import apply, ready, round_plan
+ 
+@@ -212,9 +232,10 @@ class TwoRanks:
+             if op is None or op[0] == "stop":
+                 return
+             if op[0] == "admit":
+-                sid, prompt, count, smp, drafted, stop, background, plan = op[1:]
++                sid, prompt, count, smp, drafted, stop, background, plan = op[1:9]
+                 s = Stream(prompt, count, _unpack(smp), draft=drafted, stop_eos=stop)
+                 s.background = background
++                s.vision = op[9] if len(op) > 9 else None    # an image prompt's rows, delta and feature shape
+                 try:
+                     self.admit(s, told=plan)
+                 except (ValueError, NoRoom, OutOfStep) as exc:
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py b/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py
+new file mode 100644
+index 0000000..d21d7eb
+--- /dev/null
++++ b/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py
+@@ -0,0 +1,40 @@
++"""Image features on two ranks: rank 0 encodes once and sends, so both feed identical hidden states to every layer."""
++
++from __future__ import annotations
++
++import torch
++
++
++def describe(encoded) -> dict | None:
++    """The rows, decode offset and feature shape of an encoded image prompt, as the request message carries them."""
++
++    if encoded is None:
++        return None
++    return {"rows": [int(r) for r in encoded.rows], "delta": int(encoded.rope_delta),
++            "shape": [int(n) for n in encoded.features.shape]}
++
++
++def exchange(comm, rank: int, length: int, images: dict, encoded=None, *, hidden: int):
++    """Rank 0 sends ``encoded``'s bf16 features and int32 positions; both ranks validate the description first."""
++
++    from tensorfold.cuda.comm import exchange as swap
++    from tensorfold.vision.qwen_cuda import EncodedVision
++
++    rows, delta, shape = images["rows"], int(images["delta"]), tuple(int(n) for n in images["shape"])
++    if (len(shape) != 2 or shape[0] != len(rows) or shape[1] != int(hidden) or not rows
++            or sorted(set(rows)) != list(rows) or rows[0] < 0 or rows[-1] >= length):
++        raise ValueError("the image rows rank 0 encoded do not fit the prompt it admitted")
++    if rank == 0:
++        if encoded is None:
++            raise ValueError("rank 0 shares an image prompt it has not encoded")
++        features = encoded.features.to(dtype=torch.bfloat16).contiguous()
++        positions = encoded.positions.to(dtype=torch.int32).contiguous()
++        if tuple(features.shape) != shape or tuple(positions.shape) != (3, length):
++            raise ValueError("the image features rank 0 encoded do not match what it told rank 1")
++        swap(comm, [features, positions], [features.new_empty((0,)), positions.new_empty((0,))], 1)
++        return EncodedVision(tuple(rows), features, positions, delta)
++    device = torch.device("cuda", 0)
++    features = torch.empty(shape, dtype=torch.bfloat16, device=device)
++    positions = torch.empty((3, length), dtype=torch.int32, device=device)
++    swap(comm, [features.new_empty((0,)), positions.new_empty((0,))], [features, positions], 0)
++    return EncodedVision(tuple(rows), features, positions, delta)
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/weight_types.py b/src/tensorfold/families/qwen4_exp/cuda/weight_types.py
+index 6043ec8..74a8637 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/weight_types.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/weight_types.py
+@@ -76,6 +76,7 @@ class Config:
+     quant: str = "mlx"                 # "mlx" (affine 4-bit everywhere) or "modelopt" (NVFP4 routed experts)
+     mrope_section: tuple[int, int, int] = (11, 11, 10)   # interleaved t/h/w rotary pairs
+     nvfp4_group: int = 16              # the NVFP4 block size (the checkpoint's config_groups weights.group_size)
++    rope_scaling: dict | None = None   # config.json's rope_parameters when its rope_type is "yarn" (see rotary_inv_freq)
+ 
+     @classmethod
+     def read(cls, model_dir: str | Path) -> "Config":
+@@ -115,6 +116,7 @@ class Config:
+             eos=eos, group_size=int(quant.get("group_size", 32)), bits=int(quant.get("bits", 4)),
+             quant=method, nvfp4_group=group,
+             mrope_section=tuple(int(x) for x in rope.get("mrope_section", (11, 11, 10))),
++            rope_scaling=dict(rope) if str(rope.get("rope_type") or rope.get("type") or "default") == "yarn" else None,
+         )
+ 
+     @property
+@@ -131,6 +133,84 @@ class Config:
+                      seed=self.seed, eos=self.ple_eos, embed_dim=self.ple_dim, ple_index=ple_index)
+ 
+ 
++def rotary_inv_freq(cfg: Config) -> tuple[torch.Tensor, float]:
++    """The rotary inverse frequencies (fp32, ``rotary_dim // 2``) and the factor cos and sin are scaled by.
++
++    Default rope: ``theta ** (-i / half)`` and 1.0. With YaRN in config.json's ``rope_parameters``
++    (``rope_type: yarn``, ``factor``, ``original_max_position_embeddings``, optional ``beta_fast`` 32,
++    ``beta_slow`` 1, ``attention_factor`` or ``mscale``/``mscale_all_dim``, ``truncate`` true) the frequencies and
++    the factor follow transformers' ``_compute_yarn_parameters``: the low-frequency pairs are interpolated by
++    ``factor``, the high-frequency pairs kept, a linear ramp between the correction bounds, and the attention
++    factor defaults to ``0.1 ln(factor) + 1``. Qwen3.8 Flash Next reaches 1M tokens this way (factor 4 over its
++    262,144 trained window); a static factor also shifts short prompts, so it belongs in a long-context profile.
++    """
++
++    import math
++
++    half = cfg.rotary_dim // 2
++    dim = cfg.rotary_dim
++    base = float(cfg.rope_theta)
++    pos_freqs = torch.tensor(base, dtype=torch.float64) ** (torch.arange(0, dim, 2, dtype=torch.float64) / dim)
++    plain = 1.0 / pos_freqs
++    y = cfg.rope_scaling
++    if not y:
++        return plain.to(torch.float32), 1.0
++    original = int(y.get("original_max_position_embeddings") or 0)
++    if original <= 0:
++        raise ValueError("rope_parameters: YaRN needs original_max_position_embeddings (the trained window)")
++    factor = y.get("factor")
++    factor = float(factor) if factor is not None else None
++    if factor is None:
++        raise ValueError("rope_parameters: YaRN needs factor (the window multiplier)")
++    if factor < 1.0:
++        raise ValueError(f"rope_parameters: YaRN factor {factor} is below 1")
++
++    def mscale_of(scale: float, m: float = 1.0) -> float:
++        return 1.0 if scale <= 1 else 0.1 * m * math.log(scale) + 1.0
++
++    attention = y.get("attention_factor")
++    if attention is None:
++        ms, msa = y.get("mscale"), y.get("mscale_all_dim")
++        attention = (mscale_of(factor, float(ms)) / mscale_of(factor, float(msa))) if ms and msa else mscale_of(factor)
++    beta_fast, beta_slow = float(y.get("beta_fast") or 32), float(y.get("beta_slow") or 1)
++    truncate = bool(y.get("truncate", True))
++
++    def correction_dim(rotations: float) -> float:
++        return (dim * math.log(original / (rotations * 2 * math.pi))) / (2 * math.log(base))
++
++    low, high = correction_dim(beta_fast), correction_dim(beta_slow)
++    if truncate:
++        low, high = math.floor(low), math.ceil(high)
++    low, high = max(low, 0), min(high, dim - 1)
++    if low == high:
++        high += 0.001
++    ramp = ((torch.arange(half, dtype=torch.float64) - low) / (high - low)).clamp(0, 1)
++    extrapolation = 1 - ramp
++    inv = (plain / factor) * (1 - extrapolation) + plain * extrapolation
++    return inv.to(torch.float32), float(attention)
++
++
++def scale_rotary(w: "Weights", factor: float) -> None:
++    """Fold the rotary attention factor into the rotated dims of every attention head's norm scales.
++
++    The kernels build cos and sin from ``inv_freq`` and the position, so the factor cannot ride the frequencies;
++    rotation is linear, so scaling a query's and a key's rotated dims by it before rotation equals the reference's
++    ``cos * factor`` and ``sin * factor``. The pass-through dims stay; the indexer's queries and pooled keys take
++    it too, as the reference rotates them with the same embedding.
++    """
++
++    if factor == 1.0:
++        return
++    r = w.cfg.rotary_dim
++    layers = list(w.layers) + ([w.mtp.layer] if w.mtp is not None else [])
++    for layer in layers:
++        a = layer.attn
++        if a is None:
++            continue
++        for scale in (a.q_scale, a.k_scale, a.iq_scale, a.ik_scale):
++            scale[:r].mul_(factor)
++
++
+ @dataclass
+ class HC:
+     down: Q4                  # [low (+ streams), S*D]: input_mix_weight_down (then block_inject_weight)
+diff --git a/src/tensorfold/families/qwen4_exp/cuda/weights.py b/src/tensorfold/families/qwen4_exp/cuda/weights.py
+index 5159a73..051253f 100644
+--- a/src/tensorfold/families/qwen4_exp/cuda/weights.py
++++ b/src/tensorfold/families/qwen4_exp/cuda/weights.py
+@@ -8,13 +8,15 @@ import numpy as np
+ import torch
+ 
+ from ..host_table import open_table, shard_keys
++from . import bf16 as bf16_mod
+ from .bf16 import b16_from_rows, quantize4, stack_b16
+ from tensorfold.cuda import experts as grouped
+ 
+ from .qmm import Q4, dequantize, make_q4, stack_q4
+ from .reader import _DT, _Reader, _groups, _rows, _rows_at, norms_around_one  # noqa: F401
+ from .weight_types import (
+-    AttnW, Config, GDNW, HC, LayerW, MoEW, MTPW, PLEW, Weights, draft_token_ids, stop_ids)  # noqa: F401 (re-exported)
++    AttnW, Config, GDNW, HC, LayerW, MoEW, MTPW, PLEW, Weights, draft_token_ids, rotary_inv_freq, scale_rotary,
++    stop_ids)  # noqa: F401 (re-exported)
+ 
+ 
+ _PLAIN = (torch.bfloat16, torch.float16, torch.float32)
+@@ -317,6 +319,36 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+             moe4 = nvfp4_moe.moe4_from_bf16(gu, dn, shared)
+         return MoEW(router, moe4)
+ 
++    def moe_affine(name: str) -> MoEW:
++        """An affine-experts checkpoint's MoE: affine 4-bit routed experts (stacked MLX arrays), bf16 shared expert and gates."""
++
++        from . import affine_moe
++
++        gs = cfg.group_size
++        router = raw(name + ".gate.weight").to(torch.bfloat16)
++        sgate = raw(name + ".shared_expert_gate.weight").to(torch.bfloat16).reshape(full.hidden).contiguous()
++        router = torch.cat([router, sgate[None]]).contiguous()
++        w_ = full.moe_width
++        lo, hi = rank * w_ // world, (rank + 1) * w_ // world          # a rank's half of every expert's width
++        if lo % gs or hi % gs:
++            raise ValueError(f"{name}: a rank's expert width [{lo}, {hi}) is not whole groups of {gs}")
++
++        def gu(t3):
++            return _rows(t3, lo, hi)
++
++        def dn(t3):
++            w, sc, b = t3
++            return (w[..., lo // 8:hi // 8].contiguous(), sc[..., lo // gs:hi // gs].contiguous(),
++                    b[..., lo // gs:hi // gs].contiguous())
++
++        routed = grouped.make([gu(triple(name + ".switch_mlp.gate_proj")), gu(triple(name + ".switch_mlp.up_proj"))],
++                              dn(triple(name + ".switch_mlp.down_proj")), gs)
++        se = f"{name}.shared_expert."
++        gate = _plain(se + "gate_proj", raw(se + "gate_proj.weight")).to(torch.bfloat16)[lo:hi]
++        up = _plain(se + "up_proj", raw(se + "up_proj.weight")).to(torch.bfloat16)[lo:hi]
++        down = _plain(se + "down_proj", raw(se + "down_proj.weight")).to(torch.bfloat16)[:, lo:hi]
++        return MoEW(router, affine_moe.MoEA(routed, bf16_mod.make_b16(torch.cat([gate, up])), bf16_mod.make_b16(down)))
++
+     def attention(name: str) -> AttnW:
+         hd = full.head_dim
+         hl, kl = full.heads // world, full.kv_heads // world
+@@ -368,23 +400,28 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+ 
+     def layer(i: int, base: str, kind: str, with_ple: bool) -> LayerW:
+         linear = kind == "linear"
+-        nvfp4 = cfg.quant == "modelopt"                 # NVFP4: routed experts FP4, every other linear BF16
++        plain = cfg.quant != "mlx"           # NVFP4 / affine-experts: routed experts quantized, every other linear BF16
++        experts = {"modelopt": moe_nvfp4, "affine-experts": moe_affine}.get(cfg.quant, moe)
+         entry = LayerW(i, linear,
+-                       (hc_nvfp4 if nvfp4 else hc)(base + ".attn_hyper_connection", True),
+-                       (hc_nvfp4 if nvfp4 else hc)(base + ".mlp_hyper_connection", True),
+-                       (gdn_nvfp4 if nvfp4 else gdn)(base + ".linear_attn") if linear else None,
+-                       None if linear else (attention_nvfp4 if nvfp4 else attention)(base + ".self_attn"),
+-                       (moe_nvfp4 if nvfp4 else moe)(base + ".mlp"))
++                       (hc_nvfp4 if plain else hc)(base + ".attn_hyper_connection", True),
++                       (hc_nvfp4 if plain else hc)(base + ".mlp_hyper_connection", True),
++                       (gdn_nvfp4 if plain else gdn)(base + ".linear_attn") if linear else None,
++                       None if linear else (attention_nvfp4 if plain else attention)(base + ".self_attn"),
++                       experts(base + ".mlp"))
+         if with_ple and i in cfg.ple_layers:
+-            entry.ple = (ple_nvfp4 if nvfp4 else ple_layer)(base + ".ple", cfg.ple_layers.index(i))
++            entry.ple = (ple_nvfp4 if plain else ple_layer)(base + ".ple", cfg.ple_layers.index(i))
+         return entry
+ 
+     t0 = time.time()
+-    if cfg.quant not in ("mlx", "modelopt"):
+-        raise ValueError(f"Flash Next's CUDA engine reads MLX 4-bit (groups of 32) or NVFP4 (experts-only) "
+-                         f"checkpoints, not {cfg.quant}")
++    if cfg.quant not in ("mlx", "modelopt", "affine-experts"):
++        raise ValueError(f"Flash Next's CUDA engine reads MLX 4-bit (groups of 32), NVFP4 (experts-only) or "
++                         f"affine-experts checkpoints, not {cfg.quant}")
++    if cfg.quant == "affine-experts" and (cfg.bits != 4 or cfg.group_size not in (32, 64)):
++        raise ValueError(f"affine-experts: the routed experts are read as 4-bit in groups of 32 or 64, not "
++                         f"{cfg.bits}-bit g{cfg.group_size}")
++    plain = cfg.quant != "mlx"                        # the embedding, mixer, head and MTP fc linears are bf16
+     try:                                              # a failed load cancels the reads queued ahead
+-        embed = ((raw(mbase + "embed_tokens.weight").to(torch.bfloat16).contiguous(),) if cfg.quant == "modelopt"
++        embed = ((raw(mbase + "embed_tokens.weight").to(torch.bfloat16).contiguous(),) if plain
+                  else triple("model.embed_tokens"))
+         loaded = []
+         ahead = rd.layer_names(prefix, mbase, chosen, mtp)   # read ahead of the layer that takes them
+@@ -400,7 +437,7 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+             rd.release()
+             if i % 8 == 7:                        # each release waits for the device; a layer leaves few temporaries
+                 torch.cuda.empty_cache()
+-        mixer = (hc_nvfp4 if cfg.quant == "modelopt" else hc)(mbase + "hyper_connection_mixer", False)
++        mixer = (hc_nvfp4 if plain else hc)(mbase + "hyper_connection_mixer", False)
+         vl = full.vocab // world
+         if cfg.quant == "modelopt" and rd.has(prefix + "lm_head.weight_scale_inv"):     # block FP8: its stored bytes
+             from dataclasses import replace
+@@ -409,7 +446,7 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+ 
+             head = replace(Fp8BlockLinear.from_checkpoint(raw("lm_head.weight"), raw("lm_head.weight_scale_inv")),
+                            lane=True)
+-        elif cfg.quant == "modelopt":
++        elif plain:
+             head = b16_rows(weight_bf16("lm_head")[rank * vl:(rank + 1) * vl])
+         else:
+             head_raw = triple("lm_head")
+@@ -422,21 +459,21 @@ def load(model_dir: str | Path, device: str = "cuda", *, mtp: bool = True, tp: t
+             ids = np.array_split(ids[ids < full.vocab], world)[rank]
+             ids = torch.from_numpy(ids).to(device)
+             draft_ids = ids
+-            if cfg.quant == "modelopt":
++            if plain:
+                 draft_head = quantize4(weight_bf16("lm_head", ids))
+             else:
+                 draft_head = make_q4(*_rows_at(triple("lm_head"), ids))
+-        inv = torch.tensor(cfg.rope_theta, dtype=torch.float64) ** (
+-            -torch.arange(0, cfg.rotary_dim // 2, dtype=torch.float64) / (cfg.rotary_dim // 2))
+-        w = Weights(cfg, embed, loaded, mixer, head, inv.to(torch.float32).to(device), around_one=around_one)
++        inv, rope_factor = rotary_inv_freq(cfg)
++        w = Weights(cfg, embed, loaded, mixer, head, inv.to(device), around_one=around_one)
+         w.meta.update(rank=rank, world=world, vocab_offset=rank * vl, full=full)
+         w.draft_head, w.draft_ids = draft_head, draft_ids
+         if mtp and rd.has(prefix + "mtp.fc_embedding.weight"):
+-            fc = b16 if cfg.quant == "modelopt" else q4
++            fc = b16 if plain else q4
+             w.mtp = MTPW(cscale("mtp.pre_fc_norm_embedding.weight"), cscale("mtp.pre_fc_norm_hidden.weight"),
+                          fc("mtp.fc_embedding"), fc("mtp.fc_hidden"),
+                          layer(-1, "mtp.layers.0", "attention", False),
+-                         (hc_nvfp4 if cfg.quant == "modelopt" else hc)("mtp.hyper_connection_mixer", False))
++                         (hc_nvfp4 if plain else hc)("mtp.hyper_connection_mixer", False))
++        scale_rotary(w, rope_factor)
+     except BaseException:
+         rd.close()
+         raise
+diff --git a/src/tensorfold/server/tools.py b/src/tensorfold/server/tools.py
+index d7042f8..1270fa1 100644
+--- a/src/tensorfold/server/tools.py
++++ b/src/tensorfold/server/tools.py
+@@ -7,7 +7,7 @@ import re
+ import uuid
+ from typing import Any
+ 
+-from tensorfold.tool_parameters import decode_parameter, parameter_schemas
++from tensorfold.tool_parameters import decode_parameter, keeps_parameter, parameter_schemas
+ 
+ def tool_spec_name(tool: dict[str, Any]) -> str:
+     function = tool.get("function") if isinstance(tool, dict) else None
+@@ -242,10 +242,12 @@ def _parse_tool_call_payload(block: str, schemas: dict[str, dict[str, Any]] | No
+     body = match.group(2)
+     if complete and _TOOL_PARAMETER_BLOCK_RE.sub("", body).strip():
+         return None
++    properties = (schemas or {}).get(name.lower(), {})
+     for param_match in _TOOL_PARAMETER_BLOCK_RE.finditer(body):
+         key = param_match.group(1).strip()
+-        schema = (schemas or {}).get(name.lower(), {}).get(key, {})
+-        arguments[key] = decode_parameter(param_match.group(2), schema)
++        if not keeps_parameter(key, properties):
++            continue
++        arguments[key] = decode_parameter(param_match.group(2), properties.get(key, {}))
+     if not name:
+         raise ValueError("tool_call is missing a function name")
+     return name, arguments
+diff --git a/src/tensorfold/tool_parameters.py b/src/tensorfold/tool_parameters.py
+index d722004..791d027 100644
+--- a/src/tensorfold/tool_parameters.py
++++ b/src/tensorfold/tool_parameters.py
+@@ -8,6 +8,14 @@ from collections.abc import Sequence
+ from typing import Any
+ 
+ 
++def keeps_parameter(key: str, properties: dict[str, Any] | None) -> bool:
++    """Whether a tool call's argument is kept: a tool that declares properties takes only those; one that
++    declares none takes every argument. Qwen3.8-Flash-Next (MLX 4-bit) sometimes adds an optional argument the
++    schema does not have (``formal`` on a translate tool); dropping it leaves the call the client asked for."""
++
++    return not properties or key in properties
++
++
+ def parameter_schemas(tools: Sequence[dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
+     """Each offered tool's parameter schemas by lowercase name; a spec that is not an object reads as untyped."""
+ 
+diff --git a/src/tensorfold/vision/qwen_cuda.py b/src/tensorfold/vision/qwen_cuda.py
+index 80bb3f2..8ec73a2 100644
+--- a/src/tensorfold/vision/qwen_cuda.py
++++ b/src/tensorfold/vision/qwen_cuda.py
+@@ -44,7 +44,7 @@ class EncodedVision:
+ def vision_config(model_dir: str | Path) -> dict:
+     raw = json.loads((Path(model_dir) / "config.json").read_text())
+     config = raw.get("vision_config")
+-    if not isinstance(config, dict) or config.get("model_type") not in ("qwen3_5", "qwen4_exp"):
++    if not isinstance(config, dict) or config.get("model_type") not in ("qwen3_5", "qwen4_exp", "qwen4_exp_vision"):
+         raise ValueError("CUDA vision requires a Qwen3.5-compatible vision checkpoint")
+     if config.get("deepstack_visual_indexes"):
+         raise ValueError("CUDA Qwen vision does not support deepstack image features")
+diff --git a/tests/cuda/test_flashnext_affine_experts.py b/tests/cuda/test_flashnext_affine_experts.py
+new file mode 100644
+index 0000000..656a585
+--- /dev/null
++++ b/tests/cuda/test_flashnext_affine_experts.py
+@@ -0,0 +1,112 @@
++"""affine-experts checkpoints: the routed plan leaves picks past its table out, and the shared expert runs bf16 beside it.
++
++The grouped MLX expert kernel's plan used to index every pick; an affine-experts layer's selection puts the shared
++expert's id (E) in the last slot while its routed table holds E experts, so the plan must skip that slot. The moe
++routine is then checked against a plain-torch reference on random weights."""
++
++import pytest
++
++torch = pytest.importorskip("torch")
++pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="the grouped expert kernels need a GPU")
++
++
++def _plan_members(picks: torch.Tensor, experts: int, rows: int, slots: int):
++    from tensorfold.cuda import experts as grouped
++
++    plan = grouped.Plan(rows, slots, experts, picks.device)
++    grouped.route(picks, plan)
++    n_items, n_experts = (int(v) for v in plan.counts.tolist())
++    items = plan.items[:n_items].tolist()
++    members: dict[int, list[int]] = {}
++    for e, first, count in items:                          # an expert's pairs span several tiles (items)
++        members.setdefault(e, []).extend(int(plan.members[first + j]) for j in range(count))
++    return {e: sorted(m) for e, m in members.items()}, n_items
++
++
++@pytest.mark.parametrize("rows", [3, 40, 300])            # the one-block plan and the wide (ranked) plan
++def test_picks_past_the_table_are_left_out_of_the_plan(rows: int) -> None:
++    experts, slots = 6, 4
++    g = torch.Generator(device="cpu").manual_seed(rows)
++    picks = torch.randint(0, experts, (rows, slots), generator=g, dtype=torch.int32)
++    picks[:, -1] = experts                                # the shared slot: past the table
++    picks = picks.cuda()
++    got, n_items = _plan_members(picks, experts, rows, slots)
++    flat = picks.reshape(-1).tolist()
++    want = {e: sorted(p for p, pe in enumerate(flat) if pe == e) for e in range(experts)}
++    want = {e: m for e, m in want.items() if m}
++    assert got == want, "the plan's members differ from the picks below E"
++    assert all(e < experts for e in got)
++    # the same picks with the last slot inside the table: every pair placed
++    inside = picks.clone()
++    inside[:, -1] = 0
++    got2, _ = _plan_members(inside, experts, rows, slots)
++    assert sum(len(m) for m in got2.values()) == rows * slots
++    assert sum(len(m) for m in got.values()) == rows * (slots - 1)
++
++
++def _affine(w: torch.Tensor, gs: int):
++    """bf16 [N, K] -> MLX words, scales, biases (groups of gs) and the bf16 values they decode to."""
++
++    n, k = w.shape
++    g = w.float().reshape(n, k // gs, gs)
++    mn, mx = g.min(-1, keepdim=True).values, g.max(-1, keepdim=True).values
++    s = ((mx - mn) / 15).clamp(min=1e-8).to(torch.bfloat16).float()
++    b = mn.to(torch.bfloat16).float()
++    q = ((g - b) / s).round().clamp(0, 15).to(torch.int64)
++    words = (q.reshape(n, k // 8, 8) << (torch.arange(8, device=w.device) * 4)).sum(-1)
++    words = torch.where(words >= 2 ** 31, words - 2 ** 32, words).to(torch.int32)
++    deq = (q.float() * s + b).reshape(n, k)
++    return words, s.reshape(n, -1).to(torch.bfloat16), b.reshape(n, -1).to(torch.bfloat16), deq
++
++
++def test_affine_moe_matches_a_torch_reference() -> None:
++    from tensorfold.cuda import experts as grouped
++    from tensorfold.cuda import moe as moe_mod
++    from tensorfold.families.qwen4_exp.cuda import affine_moe, bf16
++
++    torch.manual_seed(0)
++    E, D, NI, top_k, rows, gs = 8, 256, 128, 3, 37, 64
++    dev = "cuda"
++    gate = [torch.randn(NI, D, device=dev).to(torch.bfloat16) * 0.05 for _ in range(E)]
++    up = [torch.randn(NI, D, device=dev).to(torch.bfloat16) * 0.05 for _ in range(E)]
++    down = [torch.randn(D, NI, device=dev).to(torch.bfloat16) * 0.05 for _ in range(E)]
++    qg, qu, qd = (list(zip(*[_affine(w, gs) for w in ws])) for ws in (gate, up, down))
++    stacked = lambda t: tuple(torch.stack(x) for x in t[:3])          # noqa: E731
++    ex = grouped.make([stacked(qg), stacked(qu)], stacked(qd), gs)
++    sg = (torch.randn(NI, D, device=dev) * 0.05).to(torch.bfloat16)
++    su = (torch.randn(NI, D, device=dev) * 0.05).to(torch.bfloat16)
++    sd = (torch.randn(D, NI, device=dev) * 0.05).to(torch.bfloat16)
++    layer = affine_moe.MoEA(ex, bf16.make_b16(torch.cat([sg, su])), bf16.make_b16(sd))
++    router = (torch.randn(E + 1, D, device=dev) * 0.1).to(torch.bfloat16)
++
++    class Cfg:
++        num_experts_per_tok, num_experts, moe_intermediate_size, hidden_size = top_k, E, NI, D
++
++    buf = moe_mod.MoEBuffers(64, Cfg, dev)
++    x = (torch.randn(rows, D, device=dev) * 0.5).to(torch.bfloat16)
++    affine_moe.moe(x, router, layer, buf, top_k, E)
++    out = moe_mod.combine(buf.y[:rows], buf.wts[:rows])
++
++    # reference: the same routing (picks and weights from the kernel), each slot in fp32 on the decoded weights
++    picks, wts = buf.pick[:rows].tolist(), buf.wts[:rows].float()
++    xf = x.float()
++    ref = torch.zeros(rows, D, device=dev)
++    for r in range(rows):
++        for k in range(top_k + 1):
++            e = picks[r][k]
++            if e < E:
++                h = torch.nn.functional.silu(xf[r] @ qg[3][e].T) * (xf[r] @ qu[3][e].T)
++                y = h @ qd[3][e].T
++            else:
++                g = (xf[r] @ sg.float().T).to(torch.bfloat16).float()
++                u = (xf[r] @ su.float().T).to(torch.bfloat16).float()
++                h = (torch.nn.functional.silu(g).to(torch.bfloat16).float() * u).to(torch.bfloat16).float()
++                y = h @ sd.float().T
++            ref[r] += wts[r, k] * y
++    assert all(picks[r][top_k] == E for r in range(rows))
++    err = (out.float() - ref).abs().max().item()
++    scale = ref.abs().max().item()
++    assert err < 0.02 * scale + 1e-3, f"affine moe differs from the reference: max err {err:.4g} on values up to {scale:.4g}"
++    # the shared slot was never touched by the grouped kernels: its activation is the bf16 shared SwiGLU
++    want_act = layer.shared_act(x)
++    assert torch.equal(buf.act[:rows, top_k], want_act)
+diff --git a/tests/cuda/test_qwen4_exp_exl3.py b/tests/cuda/test_qwen4_exp_exl3.py
+index 560152c..daf7187 100644
+--- a/tests/cuda/test_qwen4_exp_exl3.py
++++ b/tests/cuda/test_qwen4_exp_exl3.py
+@@ -113,7 +113,7 @@ def test_pack_norms_are_centred_and_rows_equal_exllamav3():
+ @needs_model
+ def test_real_routed_experts_match_fp64_and_are_row_invariant():
+     from tensorfold.cuda.exl3 import format as fmt
+-    from tensorfold.cuda.exl3.experts import Scratch, routed
++    from tensorfold.cuda.exl3.experts import Scratch, routed, share
+ 
+     pk = exl3_pack.Pack(MODEL)
+     name = "model.language_model.layers.5.mlp"
+@@ -239,3 +239,100 @@ def test_cut_model_prompts_ignore_chunking_and_resume_as_fresh(cut_model):
+     snap = e.st.snapshot()
+     for key in ("rec", "conv", "ple_tail"):
+         assert torch.equal(snap[key], runs[0][1][key]), key
++
++
++@needs_model
++def test_two_rank_cuts_equal_the_whole_layer():
++    """``x3_part``: an output slice equals the layer's columns; input slices' partial outputs add up to the layer."""
++
++    from tensorfold.families.qwen4_exp.cuda import exl3_mm
++    from tensorfold.families.qwen4_exp.cuda.weights import Config
++
++    pk = exl3_pack.Pack(MODEL)
++    cfg = Config.read(MODEL)
++    att = cfg.layer_types.index("attention")
++    lin = cfg.layer_types.index("linear")
++    moe = f"model.language_model.layers.{lin}.mlp"
++    ex = exl3.expert_table(pk, moe + ".experts", cfg.experts, moe + ".shared_expert", DEV)
++    sc = exl3_mm.Scratch(cfg.top_k + 1)
++    g = torch.Generator().manual_seed(3)
++    cuts = []
++    for name, kind in ((f"model.language_model.layers.{att}.self_attn.q_proj", "rows"),
++                       (f"model.language_model.layers.{lin}.linear_attn.in_proj_qkv", "rows"),
++                       (f"model.language_model.layers.{att}.self_attn.o_proj", "cols"),
++                       (f"model.language_model.layers.{lin}.linear_attn.out_proj", "cols")):
++        whole = exl3_mm.x3(sc, pk, name, DEV)
++        size = whole.n if kind == "rows" else whole.k
++        assert size % 256 == 0, (name, size)
++        halves = [exl3_mm.x3_part(sc, pk, name, DEV, **{kind: (r * size // 2, (r + 1) * size // 2)}, bias=r == 0)
++                  for r in range(2)]
++        cuts.append((name, kind, whole, halves))
++    sc.allocate(DEV, experts=ex, rows=64, ple_words=0, ple_heads=0, ple_dim=cfg.ple_dim)
++    for name, kind, whole, halves in cuts:
++        x = (torch.randn(5, whole.k, generator=g) * 0.5).to(torch.bfloat16).to(DEV)
++        full = whole(x, torch.empty((5, whole.n), dtype=torch.float32, device=DEV))
++        if kind == "rows":
++            for r, part in enumerate(halves):
++                got = part(x, torch.empty((5, part.n), dtype=torch.float32, device=DEV))
++                want = full[:, r * whole.n // 2:(r + 1) * whole.n // 2]
++                assert torch.allclose(got, want, rtol=1e-2, atol=2e-2), (name, r, (got - want).abs().max())
++        else:
++            got = torch.zeros_like(full)
++            for r, part in enumerate(halves):
++                xs = x[:, r * whole.k // 2:(r + 1) * whole.k // 2].contiguous()
++                got += part(xs, torch.empty((5, part.n), dtype=torch.float32, device=DEV))
++            assert torch.allclose(got, full, rtol=1e-2, atol=2e-2), (name, (got - full).abs().max())
++    with pytest.raises(ValueError):
++        exl3_mm.x3_part(sc, pk, cuts[0][0], DEV, rows=(64, 192))
++
++
++@needs_model
++def test_two_rank_expert_shares_add_up_to_the_layer():
++    """Whole experts a rank: the ranks' ``remap``ped, weighted partial sums equal the one-table combine."""
++
++    from tensorfold.cuda.exl3.experts import Scratch, routed, share
++
++    pk = exl3_pack.Pack(MODEL)
++    name = "model.language_model.layers.5.mlp"
++    whole = exl3.expert_table(pk, name + ".experts", 512, name + ".shared_expert", DEV)
++    parts = [exl3.expert_table(pk, name + ".experts", 512, name + ".shared_expert", DEV, rank=r, world=2,
++                               shared_rank=1) for r in range(2)]
++    assert whole.remap is None and (whole.count, parts[0].count, parts[1].count) == (513, 256, 257)
++    assert parts[0].remap.tolist()[:3] == [0, 1, 2] and int(parts[0].remap[300]) == 256 and int(parts[0].remap[512]) == 256
++    assert int(parts[1].remap[256]) == 0 and int(parts[1].remap[512]) == 256 and int(parts[1].remap[0]) == 257
++    g = torch.Generator().manual_seed(4)
++    rows = 40
++    x = (torch.randn(rows, 2560, generator=g) * 0.5).to(torch.bfloat16).to(DEV)
++    pick = torch.stack([torch.randperm(512, generator=g)[:10] for _ in range(rows)]).to(torch.int32)
++    pick = torch.cat([pick, torch.full((rows, 1), 512, dtype=torch.int32)], 1).to(DEV).contiguous()
++    wts = torch.softmax(torch.randn(rows, 11, generator=g), dim=-1).to(DEV).contiguous()
++    scratch = Scratch(whole, 64, 11, device=DEV)              # one scratch for every table (the engine keeps one)
++    want = routed(x, pick, wts, whole, scratch, torch.empty((rows, 2560), device=DEV), rows)
++    for _ in range(2):                                        # the second pass finds the first's slot outputs
++        got = torch.zeros_like(want)
++        for ex in parts:
++            local, weights = share(ex, pick, wts)
++            assert int((local >= ex.count).sum()) > 0 and float(weights[local >= ex.count].abs().sum()) == 0.0
++            got += routed(x, local, weights, ex, scratch, torch.empty((rows, 2560), device=DEV), rows)
++        assert torch.allclose(got, want, rtol=1e-3, atol=1e-3), (got - want).abs().max()
++    ids = pick[0].tolist()
++    assert parts[0].nbytes_read(ids) + parts[1].nbytes_read(ids) == whole.nbytes_read(ids) > 0
++
++
++def test_f16_partials_take_a_full_concurrent_window():
++    """``F16.partials`` serves a 16-stream x 16-draft decode window (256 rows): slices sum to the matmul, row by row."""
++
++    g = torch.Generator().manual_seed(7)
++    sc = exl3_mm.Scratch(11)
++    w = (torch.randn(324, 10240, generator=g) * 0.02).half()
++    lin = exl3_mm.f16(sc, [w], DEV)
++    sc.part = torch.empty((lin.sk * 256 * 324,), dtype=torch.float32, device=DEV)
++    x = torch.randn(256, 10240, generator=g).to(torch.bfloat16).to(DEV)
++    full = lin(x, torch.empty((256, 324), dtype=torch.float32, device=DEV)).clone()
++    got = lin.partials(x)
++    assert got.shape == (lin.sk, 256, 324)
++    assert torch.allclose(got.sum(0), full, rtol=1e-4, atol=1e-5)
++    one = lin.partials(x[200:201].contiguous()).clone()
++    assert torch.equal(one[:, 0], got[:, 200])
++    with pytest.raises(ValueError):
++        lin.partials(torch.randn(257, 10240, device=DEV).to(torch.bfloat16))
+diff --git a/tests/test_copy_drafts.py b/tests/test_copy_drafts.py
+new file mode 100644
+index 0000000..d9ac0af
+--- /dev/null
++++ b/tests/test_copy_drafts.py
+@@ -0,0 +1,53 @@
++"""Copy drafts: the latest earlier copy's continuation, at least COPY_MATCH long, never the needle; the env switch."""
++
++import os
++
++from tensorfold.families.qwen4_exp.cuda.copy_drafts import COPY_MATCH, CopyIndex, enabled
++
++A = list(range(100, 140))                 # 40 distinct tokens
++B = list(range(200, 212))                 # 12 more
++
++
++def test_no_copy_no_chain():
++    assert CopyIndex(A).chain(15) == []
++    assert CopyIndex(A + A[:COPY_MATCH - 1]).chain(15) == []      # the tail repeats fewer than COPY_MATCH tokens
++
++
++def test_a_repeated_tail_drafts_its_continuation():
++    ctx = A + B + A[:COPY_MATCH]                                    # the tail is A's first 8 tokens again
++    assert CopyIndex(ctx).chain(15) == A[COPY_MATCH:COPY_MATCH + 15]
++    assert CopyIndex(ctx).chain(40) == A[COPY_MATCH:] + B[:8]       # up to max_nodes, across what followed
++
++
++def test_a_round_without_room_for_a_chain_gets_none():
++    ctx = A + B + A[:COPY_MATCH]
++    assert CopyIndex(ctx).chain(COPY_MATCH - 1) == []               # the MTP chain takes such a round
++    assert CopyIndex(ctx).chain(COPY_MATCH) == A[COPY_MATCH:2 * COPY_MATCH]
++
++
++def test_the_latest_copy_wins_and_the_needle_is_not_a_copy():
++    first = A[:COPY_MATCH] + [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
++    second = A[:COPY_MATCH] + [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
++    ctx = first + second + A[:COPY_MATCH]
++    assert CopyIndex(ctx).chain(10) == [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
++    # a tail repeated back to back: the earlier copy is followed by the needle, which is drafted (the pattern repeats)
++    assert CopyIndex(A[:COPY_MATCH] + A[:COPY_MATCH]).chain(15) == A[:COPY_MATCH]
++
++
++def test_extend_is_the_same_as_rebuilding():
++    ctx = A + B + A[:COPY_MATCH + 4]
++    grown = CopyIndex(ctx[:30])
++    for t in ctx[30:]:
++        grown.extend([t])
++    assert grown.chain(15) == CopyIndex(ctx).chain(15) == A[COPY_MATCH + 4:COPY_MATCH + 4 + 15]
++    assert grown.ctx == ctx
++
++
++def test_switch(monkeypatch):
++    monkeypatch.delenv("TENSORFOLD_COPY_DRAFTS", raising=False)
++    assert enabled() and not enabled(False)
++    for off in ("0", "off", "False", " no "):
++        monkeypatch.setenv("TENSORFOLD_COPY_DRAFTS", off)
++        assert not enabled()
++    monkeypatch.setenv("TENSORFOLD_COPY_DRAFTS", "1")
++    assert enabled(False)
+diff --git a/tests/test_cuda_tool_system.py b/tests/test_cuda_tool_system.py
+new file mode 100644
+index 0000000..504d93b
+--- /dev/null
++++ b/tests/test_cuda_tool_system.py
+@@ -0,0 +1,63 @@
++"""``--tool-system``: the CUDA server adds its instruction to a chat request that offers tools and has no system
++message. A request's own system message wins, and a request without tools is rendered as before."""
++
++import json
++
++from tests.test_cuda_admission import http_server, post
++from tests.test_cuda_tool_choice import EOS, Tokens, app_for
++
++TOOLS = [{"type": "function", "function": {"name": "echo", "parameters": {"type": "object", "properties": {}}}}]
++RULE = "Tool calls: include only the arguments the user gave."
++
++
++class Engine:
++    """Records the prompt it was given and answers 'ok'."""
++
++    eos = (EOS,)
++
++    def __init__(self):
++        self.prompts = []
++
++    def generate(self, prompt, max_tokens, sampling, on_tokens, draft=True):
++        self.prompts.append(Tokens().decode(prompt))
++        on_tokens(Tokens().encode("ok").ids + [EOS])
++        return {"rounds": 1, "decode_s": 0.1}
++
++
++def served(tmp_path, body, rule=RULE):
++    engine = Engine()
++    app = app_for(tmp_path, engine)
++    app.tool_system = rule
++    with http_server(app) as port:
++        status, text = post(port, body, True)
++    assert status == 200, text
++    return engine.prompts[-1]
++
++
++def test_tool_request_without_a_system_message_gets_the_rule(tmp_path):
++    prompt = served(tmp_path, {"messages": [{"role": "user", "content": "Say hello."}], "tools": TOOLS})
++    assert prompt.startswith(f"system:{RULE};user:Say hello.;tools:echo;")
++
++
++def test_the_clients_own_system_message_wins(tmp_path):
++    prompt = served(tmp_path, {"messages": [{"role": "system", "content": "Be brief."},
++                                            {"role": "user", "content": "Say hello."}], "tools": TOOLS})
++    assert prompt.startswith("system:Be brief.;user:Say hello.;tools:echo;") and RULE not in prompt
++
++
++def test_a_request_without_tools_is_untouched(tmp_path):
++    prompt = served(tmp_path, {"messages": [{"role": "user", "content": "Say hello."}]})
++    assert prompt.startswith("user:Say hello.;") and RULE not in prompt
++
++
++def test_no_rule_configured(tmp_path):
++    prompt = served(tmp_path, {"messages": [{"role": "user", "content": "Say hello."}], "tools": TOOLS}, rule=None)
++    assert prompt.startswith("user:Say hello.;tools:echo;")
++
++
++def test_cli_flag_reaches_the_server():
++    from tensorfold import cli
++
++    args = cli.build_parser().parse_args(["serve", "m", "--tool-system", RULE])
++    assert args.tool_system == RULE
++    assert cli.build_parser().parse_args(["serve", "m"]).tool_system is None
+diff --git a/tests/test_flashnext_vision_two_ranks_host.py b/tests/test_flashnext_vision_two_ranks_host.py
+new file mode 100644
+index 0000000..9d14ebf
+--- /dev/null
++++ b/tests/test_flashnext_vision_two_ranks_host.py
+@@ -0,0 +1,269 @@
++"""Image prompts on two ranks: rank 0 encodes, the admission carries the rows, rank 1 attaches the same features."""
++
++import ast
++import hashlib
++import json
++from pathlib import Path
++import threading
++from types import SimpleNamespace
++from typing import Callable
++
++import pytest
++
++
++def _methods():
++    root = Path(__file__).resolve().parents[1] / 'src/tensorfold'
++    module = ast.parse((root / 'families/qwen4_exp/cuda/multi_tp.py').read_text())
++    owner = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == 'TwoRanks')
++    methods = [node for node in owner.body if isinstance(node, ast.FunctionDef)
++               and node.name in ('_agree', '_prepare_admission')]
++    for method in methods:
++        method.body = [node for node in method.body if not isinstance(node, ast.ImportFrom)]
++    body = ast.ClassDef(name='Ranks', bases=[], keywords=[], body=methods, decorator_list=[], type_params=[])
++    capacity = ast.parse((root / 'cuda/capacity.py').read_text())
++    gather = next(node for node in capacity.body if isinstance(node, ast.FunctionDef) and node.name == 'gather_ints')
++    return ast.fix_missing_locations(ast.Module(body=[gather, body], type_ignores=[]))
++
++
++def _ranks(visions, expected):
++    """Run rank 0 (with ``visions[0]``) and rank 1 (with ``visions[1]``) through one admission; the outcomes."""
++
++    barrier = threading.Barrier(2)
++    values, results, sent, shared = {}, [None, None], [], {}
++    plan = {'slot': 0, 'cached': 0, 'resume_slot': None, 'error': None, 'points': [], 'need': 7}
++
++    class OutOfStep(RuntimeError):
++        pass
++
++    class NoRoom(RuntimeError):
++        pass
++
++    class Tensor:
++        def __init__(self, data):
++            self.data, self.rows = list(data), None
++
++        def view(self, rows, unused):
++            self.rows = rows
++            return self
++
++        def tolist(self):
++            width = len(self.data) // self.rows
++            return [self.data[start:start + width] for start in range(0, len(self.data), width)]
++
++    torch = SimpleNamespace(int64=None, tensor=lambda data, **kwargs: Tensor(data),
++                            empty=lambda shape, **kwargs: Tensor([0] * shape[0]))
++    namespace = {'hashlib': hashlib, 'json': json, 'torch': torch, 'Callable': Callable,
++                 'OutOfStep': OutOfStep, 'NoRoom': NoRoom,
++                 'shape': lambda dec: ['shared-state'], '_pack': lambda sampling: None,
++                 'admission': lambda dec, stream: dict(plan),
++                 'ready': lambda dec, proposed: True,
++                 'apply': lambda dec, proposed: setattr(dec, 'applied', True)}
++
++    def gather(rank, send, receive):
++        values[rank] = list(send.data)
++        barrier.wait(timeout=2)
++        receive.data = [*values[0], *values[1]]
++        barrier.wait(timeout=2)
++    exec(compile(_methods(), 'actual-tp-planning-methods', 'exec'), namespace)
++
++    def run(rank):
++        decoder = namespace['Ranks']()
++        decoder.w = SimpleNamespace(comm=SimpleNamespace(all_gather=lambda send, receive: gather(rank, send, receive)))
++        decoder.next_id, decoder.link = 0, None
++        if rank == 0:
++            decoder.link = SimpleNamespace(send=lambda op: sent.append(op))
++        decoder._share_vision = lambda s, images: shared.setdefault(rank, ('features', images))
++        decoder.slots, decoder.kept, decoder.streams, decoder.filling = [object()], [], {}, []
++        stream = SimpleNamespace(prompt=[1, 2, 3, 4], count=4, sampling=None, draft=True,
++                                 stop_eos=False, background=False, vision=visions[rank])
++        try:
++            decoder._prepare_admission(stream, None if rank == 0 else dict(plan))
++            results[rank] = ('admit', stream.vision)
++        except Exception as error:
++            results[rank] = (type(error).__name__, None)
++
++    threads = [threading.Thread(target=run, args=(rank,)) for rank in (0, 1)]
++    for thread in threads:
++        thread.start()
++    for thread in threads:
++        thread.join(5)
++        assert not thread.is_alive()
++    assert [r[0] for r in results] == [expected, expected]
++    return results, sent, shared
++
++
++def test_text_admissions_carry_no_image_metadata_and_share_nothing():
++    results, sent, shared = _ranks([None, None], 'admit')
++    assert sent[0][0] == 'admit' and sent[0][-1] is None and len(sent[0]) == 10
++    assert shared == {} and [r[1] for r in results] == [None, None]
++
++
++def test_rank_0_sends_the_rows_it_encoded_and_both_ranks_share_the_same_tensors():
++    encoded = SimpleNamespace(rows=(1, 2), rope_delta=-1, features=SimpleNamespace(shape=(2, 2560)))
++    meta = {'rows': [1, 2], 'delta': -1, 'shape': [2, 2560]}
++    results, sent, shared = _ranks([encoded, json.loads(json.dumps(meta))], 'admit')
++    assert sent[0][-1] == meta                                   # what the follower is told, JSON-exact
++    assert shared == {0: ('features', meta), 1: ('features', meta)}
++    assert [r[1] for r in results] == [('features', meta)] * 2  # the stream now carries the shared features
++
++
++def test_an_image_admission_one_rank_does_not_know_about_falls_out_of_step():
++    encoded = SimpleNamespace(rows=(1, 2), rope_delta=-1, features=SimpleNamespace(shape=(2, 2560)))
++    _, _, shared = _ranks([encoded, None], 'OutOfStep')
++    assert shared == {}                                          # the digest differs before any tensor crosses
++
++
++def test_begin_attaches_features_another_rank_encoded_without_a_tower():
++    torch = pytest.importorskip('torch')
++    from tensorfold.families.qwen4_exp.cuda import image_rows
++
++    class State:
++        def __init__(self):
++            self.image_positions = self.image_rows = self.image_features = None
++            self.rope_delta = 0
++
++        def set_rope_delta(self, delta):
++            self.rope_delta = delta
++
++    st = State()
++    encoded = SimpleNamespace(rows=(1, 2), features=torch.zeros((2, 8)), rope_delta=-1,
++                              positions=torch.zeros((3, 4), dtype=torch.int32))
++    stream = SimpleNamespace(prompt=[5, 6, 7, 8], vision=encoded)
++    image_rows.begin(SimpleNamespace(st=st), stream, None)
++    assert stream.vision is None and st.image_rows == (1, 2) and st.rope_delta == -1
++    assert st.image_features is encoded.features and tuple(st.image_positions.shape) == (4, 3)
++    with pytest.raises(ValueError, match='--vision'):            # a prepared prompt still needs the tower
++        image_rows.begin(SimpleNamespace(st=State()), SimpleNamespace(prompt=[5], vision=object()), None)
++
++
++@pytest.fixture
++def planning():
++    pytest.importorskip('torch')
++    from tests.test_cuda_geometry import allocations as geometry   # noqa: F401  (patched allocation sizes)
++    import tests.test_flashnext_round_plan as plans
++    from tensorfold.families.qwen4_exp.cuda.multi import MultiDecoder
++    from tensorfold.families.qwen4_exp.cuda.multi_plan import admission, round_plan
++
++    plans.MultiDecoder = MultiDecoder                                # what its autouse fixture would set
++    return plans.decoder, admission, round_plan
++
++
++def test_image_prompts_reuse_no_prefix_keep_no_points_and_stay_off_the_graph_slot(planning):
++    from tensorfold.cuda.streams import Stream
++
++    decoder, admission, round_plan = planning
++    d = decoder()
++    d.points = lambda prompt: [8, 16]
++    kept_prompt = [7] * 30
++    d.slots[0].pos, d.slots[0].mtp_len = 30, 29
++    d.free = d.slots[1:]
++    d.kept = [(kept_prompt, d.slots[0], {'mtp_len': 29}, None)]
++    text = admission(d, Stream(kept_prompt + [9] * 10, 8))
++    assert text['cached'] == 30 and text['points'] == []           # the text prompt resumes the kept prefix
++    image = admission(d, Stream(kept_prompt + [9] * 10, 8, vision={'rows': [3], 'delta': 0, 'shape': [1, 8]}))
++    assert image['cached'] == 0 and image['slot'] != 0 and image['points'] == []
++    d = decoder()
++    live = Stream([7], 12, sid=0, st=d.slots[0], out=[3], drafts=[4])
++    live.st.pos, live.st.image_positions = 255, object()
++    d.streams, d.free = {0: live}, d.slots[1:]
++    d.solo, d.solo_on = SimpleNamespace(st=d.slots[1]), True
++    assert round_plan(d)['solo'] is None                           # the graph slot's captures know no image rows
++    live.st.image_positions = None
++    assert round_plan(d)['solo'] == 0
++
++
++# --- the serial engine (no --parallel): image prompts on one GPU and on two ranks ---
++
++def test_serial_request_message_carries_the_image_description_and_keeps_no_points():
++    pytest.importorskip('torch')
++    from tensorfold.families.qwen4_exp.cuda.engine import FlashNextEngine
++
++    class Store:
++        def __init__(self):
++            self.kv = {}
++
++        def set(self, key, value):
++            self.kv[key] = value
++
++    e = object.__new__(FlashNextEngine)
++    e.comm, e.served, e.points = SimpleNamespace(store=Store()), 3, lambda prompt: [2, 4]
++    text = e._share([1, 2, 3, 4, 5], 8, None, True, 0)
++    assert text[7] is None and text[-1] == [2, 4] and len(text) == 9    # the points stay the last field
++    images = {'rows': [1, 2], 'delta': -1, 'shape': [2, 2560]}
++    shared = e._share([1, 2, 3, 4, 5], 8, None, True, 0, images=images)
++    assert shared[7] == images and shared[-1] == []           # an image prompt keeps no prompt states
++    assert json.loads(e.comm.store.kv['tensorfold/flashnext/request/3'])['images'] == images
++    assert FlashNextEngine._unpack(json.dumps({'prompt': [1], 'max_tokens': 1, 'draft': True, 'cached': 0,
++                                               'sampling': None}))[7] is None    # an older leader's message
++    follower = object.__new__(FlashNextEngine)
++    follower.served, follower.cache, follower.multi, follower.points = 0, [], None, None
++    requests = iter([([1, 2, 3], 4, None, True, 0, [], True, [2]),                # eight fields: no images
++                     ([1, 2, 3], 4, None, True, 0, [], True, None, [2]), None])    # nine: images before points
++    follower._receive = lambda: next(requests)
++    seen = []
++    follower._decode = lambda *args, **kwargs: seen.append((kwargs['points'], kwargs['vision']))
++    follower.follow()
++    assert seen == [([2], None), ([2], None)] and follower.served == 2
++
++
++def test_describe_and_exchange_validate_the_same_description_on_both_ranks():
++    torch = pytest.importorskip('torch')
++    from tensorfold.families.qwen4_exp.cuda import vision_ranks
++
++    encoded = SimpleNamespace(rows=(1, 2), rope_delta=-1, features=torch.zeros((2, 16)),
++                              positions=torch.zeros((3, 4), dtype=torch.int32))
++    images = vision_ranks.describe(encoded)
++    assert images == {'rows': [1, 2], 'delta': -1, 'shape': [2, 16]} and vision_ranks.describe(None) is None
++    for bad in ({**images, 'rows': [2, 1]}, {**images, 'rows': [1, 4]}, {**images, 'shape': [3, 16]},
++                {**images, 'shape': [2, 8]}):
++        with pytest.raises(ValueError, match='do not fit'):
++            vision_ranks.exchange(None, 1, 4, bad, hidden=16)
++    with pytest.raises(ValueError, match='has not encoded'):
++        vision_ranks.exchange(None, 0, 4, images, None, hidden=16)
++    moved = []
++    comm = SimpleNamespace(rank=0, world=2, exchange=lambda sends, recvs, peer: moved.append((len(sends), peer)))
++    out = vision_ranks.exchange(comm, 0, 4, images, encoded, hidden=16)
++    assert moved == [(2, 1)] and out.rows == (1, 2) and out.rope_delta == -1
++    assert out.features.dtype == torch.bfloat16 and tuple(out.positions.shape) == (3, 4)
++
++
++def test_serial_engine_decodes_an_image_state_eagerly_and_keeps_no_snapshot(monkeypatch):
++    pytest.importorskip('torch')
++    from tensorfold.families.qwen4_exp.cuda import decode, engine as engine_module
++    from tensorfold.families.qwen4_exp.cuda.engine import FlashNextEngine
++
++    calls = []
++    eng = object.__new__(decode.Engine)
++    eng.w, eng.st, eng.buf, eng.mbuf = object(), SimpleNamespace(image_positions=None), object(), object()
++    eng.graphs = SimpleNamespace(forward=lambda tokens: calls.append('graph'),
++                                 mtp_forward=lambda nxt, streams: calls.append('graph-mtp'))
++    monkeypatch.setattr(decode, 'forward', lambda w, st, b, tokens: calls.append('eager'))
++    monkeypatch.setattr(decode, 'mtp_forward', lambda w, st, b, nxt, streams: calls.append('eager-mtp'))
++    eng.forward([1])
++    eng.mtp_forward([1], None)
++    eng.st.image_positions = object()
++    eng.forward([1])
++    eng.mtp_forward([1], None)
++    assert calls == ['graph', 'graph-mtp', 'eager', 'eager-mtp']
++
++    seen = {}
++
++    def prefill(e, prompt, sampling, **kwargs):
++        seen.update(kwargs)
++        return 7
++
++    monkeypatch.setattr(decode, 'prefill', prefill)
++    monkeypatch.setattr(engine_module.time, 'perf_counter', lambda: 0.0)
++    import torch
++    monkeypatch.setattr(torch.cuda, 'synchronize', lambda: None)
++    fe = object.__new__(FlashNextEngine)
++    fe.e, fe.cache, fe.eos, fe.depth, fe.points = SimpleNamespace(kept={'state': 's', 'tail': None}), [([1], {})], (), 3, None
++    kept = ([1], {'state': 'old'})
++    fe.cache = [kept]
++    stats = fe._decode([1, 2, 3], 1, None, lambda new: True, kept, vision=SimpleNamespace(rows=(1,)))
++    assert seen == {'constraint': None, 'probabilities': None, 'vision': seen['vision']}
++    assert fe.cache == [] and stats['cached'] == 0            # from the start, nothing kept, nothing resumed
++    seen.clear()
++    fe.cache = [kept]
++    fe._decode([1, 2, 3], 1, None, lambda new: True, kept)
++    assert 'vision' not in seen and seen['resume'] == {'state': 'old'} and fe.cache[-1][0] == [1, 2]
+diff --git a/tests/test_tool_undeclared_arguments.py b/tests/test_tool_undeclared_arguments.py
+new file mode 100644
+index 0000000..b57691d
+--- /dev/null
++++ b/tests/test_tool_undeclared_arguments.py
+@@ -0,0 +1,65 @@
++"""A Qwen XML tool call keeps only the parameters the offered tool declares, on every parser and in the stream.
++
++Qwen3.8-Flash-Next (MLX 4-bit) sometimes adds an optional argument the schema does not have (``formal`` on a
++translate tool). A tool that declares no properties still takes every argument."""
++
++import json
++
++from tensorfold.cuda.reply_text import parse_tool_calls as cuda_parse
++from tensorfold.engine.tool_draft import ToolCallStreamer
++from tensorfold.server.tools import parse_tool_calls_from_content
++from tensorfold.tool_parameters import keeps_parameter
++
++TRANSLATE = {"type": "function", "function": {"name": "translate_text", "parameters": {
++    "type": "object", "properties": {"text": {"type": "string"}, "target": {"type": "string"},
++                                     "count": {"type": "integer"}},
++    "required": ["text", "target"]}}}
++FREEFORM = {"type": "function", "function": {"name": "echo", "parameters": {"type": "object"}}}
++CALL = ("<tool_call>\n<function=translate_text>\n<parameter=text>\nGuten Tag\n</parameter>\n"
++        "<parameter=formal>\nFalse\n</parameter>\n<parameter=target>\nen\n</parameter>\n"
++        "<parameter=count>\n2\n</parameter>\n</function>\n</tool_call>")
++WANT = {"text": "Guten Tag", "target": "en", "count": 2}
++
++
++def test_rule():
++    assert keeps_parameter("formal", {}) and keeps_parameter("formal", None)
++    assert keeps_parameter("text", {"text": {}}) and not keeps_parameter("formal", {"text": {}})
++
++
++def test_server_parser_drops_an_undeclared_argument():
++    residue, calls = parse_tool_calls_from_content(CALL, [TRANSLATE])
++    assert residue.strip() == "" and len(calls) == 1
++    assert json.loads(calls[0]["function"]["arguments"]) == WANT
++
++
++def test_cuda_parser_drops_an_undeclared_argument():
++    residue, calls = cuda_parse(CALL, [TRANSLATE])
++    assert residue.strip() == "" and len(calls) == 1
++    assert json.loads(calls[0]["function"]["arguments"]) == WANT
++
++
++def test_a_tool_without_properties_keeps_every_argument():
++    text = CALL.replace("translate_text", "echo")
++    _, calls = cuda_parse(text, [FREEFORM])
++    assert json.loads(calls[0]["function"]["arguments"]) == {"text": "Guten Tag", "formal": "False",
++                                                             "target": "en", "count": "2"}
++    _, calls = parse_tool_calls_from_content(text, [FREEFORM])
++    assert set(json.loads(calls[0]["function"]["arguments"])) == {"text", "formal", "target", "count"}
++
++
++def _streamed(text, tools, step):
++    streamer, deltas = ToolCallStreamer(tools), []
++    for at in range(0, len(text), step):
++        deltas += streamer.feed(text[:at + step])
++    return "".join(d["tool_calls"][0]["function"].get("arguments", "") for d in deltas)
++
++
++def test_stream_emits_no_delta_for_an_undeclared_argument():
++    for step in (1, 3, 7, len(CALL)):
++        assert json.loads(_streamed(CALL, [TRANSLATE], step)) == WANT, step
++    first = CALL.replace("<parameter=text>\nGuten Tag\n</parameter>\n", "")
++    first = first.replace("</function>", "<parameter=text>\nGuten Tag\n</parameter>\n</function>")
++    for step in (1, 5):   # the undeclared one comes first: the brace still opens on the first kept key
++        assert json.loads(_streamed(first, [TRANSLATE], step)) == WANT, step
++    only = "<tool_call>\n<function=translate_text>\n<parameter=formal>\nFalse\n</parameter>\n</function>\n</tool_call>"
++    assert json.loads(_streamed(only, [TRANSLATE], 4)) == {}

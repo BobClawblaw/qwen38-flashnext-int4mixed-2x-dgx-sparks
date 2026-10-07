@@ -1,0 +1,15 @@
+# Python packages the TensorFold + xgrammar install resolved in the measured images
+# (tf-qwen38-flashnext:0.6.2 and :0.6.2-pr141, 2026-10-02; the same set resolved for :0.6.6 on 2026-10-06), on top of NGC pytorch 26.07.
+# Everything the install added or upgraded, plus TensorFold's other runtime deps at their base versions.
+annotated-doc==0.0.5
+hf-xet==1.6.0
+huggingface_hub==1.33.0
+Jinja2==3.1.6
+numpy==2.1.0
+safetensors==0.8.0
+shellingham==1.5.4
+tokenizers==0.23.1
+transformers==5.18.0
+typer==0.27.2
+xgrammar==0.2.8
+av==19.0.1

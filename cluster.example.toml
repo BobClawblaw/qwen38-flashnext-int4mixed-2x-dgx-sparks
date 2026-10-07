@@ -1,0 +1,9 @@
+# Copy to cluster.toml (git-ignored) and set your pair's values. Any [section] from recipe.toml may appear here.
+[cluster]
+head_ip = "10.100.8.1"
+worker = "user@10.100.8.2"
+hca = "rocep1s0f1"
+port = 8000
+
+[serve]
+profile = "concurrent"
