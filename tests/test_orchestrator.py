@@ -50,9 +50,10 @@ class SnapshotCheck(unittest.TestCase):
 
 class Markers(unittest.TestCase):
     def test_marker_names_the_source_or_the_hub_copy(self) -> None:
-        s = settings()
+        s = settings(CONVERTED_REPO="", CONVERTED_REVISION="")
         self.assertTrue(weights.conversion_marker(s).startswith(s.revision + " "))
         self.assertEqual(weights.conversion_marker(s).split()[1], weights.converter_sha())
+        self.assertEqual(weights.local_marker(settings()), weights.conversion_marker(s))   # a local copy is accepted
         h = settings(CONVERTED_REPO="x/y", CONVERTED_REVISION="c" * 40)
         self.assertEqual(weights.conversion_marker(h), "hub x/y@" + "c" * 40)
 

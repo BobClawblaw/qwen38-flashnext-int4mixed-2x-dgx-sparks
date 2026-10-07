@@ -62,7 +62,7 @@ class GuardTests(unittest.TestCase):
         self.refused("not KEY=VALUE", EXTRA_ENV="NCCL_PROTO")
 
     def test_converted_repo_needs_a_revision(self) -> None:
-        self.refused("converted_revision", CONVERTED_REPO="x/y")
+        self.refused("converted_revision", CONVERTED_REPO="x/y", CONVERTED_REVISION="")
         self.assertEqual(load(CONVERTED_REPO="x/y", CONVERTED_REVISION="a" * 40).converted_repo, "x/y")
 
     def test_patch_pin(self) -> None:

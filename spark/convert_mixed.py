@@ -328,7 +328,7 @@ def main() -> None:
         if isinstance(cfg.get(sub), dict):
             cfg[sub].pop("quantization_config", None)
     cfg["quantization_config"] = {
-        "quant_method": "affine-experts", "bits": 4, "group_size": GS_OUT, "format": FORMAT,
+        "quant_method": "affine-experts", "bits": 4, "group_size": GS_OUT, "format": f"affine-experts-v{FORMAT}",
         "dense": "int8-group-scales", "ngram": "fp8-e4m3-table-scale", "mtp_experts": "affine-4bit-g64-minmax",
         "source": {"repo": "Minachist/Qwen3.8-Flash-Next-INT4-Mixed-AutoRound",
                    "format": (source_q or {}).get("format"), "config_groups": (source_q or {}).get("config_groups")},

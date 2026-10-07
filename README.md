@@ -62,8 +62,13 @@ PROFILE=concurrent python3 -m spark up   # sixteen streams; the default serves o
 python3 -m spark down
 ```
 
-The first `up` builds the image (a few minutes on top of the NGC base, pulled once), downloads the snapshot,
-converts it (about 25 minutes on the GPU), copies the converted folder to the worker, starts rank 1 there over
+The weights come ready-made from [BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold](https://huggingface.co/BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold)
+at the revision `recipe.toml` pins (`converted_repo`, `converted_revision`): about 119 GB, the converter's output for
+the pinned source snapshot. Set `converted_repo = ""` to convert locally from Minachist's snapshot instead (a 165 GB
+download and about 25 GPU minutes); a folder converted locally with the same converter is accepted as the same.
+
+The first `up` builds the image (a few minutes on top of the NGC base, pulled once), downloads the converted checkpoint (or converts the
+snapshot), copies it to the worker, starts rank 1 there over
 ssh, then rank 0, and waits for `/health` and `/v1/models`. Later starts load in about two minutes.
 
 Autostart: `systemd/qwen38-int4mixed.service` (install lines at its top). A restart waits out `settle_seconds`

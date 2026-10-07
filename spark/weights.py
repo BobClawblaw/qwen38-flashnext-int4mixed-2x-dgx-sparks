@@ -76,9 +76,14 @@ def conversion_marker(s: Settings) -> str:
     return f"{s.revision} {converter_sha()}"
 
 
+def local_marker(s: Settings) -> str:
+    return f"{s.revision} {converter_sha()}"
+
+
 def converted_ready(s: Settings, node: Node) -> bool:
+    """The folder holds this converter's output for the pinned snapshot: converted here, or the Hub copy of it."""
     out = node.run(["cat", str(s.converted_dir / ".source")], check=False)
-    return out.returncode == 0 and out.stdout.strip() == conversion_marker(s)
+    return out.returncode == 0 and out.stdout.strip() in {conversion_marker(s), local_marker(s)}
 
 
 def download_converted(s: Settings, head: Node) -> None:

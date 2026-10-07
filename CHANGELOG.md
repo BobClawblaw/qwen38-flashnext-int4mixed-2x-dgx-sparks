@@ -2,6 +2,7 @@
 
 ## 2026-10-07
 
+- **Weights on Hugging Face (public):** `spark up` downloads the converted checkpoint from BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold at a pinned revision instead of converting locally; a locally converted folder with the same converter counts as the same. `quantization_config.format` is a string (`affine-experts-v2`) so the Hub parses the config; the card carries the image-text-to-text pipeline and vision/video tags.
 - **First boot on the pair and the first speed work.** Two engine fixes the boot needed (the vision config's newer
   `model_type`; fp32 partial sums from bf16 linears on two ranks). Converter format 2: the int6 and int8 linears kept
   as int8 with fp32 group scales (exact, half the bytes of bf16) on a new int8 kernel (`q8.py`); the MTP layer's

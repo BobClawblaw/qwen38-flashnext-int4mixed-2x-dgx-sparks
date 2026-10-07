@@ -9,8 +9,8 @@ served_name = "Qwen3.8-Flash-Next-INT4-Mixed"
 # ready-made from converted_repo at converted_revision when both are set (the bytes the converter produces, published
 # with its hash in the model card); with converted_repo empty it converts the snapshot locally (about 25 GPU minutes).
 converted = "affine-experts-v2"
-converted_repo = ""
-converted_revision = ""
+converted_repo = "BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold"
+converted_revision = "00a844f4a5453ec8f34e75bce7d43a004731ebfa"
 
 [engine]
 tensorfold_repo = "https://github.com/ashhart/TensorFold.git"
