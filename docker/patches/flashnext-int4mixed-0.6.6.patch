@@ -1312,7 +1312,7 @@ index c5fa44d..360b9d1 100644
 +            if hasattr(_mod, _f):
 +                setattr(_mod, _f, _st.wrap(f"{_mod.__name__.rsplit('.', 1)[-1]}.{_f}", getattr(_mod, _f)))
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/graphs.py b/src/tensorfold/families/qwen4_exp/cuda/graphs.py
-index f6f515f..8aab773 100644
+index f6f515f..edbe99b 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/graphs.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/graphs.py
 @@ -43,6 +43,8 @@ class Graphs:
@@ -1324,6 +1324,32 @@ index f6f515f..8aab773 100644
          e = self.e
          w, st, b = e.w, e.st, e.buf
          segs = stage(w, b, [(st, tokens)])
+@@ -56,7 +58,11 @@ class Graphs:
+             compute(w, segs, b, context=context)     # eager warm-up: compiles this launch shape
+             g = self._capture(lambda: compute(w, segs, b, context=context))
+             self.main[key] = g
+-        g.replay()
++        from . import stage_times as _st
++        if _st.REPLAY:                       # TENSORFOLD_STAGE_REPLAY: GPU time of each decode graph (development)
++            _st.time_replay(f"graph R={R}", g.replay)
++        else:
++            g.replay()
+         return b.logits[:R]
+ 
+     @torch.no_grad()
+@@ -75,7 +81,11 @@ class Graphs:
+             g = self._capture(lambda: mtp_compute(w, segs, b, context=context))
+             self.mtp[key] = g
+             self.mtp_out[key] = out
+-        g.replay()
++        from . import stage_times as _st
++        if _st.REPLAY:
++            _st.time_replay(f"mtp n={n}", g.replay)
++        else:
++            g.replay()
+         return self.mtp_out[key]
+ 
+     @torch.no_grad()
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/image_rows.py b/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
 index 73e8278..35b2a01 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
@@ -1631,10 +1657,10 @@ index 5dcc6b9..6e69045 100644
                  except (ValueError, NoRoom, OutOfStep) as exc:
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/q8.py b/src/tensorfold/families/qwen4_exp/cuda/q8.py
 new file mode 100644
-index 0000000..effa4f1
+index 0000000..842def5
 --- /dev/null
 +++ b/src/tensorfold/families/qwen4_exp/cuda/q8.py
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,209 @@
 +"""Int8 linears with a scale per output row and group of inputs, for checkpoints whose non-expert linears are int6 or
 +int8 (symmetric): the stored integers widened to int8 bytes, half the bytes of bf16 and exact.
 +
@@ -1661,7 +1687,11 @@ index 0000000..effa4f1
 +@triton.jit
 +def _q8mm(X, W, S, OUT, PART, M, x_stride, out_stride, col0,
 +          N: tl.constexpr, K: tl.constexpr, GS: tl.constexpr, SK: tl.constexpr, BM: tl.constexpr,
-+          BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, SCALED: tl.constexpr, F32: tl.constexpr):
++          BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, SCALED: tl.constexpr, F32: tl.constexpr,
++          INLINE: tl.constexpr = 1):
++    """SK > 1 with INLINE > 1 is not used; INLINE = slices summed inside one program in slice order (the same
++    additions as SK programs plus the reduce kernel), so prompt-sized calls give decode's bits without the
++    partial-sum buffer."""
 +    pid_n = tl.program_id(1)
 +    pid_s = tl.program_id(2)
 +    rm = tl.program_id(0) * BM + tl.arange(0, BM)
@@ -1669,19 +1699,25 @@ index 0000000..effa4f1
 +    rk = tl.arange(0, BLOCK_K)
 +    m_ok = rm < M
 +    n_ok = rn < N
-+    KS: tl.constexpr = K // SK
++    KS: tl.constexpr = K // (SK * INLINE)
 +    NB: tl.constexpr = KS // BLOCK_K
 +    acc = tl.zeros((BM, BLOCK_N), dtype=tl.float32)
-+    for i in range(NB):
-+        k0 = (pid_s * NB + i) * BLOCK_K
-+        x = tl.load(X + rm[:, None] * x_stride + (k0 + rk)[None, :], mask=m_ok[:, None], other=0.0)
-+        w = tl.load(W + rn[:, None] * K + (k0 + rk)[None, :], mask=n_ok[:, None], other=0)
-+        d = tl.dot(x, tl.trans(w.to(tl.bfloat16)), out_dtype=tl.float32)
-+        if SCALED:
-+            s = tl.load(S + rn * (K // GS) + k0 // GS, mask=n_ok, other=0.0)
-+            acc += d * s[None, :]
++    for j in tl.static_range(INLINE):
++        part = tl.zeros((BM, BLOCK_N), dtype=tl.float32)
++        for i in range(NB):
++            k0 = ((pid_s * INLINE + j) * NB + i) * BLOCK_K
++            x = tl.load(X + rm[:, None] * x_stride + (k0 + rk)[None, :], mask=m_ok[:, None], other=0.0)
++            w = tl.load(W + rn[:, None] * K + (k0 + rk)[None, :], mask=n_ok[:, None], other=0)
++            d = tl.dot(x, tl.trans(w.to(tl.bfloat16)), out_dtype=tl.float32)
++            if SCALED:
++                s = tl.load(S + rn * (K // GS) + k0 // GS, mask=n_ok, other=0.0)
++                part += d * s[None, :]
++            else:
++                part += d
++        if j == 0:
++            acc = part
 +        else:
-+            acc += d
++            acc = acc + part
 +    mask = m_ok[:, None] & n_ok[None, :]
 +    if SK == 1:
 +        tl.store(OUT + rm[:, None] * out_stride + col0 + rn[None, :], acc if F32 else acc.to(tl.bfloat16), mask=mask)
@@ -1709,8 +1745,6 @@ index 0000000..effa4f1
 +    depend on this choice, which depends on the shape alone, so drafted, undrafted and concurrent rows agree.
 +    """
 +    bm = 128 if m > 128 else 16
-+    if m > 128:                                     # prompts: wide tiles, compute-bound
-+        return bm, 64, 64, 1, 4, 3
 +    if n >= 65536 and gs % 128 == 0 and k % 128 == 0:    # the head: long rows of whole 128-groups
 +        return bm, 128, 128, 1, 8, 4
 +    if n <= 512:                                    # few outputs, long inputs (hyper-connection down)
@@ -1811,11 +1845,16 @@ index 0000000..effa4f1
 +    for p in face.parts:
 +        n = p.n
 +        bm, bn, bk, sk, warps, stages = config(n, k, p.gs if p.scale is not None else 128, m)
++        inline = 1
++        if m > 128:                                  # 128-row tiles: the same K blocks and slices, a smaller footprint
++            # (BLOCK_K and the slices fix a row's bits; BLOCK_N, warps and stages do not)
++            inline, sk, bn, warps = sk, 1, 64, 4
++            stages = 2 if bk == 128 else 3
 +        part = torch.empty((sk, m, n), dtype=torch.float32, device=x.device) if sk > 1 else out
 +        grid = (triton.cdiv(m, bm), triton.cdiv(n, bn), sk)
 +        _q8mm[grid](x, p.weight, p.scale if p.scale is not None else p.weight, out, part, m, x.stride(0),
 +                    out.stride(0), col0, N=n, K=k, GS=max(p.gs, 1), SK=sk, BM=bm, BLOCK_N=bn, BLOCK_K=bk,
-+                    SCALED=p.scale is not None, F32=f32, num_warps=warps, num_stages=stages)
++                    SCALED=p.scale is not None, F32=f32, INLINE=inline, num_warps=warps, num_stages=stages)
 +        if sk > 1:
 +            _reduce[(triton.cdiv(m * n, 1024),)](part, out, m, out.stride(0), col0, N=n, SK=sk, BLOCK=1024, F32=f32,
 +                                                 num_warps=4)
@@ -1833,10 +1872,10 @@ index 0000000..effa4f1
 +    return part_from_ints(q, scale, gs)
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/stage_times.py b/src/tensorfold/families/qwen4_exp/cuda/stage_times.py
 new file mode 100644
-index 0000000..f489ed1
+index 0000000..3e7cf2d
 --- /dev/null
 +++ b/src/tensorfold/families/qwen4_exp/cuda/stage_times.py
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,110 @@
 +"""TENSORFOLD_STAGE_TIMES=<file>: GPU time per forward stage, from CUDA events around each stage (decode runs eager,
 +no graphs, while it is set). A background thread folds finished events into totals and rewrites <file> every 5 s.
 +A development tool: it changes nothing when the variable is unset."""
@@ -1929,6 +1968,24 @@ index 0000000..f489ed1
 +    elif _count[0] == b:
 +        torch.cuda.synchronize()
 +        torch.cuda.cudart().cudaProfilerStop()
++
++
++# TENSORFOLD_STAGE_REPLAY=<file>: GPU time of each decode graph replay (graphs stay on), folded like the stages
++REPLAY = os.environ.get("TENSORFOLD_STAGE_REPLAY")
++
++
++def time_replay(label: str, replay) -> None:
++    s, e = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
++    s.record()
++    replay()
++    e.record()
++    with _lock:
++        _pending.append((label, s, e))
++
++
++if REPLAY and not ENABLED:
++    PATH = REPLAY
++    threading.Thread(target=_fold, daemon=True, name="stage-times").start()
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py b/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py
 new file mode 100644
 index 0000000..d21d7eb
@@ -2492,10 +2549,10 @@ index 0000000..656a585
 +    assert torch.equal(buf.act[:rows, top_k], want_act)
 diff --git a/tests/cuda/test_flashnext_q8.py b/tests/cuda/test_flashnext_q8.py
 new file mode 100644
-index 0000000..069068d
+index 0000000..33b6672
 --- /dev/null
 +++ b/tests/cuda/test_flashnext_q8.py
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,67 @@
 +"""Int8 linears with group scales (affine-experts format 2): exact against the dequantized weight, row-invariant,
 +mixed int8/bf16 faces, and the bf16 matmul's dispatch."""
 +
@@ -2551,6 +2608,18 @@ index 0000000..069068d
 +    want = torch.cat([x.float() @ ref.T, x.float() @ tail.float().T], 1)
 +    assert (out - want).abs().max().item() <= 1e-3 * want.abs().max().item()
 +    assert torch.allclose(mixed.dequantize(), torch.cat([ref, tail.float()]))
++
++
++@pytest.mark.parametrize("n,k,gs", [(8240, 2560, 64), (2560, 3072, 64), (324, 10240, 64), (10240, 320, 64), (124160, 2560, 128)])
++def test_prompt_sized_calls_give_decode_bits(n, k, gs) -> None:
++    """A concurrent round can put a prompt chunk beside decode rows (more than 128 rows): same bits as alone."""
++    from tensorfold.families.qwen4_exp.cuda import q8
++
++    face, _ = _face(n, k, gs)
++    x = (torch.randn(300, k, device="cuda") * 0.5).to(torch.bfloat16)
++    big = q8.matmul(x, face)
++    for r in (0, 77, 299):
++        assert torch.equal(q8.matmul(x[r:r + 1], face)[0], big[r])
 diff --git a/tests/cuda/test_qwen4_exp_exl3.py b/tests/cuda/test_qwen4_exp_exl3.py
 index 560152c..daf7187 100644
 --- a/tests/cuda/test_qwen4_exp_exl3.py

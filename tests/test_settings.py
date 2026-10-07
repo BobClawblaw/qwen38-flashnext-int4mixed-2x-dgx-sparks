@@ -28,21 +28,22 @@ class GuardTests(unittest.TestCase):
 
     def test_defaults_load_and_name_the_pinned_patch(self) -> None:
         s = load()
-        self.assertEqual((s.profile, s.tp, s.context, s.parallel), ("serial", 2, 262144, 1))
+        self.assertEqual((s.profile, s.tp, s.context, s.parallel, s.yarn), ("concurrent", 2, 1048576, 16, True))
         self.assertEqual(hashlib.sha256(s.patch_path.read_bytes()).hexdigest(), s.patch_sha256)
 
     def test_profiles_fill_only_what_nothing_else_set(self) -> None:
-        self.assertEqual(load(PROFILE="concurrent").parallel, 16)
+        self.assertEqual(load(PROFILE="serial").parallel, 1)
         self.assertEqual(load(PROFILE="concurrent", PARALLEL="4").parallel, 4)
-        self.assertEqual(load(PROFILE="long").context, 1048576)
-        self.assertEqual(load(PROFILE="long", CONTEXT="524288").context, 524288)
+        self.assertEqual(load(CONTEXT="524288").context, 524288)
+        self.assertEqual(load(YARN="0", CONTEXT="262144").context, 262144)
         self.refused("must be one of", PROFILE="fast")
+        self.refused("must be one of", PROFILE="long")
 
     def test_windows(self) -> None:
-        self.refused("exceeds the trained window", CONTEXT="262400")
-        self.refused("on the long profile must be above", PROFILE="long", CONTEXT="262144")
-        self.refused("on the long profile must be above", PROFILE="long", CONTEXT="1048832")
-        self.refused("multiple of 256", CONTEXT="1000")
+        self.refused("exceeds the trained window", YARN="0", CONTEXT="262400")
+        self.refused("with yarn must be above", CONTEXT="262144")
+        self.refused("with yarn must be above", CONTEXT="1048832")
+        self.refused("multiple of 256", YARN="0", CONTEXT="1000")
 
     def test_integers_and_flags(self) -> None:
         self.refused("not a decimal integer", MAX_TOKENS="0100")
@@ -90,7 +91,7 @@ class ServeArgsTests(unittest.TestCase):
         self.assertIn("--no-drafts", r)
         self.assertNotIn("--mtp-drafts", r)
         self.assertIn("--thinking", load(THINKING="1").serve_args(0))
-        self.assertNotIn("--parallel", load().serve_args(0))
+        self.assertNotIn("--parallel", load(PROFILE="serial").serve_args(0))
         self.assertIn("--parallel", load(PROFILE="concurrent").serve_args(1))
         r0 = load(VISION_URLS="1", VISION_MAX_IMAGES="8").serve_args(0)
         self.assertIn("--vision-urls", r0)
@@ -101,8 +102,8 @@ class ServeArgsTests(unittest.TestCase):
             self.assertNotIn(flag, r)
 
     def test_model_folder_follows_the_profile(self) -> None:
-        self.assertTrue(load().model_in_container.endswith("/affine-experts-v2"))
-        self.assertTrue(load(PROFILE="long").model_in_container.endswith("/long-1048576"))
+        self.assertTrue(load(YARN="0", CONTEXT="262144").model_in_container.endswith("/affine-experts-v2"))
+        self.assertTrue(load().model_in_container.endswith("/long-1048576"))
 
     def test_container_env(self) -> None:
         env = load(EXTRA_ENV="NCCL_PROTO=LL", MEMORY_RESERVE_GIB="12").container_env()

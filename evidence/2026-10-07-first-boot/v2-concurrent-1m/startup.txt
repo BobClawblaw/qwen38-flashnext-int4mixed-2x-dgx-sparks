@@ -1,0 +1,3 @@
+[tensorfold] CUDA rank 0 startup estimate 60.67 GiB within 101.00 GiB; native 1048576, allocated prompt/reply window 1048576, cache slots 1048592
+[tensorfold] rotary: YaRN x4 over the 262144-token trained window (static: short prompts see the scaled rotary too; serve the plain checkpoint for them)
+[tensorfold] Flash Next on CUDA: 1 to 15 MTP drafts a round, a chain stops before a later draft under 70%, or up to 15 copy drafts where the reply repeats earlier text; up to 16 streams, each growing to 1048576 prompt/reply tokens while memory lasts (56.9 GiB 

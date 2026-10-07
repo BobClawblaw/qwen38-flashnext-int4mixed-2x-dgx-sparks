@@ -79,7 +79,7 @@ class Settle(unittest.TestCase):
 
 class DockerCommand(unittest.TestCase):
     def test_run_rank_builds_the_expected_command(self) -> None:
-        s = settings(PROFILE="long")
+        s = settings()
         seen: list[list[str]] = []
 
         class Fake(Node):

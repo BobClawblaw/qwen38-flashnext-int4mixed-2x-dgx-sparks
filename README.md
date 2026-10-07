@@ -4,7 +4,7 @@ Serve [Minachist/Qwen3.8-Flash-Next-INT4-Mixed-AutoRound](https://huggingface.co
 the most carefully quantized public export of Qwen3.8-Flash-Next (int4 routed experts, int6 attention and DeltaNet,
 int8 head and mixers, bf16 router, MTP and vision), across two NVIDIA DGX Spark (GB10, 128 GB) nodes with the
 [TensorFold](https://github.com/ashhart/TensorFold) engine at tensor-parallel 2: the full 262,144-token window on
-both ranks, sixteen concurrent streams, MTP and copy drafts, image and video input, tool calls, an OpenAI-compatible
+both ranks by default with a 1M-token window (static YaRN), sixteen concurrent streams by default, MTP and copy drafts, image and video input, tool calls, an OpenAI-compatible
 API, and a systemd unit.
 
 TensorFold does not read this checkpoint's format; this recipe converts it once per node into the engine's own
@@ -15,23 +15,31 @@ dependencies.
 
 ## Measured on this pair
 
-Work in progress (2026-10-07). Serial profile (one stream, CUDA graphs), int8 KV, MTP drafts up to 15, vision on,
-TP=2 over the RoCE link. `bench/ruler.py`, greedy, thinking off, 256-token replies, median of 3 runs.
-Receipts: [`evidence/2026-10-07-first-boot/`](evidence/2026-10-07-first-boot/).
+The defaults: sixteen concurrent streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15,
+vision on, TP=2 over the RoCE link. `bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per
+stream, median of 2 runs. Receipts: [`evidence/2026-10-07-first-boot/`](evidence/2026-10-07-first-boot/).
+
+| Users | prose | code | structured | list | first token |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 67.0 | 106.0 | 85.9 | 106.6 | 0.07-0.10 s |
+| 4 | 143.3 | 224.6 | 188.4 | 267.7 | 0.12-0.20 s |
+| 8 | 211.5 | 360.1 | 270.1 | 395.9 | 0.24-0.31 s |
+| 16 | 294.1 | 414.9 | 370.3 | 534.9 | 0.52-0.68 s |
+
+Aggregate tokens a second (per stream at 16 users: 18.5 / 24.7 / 22.9 / 33.7). One user on `PROFILE=serial` (CUDA
+graphs, no YaRN): prose 68.9, code 121.5, structured 88.6, list 117.4. Exactness on the defaults: drafted equals
+undrafted 12/12, four streams together equal alone 12/12.
+
+How the build got here, one user on the serial profile:
 
 | Build | prose | code | structured | list |
 |---|---:|---:|---:|---:|
 | v1: dense linears as bf16 | 54.0 | 87.1 | 72.2 | 91.8 |
 | v2: dense linears as int8 + group scales (exact) | 69.2 | 97.8 | 84.6 | 110.3 |
-| v2 + int8 MTP layer + retuned int8 tiles | **68.9** | **121.5** | **88.6** | **117.4** |
+| v2 + int8 MTP layer + retuned int8 tiles | 68.9 | 121.5 | 88.6 | 117.4 |
 
-Tokens a second for one user. Undrafted (one token a round): 35 tok/s. Load: about 60 s from start to serving;
-startup estimate 49 GiB on rank 0 with the full 262,144-token window.
-
-Quality so far (the suite below, v2): drafted equals undrafted 12/12, four streams together equal alone 12/12,
-streaming equals non-streaming, multi-turn recall 8/8, stop strings, thinking mode 10/10, verbatim copy, exact
-`max_tokens`, tool calls 57/60, JSON schemas 30/30. The long-running checks (IFEval, GSM8K, MGSM, MMLU, HumanEval)
-are being rerun on the final build.
+The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays; nothing beat it beyond
+noise, and a low threshold or short drafts cost up to 10%.
 
 ## Where a decode round goes
 
@@ -56,9 +64,10 @@ between the nodes they cost 15 us eager and 44-71 us inside a CUDA graph.
 git clone https://github.com/BobClawblaw/qwen38-flashnext-int4mixed-2x-dgx-sparks.git && cd qwen38-flashnext-int4mixed-2x-dgx-sparks
 cp cluster.example.toml cluster.toml && $EDITOR cluster.toml   # head_ip, worker (user@host), hca, port
 python3 -m spark validate            # the settings and the guards, touches nothing
-python3 -m spark up                  # image, download, conversion (once), both ranks, waits for the API
+python3 -m spark up                  # sixteen streams, 1,048,576-token window; waits for the API
 python3 -m spark status
-PROFILE=concurrent python3 -m spark up   # sixteen streams; the default serves one at a time on CUDA graphs
+PROFILE=serial python3 -m spark up   # one stream on CUDA graphs (and response_format)
+YARN=0 CONTEXT=262144 python3 -m spark up   # the trained window on the plain rotary
 python3 -m spark down
 ```
 
@@ -82,8 +91,9 @@ environment variable of the same name in upper case (`PORT=8001 python3 -m spark
 
 | Setting | Default | Notes |
 |---|---|---|
-| `profile` | `serial` | `serial`: one stream on CUDA graphs, serves `response_format`. `concurrent`: `parallel=16`. `long`: `context=1048576` through YaRN x4 (a profile folder; short prompts shift, keep it for prompts beyond 262k) |
-| `context` | 262144 | the trained window; up to 1048576 on `long` |
+| `profile` | `concurrent` | `concurrent`: sixteen streams (`parallel=16`); `serial`: one stream on CUDA graphs, serves `response_format` |
+| `yarn` | true | static YaRN x4 over the trained 262,144 (a profile folder's `config.json`; the weights untouched). Every prompt sees the scaled rotary, short ones too (Qwen's card notes a possible cost on short texts); `yarn = false` keeps the plain rotary |
+| `context` | 1048576 | up to 1,048,576 with `yarn`, up to 262,144 without |
 | `kv_dtype` | `int8` | `bf16`, `int8`, `int4` |
 | `mtp_drafts`, `mtp_confidence` | 15, 0.70 | `mtp_drafts=0` serves without drafts |
 | `vision` | true | images and video on both ranks: the tower on rank 0, rank 1 receives each request's features |
@@ -92,8 +102,8 @@ environment variable of the same name in upper case (`PORT=8001 python3 -m spark
 | `hca`, `iface`, `master_port` | | NCCL: pin one HCA, GB10 exposes dead ones |
 | `extra_args`, `extra_env` | | passed to the engine; flags the recipe owns are refused |
 
-`python3 -m spark validate` refuses, before anything runs: a window above the trained 262,144 on the plain
-profiles or outside (262,144, 1,048,576] on `long`, zero-padded or non-decimal integers, a patch whose sha256 is not
+`python3 -m spark validate` refuses, before anything runs: a window above the trained 262,144 with `yarn = false`
+or outside (262,144, 1,048,576] with `yarn = true`, zero-padded or non-decimal integers, a patch whose sha256 is not
 the pinned one, `extra_args` that re-set a flag the recipe builds (`--tp`, `--context`, `--parallel`, `--vision`,
 any prefix of them), an `extra_env` entry that is not `KEY=VALUE`, `tp` other than 1 or 2.
 

@@ -17,7 +17,7 @@ tensorfold_repo = "https://github.com/ashhart/TensorFold.git"
 tensorfold_sha = "cb2ebf0540f42604e2759b2ddef497861e928248"
 patch = "flashnext-int4mixed-0.6.6.patch"
 # sha256 of docker/patches/<patch>; the image carries it as a label and `up` refuses a mismatch
-patch_sha256 = "9b23d4d8fd72aa729cd911633f3fffb97b85966cedaa91b282ed9c94f53da7d6"
+patch_sha256 = "e1e59b5ece044622110e827f3577c61ce843d3d6eba2c9353073b5d76d373302"
 image = "tf-qwen38-int4mixed:0.6.6"
 base_image = "nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c"
 container = "tf-qwen38-int4mixed"
@@ -34,8 +34,11 @@ tf_cache = "~/.cache/tensorfold-qwen38-int4mixed"
 
 [serve]
 tp = 2
-profile = "serial"               # serial (one stream, CUDA graphs) | concurrent (16 streams) | long (1M, YaRN x4)
-context = 262144
+profile = "concurrent"           # concurrent (16 streams, the default) | serial (one stream on CUDA graphs, response_format)
+# the window: 1,048,576 tokens through static YaRN x4 over the trained 262,144 (yarn = true), or yarn = false and
+# context up to 262,144 for the plain rotary (short prompts see the scaled rotary too when yarn is on)
+yarn = true
+context = 1048576
 kv_dtype = "int8"
 mtp_drafts = 15
 mtp_confidence = "0.70"
@@ -57,7 +60,9 @@ memguard_min_swap_free_mb = 2048
 [profiles.concurrent]
 parallel = 16
 
-[profiles.long]
-context = 1048576
-yarn_factor = 4
+[profiles.serial]
+parallel = 1
+
+[yarn]
+factor = 4
 trained_context = 262144

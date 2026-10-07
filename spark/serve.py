@@ -151,10 +151,33 @@ def up(s: Settings, *, src_mount: dict[str, Path] | None = None, download: bool 
     if stopped:
         _stamp(s).write_text(f"{time.time():.0f}\n")
     settle(s)
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            _start_ranks(s, head, worker, src_mount)
+            wait_ready(s, head, worker)
+            return
+        except RuntimeError as exc:
+            # GB10: the worker's first NCCL memory registration can fail with ENOMEM (ibv_reg_mr) for a while
+            # after a rank freed its memory or a large image load; a pause and a compaction clear it.
+            text = str(exc) + (docker.logs(worker, s.container, 2000) if worker is not None else "")
+            if "ibv_reg_mr" not in text or attempt == ATTEMPTS:
+                raise
+            log(f"NCCL could not register memory on the worker (attempt {attempt} of {ATTEMPTS}); retrying in {RETRY_WAIT}s")
+            docker.stop(head, s.container)
+            if worker is not None:
+                docker.stop(worker, s.container)
+            time.sleep(RETRY_WAIT)
+
+
+ATTEMPTS = 4
+RETRY_WAIT = 45
+
+
+def _start_ranks(s: Settings, head: Node, worker: Node | None, src_mount) -> None:
     order = ([worker] if worker else []) + [head]
     for node in order:
         drop_caches(node)
-        if s.profile == "long":
+        if s.yarn:
             weights.ensure_long_profile(s, node)
         docker.run_rank(s, node, 1 if node is worker else 0, src_mount=(src_mount or {}).get(node.name))
         start_memguard(s, node)
@@ -162,7 +185,6 @@ def up(s: Settings, *, src_mount: dict[str, Path] | None = None, download: bool 
             time.sleep(5)
             if docker.state(worker, s.container) != "running":
                 raise RuntimeError(f"rank 1 died at start:\n{docker.logs(worker, s.container, 40)}")
-    wait_ready(s, head, worker)
 
 
 def status(s: Settings) -> str:

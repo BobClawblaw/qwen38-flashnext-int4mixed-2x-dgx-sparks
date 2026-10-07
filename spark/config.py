@@ -1,7 +1,9 @@
 """The recipe's settings: recipe.toml defaults, cluster.toml overrides, environment overrides, then the guards.
 
-Every value is validated before anything touches Docker or the worker. A profile (serial, concurrent, long) fills
-the settings it owns only where nothing more specific set them, so PROFILE=long with CONTEXT=524288 serves 524288.
+Every value is validated before anything touches Docker or the worker. A profile (concurrent, serial) fills the
+settings it owns only where nothing more specific set them, so PROFILE=concurrent with PARALLEL=4 serves 4 streams.
+The window is independent of the profile: yarn = true serves up to 1,048,576 tokens (static YaRN x4), yarn = false
+the trained 262,144.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILES = ("serial", "concurrent", "long")
+PROFILES = ("concurrent", "serial")
 KV_DTYPES = ("bf16", "int8", "int4")
 MAX_MTP_DRAFTS = 15                   # the engine's draft cap (families/qwen4_exp/cuda/engine.py MAX_DEPTH)
 CONTAINER_HF = "/cache/huggingface"
@@ -60,6 +62,7 @@ class Settings:
     # [serve]
     tp: int
     profile: str
+    yarn: bool
     context: int
     kv_dtype: str
     mtp_drafts: int
@@ -78,7 +81,7 @@ class Settings:
     memguard: bool
     memguard_min_avail_mb: int
     memguard_min_swap_free_mb: int
-    # [profiles.long]
+    # [yarn]
     yarn_factor: int = 4
     trained_context: int = 262144
 
@@ -118,7 +121,7 @@ class Settings:
 
     @property
     def model_in_container(self) -> str:
-        return f"{CONTAINER_TF}/long-{self.long_context}" if self.profile == "long" else self.converted_in_container
+        return f"{CONTAINER_TF}/long-{self.long_context}" if self.yarn else self.converted_in_container
 
     @property
     def patch_path(self) -> Path:
@@ -165,7 +168,7 @@ class Settings:
         return env
 
     def summary(self) -> str:
-        return (f"profile={self.profile} tp={self.tp} ctx={self.context} kv={self.kv_dtype} "
+        return (f"profile={self.profile} tp={self.tp} ctx={self.context} yarn={int(self.yarn)} kv={self.kv_dtype} "
                 f"mtp={self.mtp_drafts}@{self.mtp_confidence} parallel={self.parallel} vision={int(self.vision)} "
                 f"image={self.image} patch={self.patch} model={self.repo}@{self.revision[:8]} port={self.port}")
 
@@ -211,8 +214,9 @@ def load(cluster_file: Path | str | None = None, env: dict[str, str] | None = No
     for section in _SECTIONS:
         values.update(raw.get(section, {}))
     profiles = raw.get("profiles", {})
-    for k in ("yarn_factor", "trained_context"):               # the long profile's constants: known on every profile
-        values[k] = profiles.get("long", {}).get(k, Settings.__dataclass_fields__[k].default)
+    yarn = raw.get("yarn", {})
+    values["yarn_factor"] = yarn.get("factor", Settings.__dataclass_fields__["yarn_factor"].default)
+    values["trained_context"] = yarn.get("trained_context", Settings.__dataclass_fields__["trained_context"].default)
     explicit: set[str] = set()
     cluster = cluster_file if cluster_file is not None else env.get("SPARK_CLUSTER", ROOT / "cluster.toml")
     if str(cluster) != "none" and Path(cluster).is_file():
@@ -231,7 +235,7 @@ def load(cluster_file: Path | str | None = None, env: dict[str, str] | None = No
     unknown = sorted(k for k in values if k not in kinds)
     if unknown:
         raise ConfigError(f"unknown setting(s): {', '.join(unknown)}")
-    profile = str(values.get("profile", "serial"))
+    profile = str(values.get("profile", "concurrent"))
     if profile not in PROFILES:
         raise ConfigError(f"profile={profile} must be one of {', '.join(PROFILES)}")
     for k, v in profiles.get(profile, {}).items():          # a profile fills what nothing more specific set
@@ -265,14 +269,14 @@ def validate(s: Settings) -> None:
             raise ConfigError(f"{name}={getattr(s, name)} is not a 40-hex commit")
     if s.converted_repo and not re.fullmatch(r"[0-9a-f]{40}", s.converted_revision):
         raise ConfigError(f"converted_revision={s.converted_revision!r} must be the 40-hex revision of {s.converted_repo}")
-    if s.profile == "long":
+    if s.yarn:
         if not s.trained_context < s.context <= s.long_context:
-            raise ConfigError(f"context={s.context} on the long profile must be above the trained {s.trained_context} "
-                              f"and at most {s.long_context} (YaRN x{s.yarn_factor}); the plain profiles serve up to "
+            raise ConfigError(f"context={s.context} with yarn must be above the trained {s.trained_context} "
+                              f"and at most {s.long_context} (YaRN x{s.yarn_factor}); yarn = false serves up to "
                               f"{s.trained_context}")
     elif s.context > s.trained_context:
-        raise ConfigError(f"context={s.context} exceeds the trained window {s.trained_context}; profile=long serves up "
-                          f"to {s.long_context} with YaRN")
+        raise ConfigError(f"context={s.context} exceeds the trained window {s.trained_context}; yarn = true serves up "
+                          f"to {s.long_context}")
     if s.context % 256:
         raise ConfigError(f"context={s.context} must be a multiple of 256")
     if not re.fullmatch(r"[A-Za-z0-9._-]+\.patch", s.patch):

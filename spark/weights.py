@@ -145,7 +145,7 @@ def sync_converted(s: Settings, head: Node, worker: Node) -> None:
 
 
 def ensure_long_profile(s: Settings, node: Node) -> None:
-    """profile=long: a folder of links to the converted checkpoint (container paths) with a YaRN config.json."""
+    """yarn = true: a folder of links to the converted checkpoint (container paths) with a YaRN config.json."""
     marker = node.run(["cat", str(s.long_dir / ".source")], check=False).stdout.strip()
     if marker == conversion_marker(s):
         return

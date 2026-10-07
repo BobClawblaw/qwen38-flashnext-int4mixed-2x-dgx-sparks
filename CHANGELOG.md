@@ -2,6 +2,7 @@
 
 ## 2026-10-07
 
+- **Multi-user and 1M by default.** `profile = "concurrent"` (16 streams) and `yarn = true` with `context = 1048576`; `PROFILE=serial` and `YARN=0 CONTEXT=262144` switch back. Measured 1 / 4 / 8 / 16 users: prose 67 / 143 / 212 / 294 tok/s aggregate, code 106 / 225 / 360 / 415. Two fixes it took: the int8 kernel's prompt-sized calls now keep decode's K slices (a row's bits no longer depend on what shares the round: four streams together equal alone 12/12), and its 128-row tiles fit the GPU's shared memory (16 users had failed on the head). `spark up` retries when the worker's NCCL memory registration fails (GB10, after a rank frees its memory).
 - **Weights on Hugging Face (public):** `spark up` downloads the converted checkpoint from BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold at a pinned revision instead of converting locally; a locally converted folder with the same converter counts as the same. `quantization_config.format` is a string (`affine-experts-v2`) so the Hub parses the config; the card carries the image-text-to-text pipeline and vision/video tags.
 - **First boot on the pair and the first speed work.** Two engine fixes the boot needed (the vision config's newer
   `model_type`; fp32 partial sums from bf16 linears on two ranks). Converter format 2: the int6 and int8 linears kept

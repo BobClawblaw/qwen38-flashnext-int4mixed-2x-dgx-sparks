@@ -22,12 +22,12 @@ jobs:
         run: python3 -m unittest discover -s tests -q
       - name: settings dry runs, every profile
         run: |
-          python3 -m spark validate
-          PROFILE=concurrent python3 -m spark validate
-          PROFILE=long python3 -m spark validate | grep -q "ctx=1048576"
+          python3 -m spark validate | grep -q "profile=concurrent tp=2 ctx=1048576 yarn=1"
+          PROFILE=serial python3 -m spark validate | grep -q "parallel=1"
+          YARN=0 CONTEXT=262144 python3 -m spark validate | grep -q "ctx=262144 yarn=0"
       - name: refusals
         run: |
-          for bad in "CONTEXT=524288" "PROFILE=long CONTEXT=262144" "EXTRA_ARGS=--tp\ 1" "MAX_TOKENS=0100" "KV_DTYPE=fp8" "PATCH_SHA256=$(printf 'b%.0s' {1..64})"; do
+          for bad in "YARN=0 CONTEXT=524288" "CONTEXT=262144" "PROFILE=long" "EXTRA_ARGS=--tp\ 1" "MAX_TOKENS=0100" "KV_DTYPE=fp8" "PATCH_SHA256=$(printf 'b%.0s' {1..64})"; do
             if env $bad python3 -m spark validate; then echo "accepted $bad" >&2; exit 1; fi
           done
       - name: the patch applies to TensorFold at the pinned commit
