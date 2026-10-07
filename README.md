@@ -69,6 +69,7 @@ python3 -m spark status
 PROFILE=serial python3 -m spark up   # one stream on CUDA graphs (and response_format)
 YARN=0 CONTEXT=262144 python3 -m spark up   # the trained window on the plain rotary
 python3 -m spark down
+python3 -m spark image --rebuild   # after a patch change: rebuild on the head; the worker gets a copy on the next up
 ```
 
 The weights come ready-made from [BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold](https://huggingface.co/BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold)

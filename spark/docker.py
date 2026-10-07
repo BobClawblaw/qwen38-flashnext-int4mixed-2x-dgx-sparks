@@ -24,10 +24,10 @@ def image_id(node: Node, image: str) -> str | None:
     return out.stdout.strip() if out.returncode == 0 else None
 
 
-def ensure_image(s: Settings, head: Node) -> None:
-    """Build the image on the head when it is missing; refuse one whose labels name another engine or patch."""
+def ensure_image(s: Settings, head: Node, rebuild: bool = False) -> None:
+    """Build the image on the head when it is missing (or ``rebuild``); refuse one whose labels name another patch."""
     have = labels(head, s.image)
-    if have is None:
+    if have is None or (rebuild and have != (s.tensorfold_sha, s.patch_sha256)):
         log(f"Building {s.image} (TensorFold {s.tensorfold_sha[:8]}, patch {s.patch}) from docker/Dockerfile")
         rc = head.stream(["docker", "build", "--build-arg", f"TF_REPO={s.tensorfold_repo}",
                           "--build-arg", f"TF_SHA={s.tensorfold_sha}", "--build-arg", f"TF_PATCH={s.patch}",

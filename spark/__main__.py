@@ -22,7 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     lg = sub.add_parser("logs", help="a rank's container log")
     lg.add_argument("--rank", type=int, default=0)
     lg.add_argument("--tail", type=int, default=80)
-    sub.add_parser("image", help="build the image on the head (and check its labels)")
+    img = sub.add_parser("image", help="build the image on the head (and check its labels)")
+    img.add_argument("--rebuild", action="store_true", help="rebuild when the image carries another patch")
     sub.add_parser("convert", help="download the snapshot and convert it on the head")
     a = ap.parse_args(argv)
     try:
@@ -48,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
             node = Node("head") if a.rank == 0 else Node("worker", s.worker)
             print(docker.logs(node, s.container, a.tail))
         elif a.cmd == "image":
-            docker.ensure_image(s, Node("head"))
+            docker.ensure_image(s, Node("head"), rebuild=a.rebuild)
         elif a.cmd == "convert":
             docker.ensure_image(s, Node("head"))
             weights.ensure_converted(s, Node("head"))
