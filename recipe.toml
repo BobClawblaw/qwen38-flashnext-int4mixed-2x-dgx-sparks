@@ -17,7 +17,7 @@ tensorfold_repo = "https://github.com/ashhart/TensorFold.git"
 tensorfold_sha = "cb2ebf0540f42604e2759b2ddef497861e928248"
 patch = "flashnext-int4mixed-0.6.6.patch"
 # sha256 of docker/patches/<patch>; the image carries it as a label and `up` refuses a mismatch
-patch_sha256 = "e1e59b5ece044622110e827f3577c61ce843d3d6eba2c9353073b5d76d373302"
+patch_sha256 = "f188bd45ceee2def92f3208da8e9ff4dd3ad5e157a6200d63e58821672019968"
 image = "tf-qwen38-int4mixed:0.6.6"
 base_image = "nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c"
 container = "tf-qwen38-int4mixed"
@@ -48,7 +48,7 @@ max_tokens = 32768
 vision = true
 vision_urls = false
 vision_max_images = 0            # 0: the engine's default (4)
-tool_system = "Tool calls: include only the arguments the user explicitly provided or clearly implied. Never fill in optional arguments with default or guessed values."
+tool_system = "Tool calls: include only the arguments the user explicitly provided or clearly implied. Never fill in optional arguments with default or guessed values. When a request asks for several things, make one call for each of them."
 memory_reserve_gib = 0           # 0: the engine's default
 extra_args = ""
 extra_env = ""

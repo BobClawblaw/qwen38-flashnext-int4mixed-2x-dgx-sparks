@@ -1,0 +1,184 @@
+{
+ "name": "concurrent",
+ "score": 1.0,
+ "cases": 12,
+ "passed": 12,
+ "seconds": 37.48170280456543,
+ "notes": [
+  "4 streams together vs alone"
+ ],
+ "details": {
+  "alone": [
+   {
+    "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+    "sha": "f36d294aa7ea",
+    "tokens": 177,
+    "tok_s": 71.69100511911493,
+    "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+   },
+   {
+    "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+    "sha": "a2de17a92857",
+    "tokens": 187,
+    "tok_s": 107.00797971506616,
+    "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+   },
+   {
+    "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+    "sha": "2125a9b7c96c",
+    "tokens": 168,
+    "tok_s": 61.62397751588914,
+    "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+   },
+   {
+    "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+    "sha": "9a37a0431d60",
+    "tokens": 21,
+    "tok_s": 56.25774418038888,
+    "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+   },
+   {
+    "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+    "sha": "de7ccced89ac",
+    "tokens": 300,
+    "tok_s": 117.23789333458988,
+    "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+   },
+   {
+    "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+    "sha": "054f893bb6fb",
+    "tokens": 177,
+    "tok_s": 95.02674430550887,
+    "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+   },
+   {
+    "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+    "sha": "09328242ac9b",
+    "tokens": 116,
+    "tok_s": 52.796321388476855,
+    "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+   },
+   {
+    "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+    "sha": "5dea0629376a",
+    "tokens": 120,
+    "tok_s": 104.11705118661115,
+    "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+   },
+   {
+    "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+    "sha": "2d78ae470d32",
+    "tokens": 42,
+    "tok_s": 58.75098757635705,
+    "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+   },
+   {
+    "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+    "sha": "c3e560f64dd2",
+    "tokens": 103,
+    "tok_s": 104.31404211005959,
+    "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+   },
+   {
+    "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+    "sha": "1ab435054414",
+    "tokens": 262,
+    "tok_s": 115.29099097592103,
+    "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+   },
+   {
+    "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+    "sha": "c903db274cd2",
+    "tokens": 28,
+    "tok_s": 65.32180425222197,
+    "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+   }
+  ],
+  "together": [
+   {
+    "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+    "sha": "f36d294aa7ea",
+    "tokens": 177,
+    "tok_s": 13.691838334536813,
+    "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+   },
+   {
+    "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+    "sha": "a2de17a92857",
+    "tokens": 187,
+    "tok_s": 19.651947787091807,
+    "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+   },
+   {
+    "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+    "sha": "2125a9b7c96c",
+    "tokens": 168,
+    "tok_s": 11.993521349924487,
+    "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+   },
+   {
+    "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+    "sha": "9a37a0431d60",
+    "tokens": 21,
+    "tok_s": 2.887760295602513,
+    "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+   },
+   {
+    "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+    "sha": "de7ccced89ac",
+    "tokens": 300,
+    "tok_s": 64.4226975560603,
+    "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+   },
+   {
+    "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+    "sha": "054f893bb6fb",
+    "tokens": 177,
+    "tok_s": 52.69552473936349,
+    "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+   },
+   {
+    "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+    "sha": "09328242ac9b",
+    "tokens": 116,
+    "tok_s": 21.900409110671298,
+    "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+   },
+   {
+    "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+    "sha": "5dea0629376a",
+    "tokens": 120,
+    "tok_s": 59.67030803273177,
+    "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+   },
+   {
+    "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+    "sha": "2d78ae470d32",
+    "tokens": 42,
+    "tok_s": 25.10642228324784,
+    "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+   },
+   {
+    "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+    "sha": "c3e560f64dd2",
+    "tokens": 103,
+    "tok_s": 60.993408045627966,
+    "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+   },
+   {
+    "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+    "sha": "1ab435054414",
+    "tokens": 262,
+    "tok_s": 77.30522278593463,
+    "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+   },
+   {
+    "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+    "sha": "c903db274cd2",
+    "tokens": 28,
+    "tok_s": 34.551061516610346,
+    "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+   }
+  ]
+ }
+}

@@ -163,3 +163,23 @@ class HumanEvalSandbox(unittest.TestCase):
             self.assertEqual(v[p["task_id"].replace("/", "_")], "pass")
         self.assertTrue(v["wrong"].startswith("fail"))
         self.assertTrue(v["net"].startswith("fail"))     # no network inside the sandbox
+
+
+class ToolEquivalence(unittest.TestCase):
+    def test_same_value_or_place_written_differently(self) -> None:
+        m = tools._match
+        self.assertTrue(m([("calculate", {"expression": "2**20"})], [("calculate", {"expression": "2 ** 20"})]))
+        self.assertTrue(m([("calculate", {"expression": "15/100*240"})], [("calculate", {"expression": "0.15 * 240"})]))
+        self.assertFalse(m([("calculate", {"expression": "2**21"})], [("calculate", {"expression": "2 ** 20"})]))
+        self.assertFalse(m([("calculate", {"expression": "two to the twentieth"})], [("calculate", {"expression": "2 ** 20"})]))
+        want = [("get_directions", {"origin": "the Louvre", "destination": "Notre-Dame", "mode": "walking"})]
+        self.assertTrue(m([("get_directions", {"origin": "louvre, paris", "destination": "notre-dame cathedral, paris", "mode": "walking"})], want))
+        self.assertFalse(m([("get_directions", {"origin": "eiffel tower", "destination": "notre-dame", "mode": "walking"})], want))
+        self.assertFalse(m([("get_directions", {"origin": "louvre", "destination": "notre-dame de reims", "mode": "walking"})], want))
+        self.assertFalse(m([("get_directions", {"origin": "louvre", "destination": "notre-dame", "mode": "driving"})], want))
+        self.assertFalse(m([("get_directions", {"origin": "louvre", "destination": "notre-dame"})], want))   # a dropped argument
+        self.assertTrue(m([("get_weather", {"city": "Reykjavik, Iceland"})], [("get_weather", {"city": "Reykjavik"})]))
+        self.assertFalse(m([("get_weather", {"city": "Reykjavik", "unit": "celsius"})], [("get_weather", {"city": "Reykjavik"})]))
+        # other text arguments stay exact (after case and a trailing full stop)
+        self.assertFalse(m([("translate", {"text": "good morning everyone", "target_language": "Spanish"})],
+                           [("translate", {"text": "good morning", "target_language": "Spanish"})]))

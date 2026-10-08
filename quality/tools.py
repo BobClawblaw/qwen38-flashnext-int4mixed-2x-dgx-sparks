@@ -134,15 +134,76 @@ def _calls(d: dict) -> list[tuple[str, dict]]:
     return out
 
 
+PLACE_ARGS = {("get_directions", "origin"), ("get_directions", "destination"), ("get_weather", "city")}
+# words a model may add to a place it names correctly ("Notre-Dame" -> "Notre-Dame Cathedral")
+PLACE_WORDS = {"cathedral", "museum", "church", "station", "airport", "square", "palace", "tower", "bridge", "park",
+               "city", "central", "main"}
+
+
+def _arith(text: str):
+    """The value of a plain arithmetic expression (numbers, + - * / // % **, parentheses), or None."""
+    import ast
+    import operator as op
+
+    ops = {ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul, ast.Div: op.truediv, ast.FloorDiv: op.floordiv,
+           ast.Mod: op.mod, ast.Pow: op.pow, ast.USub: op.neg, ast.UAdd: op.pos}
+
+    def ev(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            left, right = ev(node.left), ev(node.right)
+            if isinstance(node.op, ast.Pow) and abs(right) > 64:
+                raise ValueError("exponent too large")
+            return ops[type(node.op)](left, right)
+        if isinstance(node, ast.UnaryOp) and type(node.op) in ops:
+            return ops[type(node.op)](ev(node.operand))
+        raise ValueError("not plain arithmetic")
+
+    try:
+        return ev(ast.parse(str(text).replace("^", "**"), mode="eval").body)
+    except (SyntaxError, ValueError, ZeroDivisionError, TypeError, RecursionError):
+        return None
+
+
+def _place_tokens(text: str) -> list[str]:
+    import re
+
+    t = str(text).lower().split(",")[0]                    # "louvre, paris": the place, not its city or country
+    t = re.sub(r"^\s*the\s+", "", t)
+    return re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)*", t)
+
+
+def _same_arg(fn: str, key: str, got, want) -> bool:
+    """Equal arguments, or the same argument written differently: an arithmetic expression with the same value, a
+    place named with its city or a generic word added. Anything else must match exactly (after ``_norm``)."""
+    if got == want:
+        return True
+    if key == "expression" and isinstance(got, str) and isinstance(want, str):
+        a, b = _arith(got), _arith(want)
+        return a is not None and b is not None and abs(a - b) <= 1e-9 * max(1.0, abs(b))
+    if (fn, key) in PLACE_ARGS and isinstance(got, str) and isinstance(want, str):
+        g, w = _place_tokens(got), _place_tokens(want)
+        return bool(w) and set(w) <= set(g) and set(g) - set(w) <= PLACE_WORDS
+    return False
+
+
+def _same_call(got: tuple, want: tuple) -> bool:
+    (gn, ga), (wn, wa) = got, want
+    if gn != wn or not isinstance(ga, dict) or set(ga) != set(wa):
+        return False
+    return all(_same_arg(gn, k, ga[k], wa[k]) for k in wa)
+
+
 def _match(got: list, want: list) -> bool:
     if len(got) != len(want):
         return False
     pool = [(n, _norm(a)) for n, a in want]
     for call in [(n, _norm(a)) for n, a in got]:
-        if call in pool:
-            pool.remove(call)
-        else:
+        hit = next((w for w in pool if _same_call(call, w)), None)
+        if hit is None:
             return False
+        pool.remove(hit)
     return True
 
 

@@ -65,12 +65,23 @@ def spread_facts(client: Client, tokens: int, *, seed: int = 11, count: int = 10
             "prefill_tok_s": pt / d["_seconds"] if d["_seconds"] else 0, "reply": text[:200]}
 
 
-def run(client: Client, *, lengths: tuple[int, ...] = (8000, 32000, 64000), depths: tuple[float, ...] = (0.1, 0.5, 0.9),
-        facts_lengths: tuple[int, ...] = (32000, 64000)) -> Result:
-    """Prefills up to 64k tokens (longer fills say little about quality and tie the pair up for minutes)."""
+# (target tokens, depths): the short documents at three depths, the long ones at their extreme edges (the
+# secret in the first and last 2% of the document) and the middle. 250k stays inside the plain 262,144 window.
+NEEDLES = ((8000, (0.1, 0.5, 0.9)), (32000, (0.1, 0.5, 0.9)), (64000, (0.1, 0.5, 0.9)),
+           (128000, (0.02, 0.5, 0.98)), (250000, (0.02, 0.5, 0.98)))
+FACTS = (32000, 64000, 128000, 250000)
+
+
+def run(client: Client, *, needles: tuple = NEEDLES, facts_lengths: tuple[int, ...] = FACTS,
+        max_tokens: int | None = None) -> Result:
+    """Needles to 250k tokens (edges and middle) and ten spread facts recalled together at each length.
+
+    ``max_tokens`` caps the lengths (``--long-max``): a short-window profile or a quick run skips the longer ones."""
     t0 = time.time()
     rows, passed, cases = [], 0, 0
-    for n in lengths:
+    for n, depths in needles:
+        if max_tokens and n > max_tokens:
+            continue
         for depth in depths:
             r = needle(client, n, depth)
             rows.append(r)
@@ -78,13 +89,18 @@ def run(client: Client, *, lengths: tuple[int, ...] = (8000, 32000, 64000), dept
             passed += int(r["found"])
     facts = []
     for n in facts_lengths:
+        if max_tokens and n > max_tokens:
+            continue
         r = spread_facts(client, n)
         facts.append(r)
         cases += r["of"]
         passed += r["recalled"]
     worst = min((r["prefill_tok_s"] for r in rows), default=0)
+    longest = max((r["tokens"] for r in rows), default=0)
+    missed = [f"{r['tokens'] // 1000}k@{r['depth']}" for r in rows if not r["found"]]
     return Result("long-context", passed / cases if cases else 0, cases, passed, time.time() - t0,
-                  [f"needles {sum(int(r['found']) for r in rows)}/{len(rows)}, facts " +
+                  [f"needles {sum(int(r['found']) for r in rows)}/{len(rows)} to {longest // 1000}k"
+                   + (f" (missed {', '.join(missed)})" if missed else "") + ", facts " +
                    ", ".join(f"{f['recalled']}/{f['of']}@{f['tokens'] // 1000}k" for f in facts) +
                    f", slowest prefill {worst:.0f} tok/s"],
                   {"needles": rows, "facts": facts})

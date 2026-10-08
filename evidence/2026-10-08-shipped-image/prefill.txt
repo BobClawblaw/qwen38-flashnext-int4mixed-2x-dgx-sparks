@@ -1,0 +1,6 @@
+== prefill 2026-10-08T00:38:27+00:00 ==
+prefill    7164 tokens:    3.4 s,   2124 tok/s, found=True
+prefill   28562 tokens:   13.6 s,   2096 tok/s, found=True
+prefill  114680 tokens:   60.7 s,   1888 tok/s, found=True
+prefill  224986 tokens:  129.2 s,   1741 tok/s, found=True
+long-context      55/55     100.0%  (926s)  needles 15/15 to 224k, facts 10/10@28k, 10/10@57k, 10/10@114k, 10/10@225k, slowest prefill 1523 tok/s

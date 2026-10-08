@@ -399,10 +399,10 @@ index 979582b..aecc7d2 100644
  
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/affine_moe.py b/src/tensorfold/families/qwen4_exp/cuda/affine_moe.py
 new file mode 100644
-index 0000000..283b62f
+index 0000000..aa4d7c5
 --- /dev/null
 +++ b/src/tensorfold/families/qwen4_exp/cuda/affine_moe.py
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,96 @@
 +"""Flash Next's ``affine-experts`` MoE: MLX affine 4-bit routed experts on the grouped kernel, the shared expert bf16.
 +
 +A checkpoint whose routed experts are affine 4-bit (groups of 32 or 64) while every other linear, the shared expert
@@ -417,11 +417,25 @@ index 0000000..283b62f
 +from dataclasses import dataclass
 +
 +import torch
++import triton
++import triton.language as tl
 +
 +from tensorfold.cuda import experts as grouped
 +from tensorfold.cuda import moe as moe_mod
 +
 +from . import bf16
++
++
++@triton.jit
++def _swiglu(G, OUT, g_stride, out_stride, NI: tl.constexpr, BLOCK: tl.constexpr):
++    """Row r, columns [c BLOCK, (c + 1) BLOCK): bf16(bf16(silu(gate)) * up), gate and up the bf16 halves of G."""
++    r = tl.program_id(0)
++    c = tl.program_id(1) * BLOCK + tl.arange(0, BLOCK)
++    ok = c < NI
++    gate = tl.load(G + r * g_stride + c, mask=ok, other=0.0).to(tl.float32)
++    up = tl.load(G + r * g_stride + NI + c, mask=ok, other=0.0).to(tl.float32)
++    silu = (gate / (1.0 + tl.exp(-gate))).to(tl.bfloat16).to(tl.float32)
++    tl.store(OUT + r * out_stride + c, (silu * up).to(tl.bfloat16), mask=ok)
 +
 +
 +@dataclass
@@ -455,12 +469,17 @@ index 0000000..283b62f
 +        ex = self.routed_experts
 +        return (ex.up.numel() + ex.down.numel()) * 4 + self.shared_gu.nbytes() + self.shared_down.nbytes()
 +
-+    def shared_act(self, x: torch.Tensor) -> torch.Tensor:
-+        """x [R, D] bf16 -> the shared expert's SwiGLU [R, NI] bf16: bf16(bf16(silu(g)) * u) on bf16 g and u."""
++    def shared_act(self, x: torch.Tensor, out: torch.Tensor | None = None) -> torch.Tensor:
++        """x [R, D] bf16 -> the shared expert's SwiGLU [R, NI] bf16: bf16(bf16(silu(g)) * u) on bf16 g and u, in one
++        kernel after the gate/up matmul (it was five elementwise launches)."""
 +
 +        g = bf16.matmul(x, self.shared_gu)
-+        gate, up = g[:, :self.width].to(torch.float32), g[:, self.width:].to(torch.float32)
-+        return ((gate / (1.0 + torch.exp(-gate))).to(torch.bfloat16).to(torch.float32) * up).to(torch.bfloat16)
++        rows = g.shape[0]
++        if out is None:
++            out = torch.empty((rows, self.width), dtype=torch.bfloat16, device=x.device)
++        _swiglu[(rows, triton.cdiv(self.width, 512))](g, out, g.stride(0), out.stride(0), NI=self.width, BLOCK=512,
++                                                      num_warps=4)
++        return out
 +
 +
 +def moe(x: torch.Tensor, router_rows: torch.Tensor, ex: MoEA, buf: moe_mod.MoEBuffers, top_k: int,
@@ -473,9 +492,12 @@ index 0000000..283b62f
 +    grouped.route(buf.pick[:rows], buf.plan_routed)      # slot k's pick is E: past the table, left out of the plan
 +    prompt = buf.y.dtype != torch.float32                 # a prompt's buffers keep bf16 slots
 +    grouped.gate_up(x, ex.routed_experts, buf.plan_routed, buf.act.view(-1, ex.width), rows)
-+    buf.act[:rows, top_k] = ex.shared_act(x)
++    ex.shared_act(x, out=buf.act[:rows, top_k])
 +    grouped.down(buf.act.view(-1, ex.width), ex.routed_experts, buf.plan_routed, buf.y.view(-1, ex.dims), rows)
-+    buf.y[:rows, top_k] = bf16.matmul(buf.act[:rows, top_k], ex.shared_down, f32=not prompt)
++    if getattr(ex.shared_down, "parts", None) is not None:   # int8: written straight into its slot (strided rows)
++        bf16.matmul(buf.act[:rows, top_k], ex.shared_down, out=buf.y[:rows, top_k], f32=not prompt)
++    else:
++        buf.y[:rows, top_k] = bf16.matmul(buf.act[:rows, top_k], ex.shared_down, f32=not prompt)
 +    return buf
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/bf16.py b/src/tensorfold/families/qwen4_exp/cuda/bf16.py
 index f43360e..1240cb8 100644
@@ -629,7 +651,7 @@ index ea765aa..afe811b 100644
      torch.cuda.synchronize()
      seconds = time.perf_counter() - start
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/engine.py b/src/tensorfold/families/qwen4_exp/cuda/engine.py
-index 002ff1f..a7efb2e 100644
+index 002ff1f..5fd49cd 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/engine.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/engine.py
 @@ -61,19 +61,20 @@ class FlashNextEngine:
@@ -671,7 +693,27 @@ index 002ff1f..a7efb2e 100644
          self.streams, self.master, self.graphs_enabled = int(streams), master, bool(graphs)
          self.kv_dtype = check_kv(kv_dtype)
          self.comm = None
-@@ -136,7 +142,7 @@ class FlashNextEngine:
+@@ -108,6 +114,19 @@ class FlashNextEngine:
+                 raise ValueError("two ranks need rank 0's address (master)")
+             self.comm = open_comm(rank, 2, master, port)
+             self.comm.barrier()
++            # Open the point-to-point connection (the image-feature exchange) now, while memory is fresh: NCCL sets it
++            # up at the first send/recv and registers its buffers then; on a GB10 worker deep into serving that
++            # registration can fail (ibv_reg_mr: Cannot allocate memory), killing rank 1 mid-request.
++            from tensorfold.cuda.comm import exchange as _swap
++
++            warm = (torch.zeros((4096,), dtype=torch.bfloat16, device="cuda"),
++                    torch.zeros((64,), dtype=torch.int32, device="cuda"))
++            none = tuple(t.new_empty((0,)) for t in warm)
++            if rank == 0:
++                _swap(self.comm, list(warm), list(none), 1)
++            else:
++                _swap(self.comm, list(none), list(warm), 0)
++            torch.cuda.synchronize()
+         gather = (lambda values: gather_ints(torch, self.comm.all_gather, values)) if tp == 2 else None
+         each, mtp, bits = self.depth + 1, self.depth > 0, BITS_OF[self.kv_dtype]
+         # one admission for one stream or many (every slot, the shared rows and kept snapshots), before any load
+@@ -136,7 +155,7 @@ class FlashNextEngine:
                    f"planned peak {peak:.2f} GiB at the admitted window", flush=True)
          self.max_len = self.capacity_plan["cache_slots"]
          if tp == 2:
@@ -680,7 +722,7 @@ index 002ff1f..a7efb2e 100644
          build_kernels(exl3=exl3, nvfp4=not exl3 and quant_method(read_config(model_dir)) == "modelopt",
                        solo=streams == 1 or (graphs and mtp))
          from concurrent.futures import wait
-@@ -165,15 +171,21 @@ class FlashNextEngine:
+@@ -165,15 +184,21 @@ class FlashNextEngine:
          from tensorfold.cuda.markers import resume_points
  
          self.points = resume_points(model_dir)          # a prompt's message starts to keep states at, or None
@@ -704,7 +746,7 @@ index 002ff1f..a7efb2e 100644
          # ``streams`` > 1: up to that many requests decoded together, every stream's chain in one forward
          self.concurrent = streams > 1
          self.refuses_structured_output = (
-@@ -189,6 +201,7 @@ class FlashNextEngine:
+@@ -189,6 +214,7 @@ class FlashNextEngine:
              self.e = None
              self.multi = MultiDecoder(w, slots=streams, capacity=self.max_len, depth=self.depth,
                                        confidence=self.confidence, keep=KEEP, points=self.points,
@@ -712,7 +754,7 @@ index 002ff1f..a7efb2e 100644
                                        kv_dtype=self.kv_dtype, share=share, vision=self.vision,
                                        prefill_rows=self.prefill_rows, workspace_bytes=prompt_workspace, graphs=graphs)
              self.scheduler = Scheduler(self.multi, max_streams=streams)
-@@ -246,10 +259,17 @@ class FlashNextEngine:
+@@ -246,10 +272,17 @@ class FlashNextEngine:
          self.serial = None                                # the serial requests' engine, made on first use
          rule = (f"1 to {self.depth} MTP drafts a round, a chain stops before a later draft under "
                  f"{self.confidence:.0%}" if self.depth else "no drafts: the serial reference, one token a round")
@@ -730,7 +772,7 @@ index 002ff1f..a7efb2e 100644
          if ple_on_ssd:
              how = "read from SSD at each lookup"
          elif tables_read:                             # read during the load: the wait after it, then any lock
-@@ -264,7 +284,7 @@ class FlashNextEngine:
+@@ -264,7 +297,7 @@ class FlashNextEngine:
                f"decode graphs captured; idle prompt pieces {self.prefill_rows} rows; "
                f"prompt kernels warmed in {warm_s:.1f}s", flush=True)
  
@@ -739,7 +781,7 @@ index 002ff1f..a7efb2e 100644
          """Both ranks must decode with the same rule, context, draft vocabulary and KV cache, or they would fall out of step: refuse to start otherwise."""
  
          from .kvcache import BITS_OF
-@@ -273,14 +293,15 @@ class FlashNextEngine:
+@@ -273,14 +306,15 @@ class FlashNextEngine:
          mine = torch.tensor([self.depth, round(self.confidence * 1e6), self.max_len, self.streams,
                               int(self.graphs_enabled),
                               len(ids) if ids is not None else -1, total, BITS_OF[self.kv_dtype],
@@ -757,7 +799,7 @@ index 002ff1f..a7efb2e 100644
                                 f"rank 0 {both[0].tolist()}, rank 1 {both[1].tolist()}")
  
      def _key(self, n: int) -> str:
-@@ -296,13 +317,13 @@ class FlashNextEngine:
+@@ -296,13 +330,13 @@ class FlashNextEngine:
              self.comm.store.set(self._key(self.served), json.dumps({"stop": True}))
  
      def _share(self, prompt: list[int], max_tokens: int, sampling, draft: bool, cached: int, constraint=None,
@@ -774,7 +816,7 @@ index 002ff1f..a7efb2e 100644
                  "sampling": None if sampling is None else [int(sampling.seed), float(sampling.temperature),
                                                             int(sampling.top_k), float(sampling.top_p),
                                                             float(sampling.min_p)],
-@@ -338,7 +359,7 @@ class FlashNextEngine:
+@@ -338,7 +372,7 @@ class FlashNextEngine:
          s = body["sampling"]
          return (body["prompt"], body["max_tokens"], None if s is None else Sampling(*s),
                  body["draft"], body["cached"], body.get("grammar") or [], body.get("stop_eos", True),
@@ -783,7 +825,7 @@ index 002ff1f..a7efb2e 100644
  
      @property
      def context_window(self) -> int:
-@@ -378,7 +399,7 @@ class FlashNextEngine:
+@@ -378,7 +412,7 @@ class FlashNextEngine:
          return self.tp == 1
  
      def _serial(self, prompt: list[int], max_tokens: int, sampling, on_tokens, constraint=None,
@@ -792,7 +834,7 @@ index 002ff1f..a7efb2e 100644
          """One token a round from a fresh prefill in the serial engine's own state (no drafts, no kept states)."""
  
          import torch
-@@ -388,7 +409,8 @@ class FlashNextEngine:
+@@ -388,7 +422,8 @@ class FlashNextEngine:
          if self.serial is None:
              self.serial = self.e.twin()
          t0 = time.perf_counter()
@@ -802,7 +844,7 @@ index 002ff1f..a7efb2e 100644
          torch.cuda.synchronize()
          stats: dict[str, Any] = {"prefill_s": round(time.perf_counter() - t0, 4), "cached": 0, "drafts": False}
          if (on_tokens is not None and on_tokens([first])) or (stop_eos and first in self.eos) or max_tokens <= 1:
-@@ -399,12 +421,14 @@ class FlashNextEngine:
+@@ -399,12 +434,14 @@ class FlashNextEngine:
          return stats
  
      def _decode(self, prompt: list[int], max_tokens: int, sampling, on_tokens, hit, constraint=None,
@@ -818,7 +860,7 @@ index 002ff1f..a7efb2e 100644
          self._start_from(hit)
          from tensorfold.cuda.markers import MIN_GAP
  
-@@ -415,18 +439,26 @@ class FlashNextEngine:
+@@ -415,18 +452,26 @@ class FlashNextEngine:
          stops = [p for p in points if cached + MIN_GAP <= p < end]
          def keep(p, snap, tail):
              self._remember(list(prompt[:p]), {"state": snap, "tail": tail})
@@ -850,7 +892,7 @@ index 002ff1f..a7efb2e 100644
              stats.update(drafted=res.drafted, accepted=res.accepted, min_rows=min(res.widths, default=0))
          else:
              res = serial_decode(self.e, first, max_tokens, sampling, stop_eos=stop_eos, on_tokens=on_tokens,
-@@ -461,18 +493,26 @@ class FlashNextEngine:
+@@ -461,18 +506,26 @@ class FlashNextEngine:
                                           **grammar, **({"background": True} if background else {}),
                                           probabilities=probabilities,
                                           **({"vision": vision} if vision is not None else {}))
@@ -882,7 +924,7 @@ index 002ff1f..a7efb2e 100644
  
      def score_labels(self, prompt_ids, label_ids) -> tuple[list[float], float]:
          """Score the prompt's final row in a fresh state without adding a kept decision prefix."""
-@@ -537,7 +577,9 @@ class FlashNextEngine:
+@@ -537,7 +590,9 @@ class FlashNextEngine:
              request = self._receive()
              if request is None:
                  return
@@ -893,7 +935,7 @@ index 002ff1f..a7efb2e 100644
              constraint = None
              if packed:                                      # the request's grammar, compiled here as on rank 0
                  from tensorfold.engine import grammar
-@@ -551,9 +593,15 @@ class FlashNextEngine:
+@@ -551,9 +606,15 @@ class FlashNextEngine:
                  if hit is None:
                      raise RuntimeError(f"rank 1 has no kept state for the {cached} tokens rank 0 resumes from")
              try:
@@ -1196,7 +1238,7 @@ index 6b0bf41..5a1230c 100644
      w = torch.cat([r.to(torch.float16) for r in rows]).to(device).contiguous()
      n, k = w.shape
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/forward.py b/src/tensorfold/families/qwen4_exp/cuda/forward.py
-index c5fa44d..360b9d1 100644
+index c5fa44d..2682fec 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/forward.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/forward.py
 @@ -16,7 +16,7 @@ from tensorfold.cuda.kernels import gdn as shared_gdn
@@ -1204,7 +1246,7 @@ index c5fa44d..360b9d1 100644
  from . import attention as attn_mod
  from . import gdn as gdn_mod
 -from . import attn_multi, bf16, gdn_io, gdn_multi, glue, nvfp4_moe, qmm
-+from . import affine_moe, attn_multi, bf16, gdn_io, gdn_multi, glue, nvfp4_moe, qmm
++from . import affine_moe, attn_multi, bf16, gdn_io, gdn_multi, glue, nvfp4_moe, q8, qmm
  from . import image_rows
  from .hc_check import fuser as _hc_fuser
  from .state import ATT_ROWS, CAND, Buffers, State, _MoECfg
@@ -1220,7 +1262,24 @@ index c5fa44d..360b9d1 100644
      if not isinstance(q, qmm.Q4):                 # an EXL3 pack's matrix (``exl3_mm``): prompts on its prompt path
          return q.prefill(x, out) if b.prefill else q(x, out)
      mm = qmm.prefill_matmul if b.prefill else qmm.matmul
-@@ -196,14 +197,14 @@ def _prefill_chain(g, st: State, li: int, b: Buffers, a0: int, a1: int, c, cut:
+@@ -82,9 +83,13 @@ def _readout_b16(hc: HC, b: Buffers, h: torch.Tensor, R: int, eps: float, stream
+     """The read-out on the bf16 kernels: norm, down, activation and inject gates, up, the mix; same bits per row."""
+ 
+     glue.hc_normed(h[:R], b.pss[:R], hc.scale, b.normed[:R], b.xs_normed[:R], streams, eps)
+-    got = bf16.matmul(b.normed[:R], hc.down.b, out=torch.empty((R, hc.down.n), dtype=torch.float32,
+-                                                               device=h.device), f32=True)
+-    glue.hc_act(got, b.act[:R], b.xs_act[:R], inject, streams, low)
++    part = q8.partials(b.normed[:R], hc.down) if isinstance(hc.down, q8.Q8Face) else None
++    if part is not None:                               # int8 down: its K slices summed inside the activation
++        glue.hc_reduce_act(part, b.act[:R], b.xs_act[:R], inject, streams, low)
++    else:
++        got = bf16.matmul(b.normed[:R], hc.down.b, out=torch.empty((R, hc.down.n), dtype=torch.float32,
++                                                                   device=h.device), f32=True)
++        glue.hc_act(got, b.act[:R], b.xs_act[:R], inject, streams, low)
+     _mm(b.act[:R], hc.up, b.xs_act[:R], b.up[:R], b)
+     glue.hc_mix(b.up[:R], b.normed[:R], b.mixed[:R], b.xs_mixed[:R], streams)
+ 
+@@ -196,14 +201,14 @@ def _prefill_chain(g, st: State, li: int, b: Buffers, a0: int, a1: int, c, cut:
  def _out_proj(w: Weights, b: Buffers, x: torch.Tensor, q: qmm.Q4, xs: torch.Tensor, R: int):
      """A block's output projection: (1, bf16 branch) on one GPU; (3, gathered fp32 partials) across ranks."""
  
@@ -1237,7 +1296,7 @@ index c5fa44d..360b9d1 100644
      return 3, _gather(w, b, b.part_branch, b.g_branch, R)
  
  
-@@ -321,10 +322,13 @@ def moe_block(layer: LayerW, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -321,10 +326,13 @@ def moe_block(layer: LayerW, w: Weights, b: Buffers, R: int) -> tuple:
      """Routed experts + the shared expert. Returns the pending write-back: (2, slots y, weights) on one GPU, (3, gathered fp32 partials, None) across ranks."""
  
      m = layer.moe
@@ -1253,7 +1312,7 @@ index c5fa44d..360b9d1 100644
          return _exl3_moe(m, w, b, R)
      else:
          buf = moe_mod.moe(b.mixed[:R], m.router, m.experts, b.moe, w.cfg.top_k, w.cfg.experts)
-@@ -344,6 +348,8 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -344,6 +352,8 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
      buf = b.moe
      moe_mod.router(b.mixed[:R], m.router, buf.logits[:R])
      moe_mod.select_rows(buf.logits[:R], buf, w.cfg.top_k, w.cfg.experts)
@@ -1262,7 +1321,7 @@ index c5fa44d..360b9d1 100644
      if not b.prefill and R <= MOE_WINDOW:
          y = routed(b.mixed[:R], buf.pick[:R], None, m.experts, w.x3.moe, None, R)
          return 2, y.view(R, buf.slots, -1), buf.wts[:R]
-@@ -354,6 +360,28 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -354,6 +364,28 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
      return 2, buf.y[:R], buf.wts[:R]
  
  
@@ -1291,7 +1350,7 @@ index c5fa44d..360b9d1 100644
  def _writeback(h: torch.Tensor, b: Buffers, R: int, c, pending) -> None:
      """Apply a pending branch to the streams (in place), no read-out."""
  
-@@ -610,3 +638,19 @@ def cut_snapshot(w: Weights, st: State, b: Buffers, cut: Cut, mtp_len: int) -> d
+@@ -610,3 +642,19 @@ def cut_snapshot(w: Weights, st: State, b: Buffers, cut: Cut, mtp_len: int) -> d
          shift_windows(tail[None], b.ple_nrow[None, cut.at:cut.at + cut.row], cut.row, tail.shape[1])
      return {"pos": st.pos + cut.row, "rec": cut.rec, "conv": cut.conv, "ple_tail": tail,
              "ple_history": None if history is None else history.copy(), "mtp_len": mtp_len}
@@ -1657,10 +1716,10 @@ index 5dcc6b9..6e69045 100644
                  except (ValueError, NoRoom, OutOfStep) as exc:
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/q8.py b/src/tensorfold/families/qwen4_exp/cuda/q8.py
 new file mode 100644
-index 0000000..842def5
+index 0000000..8772e06
 --- /dev/null
 +++ b/src/tensorfold/families/qwen4_exp/cuda/q8.py
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,260 @@
 +"""Int8 linears with a scale per output row and group of inputs, for checkpoints whose non-expert linears are int6 or
 +int8 (symmetric): the stored integers widened to int8 bytes, half the bytes of bf16 and exact.
 +
@@ -1846,10 +1905,9 @@ index 0000000..842def5
 +        n = p.n
 +        bm, bn, bk, sk, warps, stages = config(n, k, p.gs if p.scale is not None else 128, m)
 +        inline = 1
-+        if m > 128:                                  # 128-row tiles: the same K blocks and slices, a smaller footprint
-+            # (BLOCK_K and the slices fix a row's bits; BLOCK_N, warps and stages do not)
-+            inline, sk, bn, warps = sk, 1, 64, 4
-+            stages = 2 if bk == 128 else 3
++        if m > 128:                                  # prompt-sized calls: the same K blocks and slices (they fix a
++            # row's bits), 64 x 128 tiles, 8 warps: twice the bf16-equivalent rate of 128 x 64 on GB10 (2048-row sweep)
++            inline, sk, bm, bn, warps, stages = sk, 1, 64, 128, 8, (2 if bk == 128 else 3)
 +        part = torch.empty((sk, m, n), dtype=torch.float32, device=x.device) if sk > 1 else out
 +        grid = (triton.cdiv(m, bm), triton.cdiv(n, bn), sk)
 +        _q8mm[grid](x, p.weight, p.scale if p.scale is not None else p.weight, out, part, m, x.stride(0),
@@ -1870,6 +1928,58 @@ index 0000000..842def5
 +    scale = (g.abs().amax(-1) / 127.0).clamp(min=1e-12)
 +    q = torch.round(g / scale[:, :, None]).clamp(-127, 127).to(torch.int8).view(n, k)
 +    return part_from_ints(q, scale, gs)
++
++
++def partials(x: torch.Tensor, face: Q8Face) -> torch.Tensor | None:
++    """The face's K slices unreduced, [SK, M, N] fp32 (every part at the same split), for a consumer that sums them
++    in slice order itself (the hyper-connection's activation): the same bits as ``matmul(f32=True)``, one launch
++    fewer a part. None when the parts split differently or the call is prompt-sized."""
++    m, k = x.shape
++    if m > 128:
++        return None
++    cfgs = [config(p.n, k, p.gs if p.scale is not None else 128, m) for p in face.parts]
++    sk = cfgs[0][3]
++    if sk == 1 or any(c[3] != sk for c in cfgs):
++        return None
++    n_all = face.n
++    part = torch.empty((sk, m, n_all), dtype=torch.float32, device=x.device)
++    col0 = 0
++    for p, (bm, bn, bk, _, warps, stages) in zip(face.parts, cfgs):
++        # each part writes its slices into its columns of the shared buffer: PART rows are N_all wide
++        _q8slices[(triton.cdiv(m, bm), triton.cdiv(p.n, bn), sk)](
++            x, p.weight, p.scale if p.scale is not None else p.weight, part, m, x.stride(0), col0,
++            N=p.n, NALL=n_all, K=k, GS=max(p.gs, 1), SK=sk, BM=bm, BLOCK_N=bn, BLOCK_K=bk,
++            SCALED=p.scale is not None, num_warps=warps, num_stages=stages)
++        col0 += p.n
++    return part
++
++
++@triton.jit
++def _q8slices(X, W, S, PART, M, x_stride, col0, N: tl.constexpr, NALL: tl.constexpr, K: tl.constexpr,
++              GS: tl.constexpr, SK: tl.constexpr, BM: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
++              SCALED: tl.constexpr):
++    """``_q8mm``'s slice sums (the same K blocks in the same order), stored to PART[s, m, col0 + n]."""
++    pid_n = tl.program_id(1)
++    pid_s = tl.program_id(2)
++    rm = tl.program_id(0) * BM + tl.arange(0, BM)
++    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
++    rk = tl.arange(0, BLOCK_K)
++    m_ok = rm < M
++    n_ok = rn < N
++    KS: tl.constexpr = K // SK
++    NB: tl.constexpr = KS // BLOCK_K
++    acc = tl.zeros((BM, BLOCK_N), dtype=tl.float32)
++    for i in range(NB):
++        k0 = (pid_s * NB + i) * BLOCK_K
++        x = tl.load(X + rm[:, None] * x_stride + (k0 + rk)[None, :], mask=m_ok[:, None], other=0.0)
++        w = tl.load(W + rn[:, None] * K + (k0 + rk)[None, :], mask=n_ok[:, None], other=0)
++        d = tl.dot(x, tl.trans(w.to(tl.bfloat16)), out_dtype=tl.float32)
++        if SCALED:
++            s = tl.load(S + rn * (K // GS) + k0 // GS, mask=n_ok, other=0.0)
++            acc += d * s[None, :]
++        else:
++            acc += d
++    tl.store(PART + (pid_s * M + rm[:, None]) * NALL + col0 + rn[None, :], acc, mask=m_ok[:, None] & n_ok[None, :])
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/stage_times.py b/src/tensorfold/families/qwen4_exp/cuda/stage_times.py
 new file mode 100644
 index 0000000..3e7cf2d

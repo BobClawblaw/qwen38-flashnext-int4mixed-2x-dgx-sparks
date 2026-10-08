@@ -15,31 +15,59 @@ dependencies.
 
 ## Measured on this pair
 
-The defaults: sixteen concurrent streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15,
-vision on, TP=2 over the RoCE link. `bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per
-stream, median of 2 runs. Receipts: [`evidence/2026-10-07-first-boot/`](evidence/2026-10-07-first-boot/).
+The shipped image (patch pin `f188bd45`) with the defaults: sixteen concurrent streams, a 1,048,576-token window
+(static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link. `bench/ruler.py`, greedy,
+thinking off, 256-token replies, a distinct prompt per stream, median of 2 runs. Receipts:
+[`evidence/`](evidence/).
 
 | Users | prose | code | structured | list | first token |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 67.0 | 106.0 | 85.9 | 106.6 | 0.07-0.10 s |
-| 4 | 143.3 | 224.6 | 188.4 | 267.7 | 0.12-0.20 s |
-| 8 | 211.5 | 360.1 | 270.1 | 395.9 | 0.24-0.31 s |
-| 16 | 294.1 | 414.9 | 370.3 | 534.9 | 0.52-0.68 s |
+| 1 | 68.7 | 109.0 | 89.0 | 109.9 | 0.06-0.10 s |
+| 4 | 147.4 | 230.0 | 197.3 | 279.9 | 0.12-0.19 s |
+| 8 | 214.1 | 366.0 | 273.2 | 403.7 | 0.24-0.30 s |
+| 16 | 299.5 | 475.2 | 372.0 | 542.0 | 0.51-0.72 s |
 
-Aggregate tokens a second (per stream at 16 users: 18.5 / 24.7 / 22.9 / 33.7). One user on `PROFILE=serial` (CUDA
-graphs, no YaRN): prose 68.9, code 121.5, structured 88.6, list 117.4. Exactness on the defaults: drafted equals
-undrafted 12/12, four streams together equal alone 12/12.
+Aggregate tokens a second. One stream undrafted: 35 tok/s. `PROFILE=serial` (CUDA graphs, one user, no YaRN):
+prose 68.9, code 121.5, structured 88.6, list 117.4.
 
-How the build got here, one user on the serial profile:
+Prompt passes (time to the first token, one prompt, needle found in each):
+
+| Prompt | Time | Rate |
+|---:|---:|---:|
+| 7,164 tokens | 3.4 s | 2,124 tok/s |
+| 28,562 | 13.6 s | 2,096 tok/s |
+| 114,680 | 60.7 s | 1,888 tok/s |
+| 224,986 | 129.2 s | 1,741 tok/s |
+
+## Quality
+
+The recipe's suite on the defaults (`quality/`, datasets pinned):
+
+| Check | Result |
+|---|---|
+| drafted equals undrafted; four streams together equal alone | 12/12; 12/12 |
+| streaming = non-streaming, multi-turn recall, stop strings, thinking mode, verbatim copy, exact `max_tokens` | all pass |
+| tool calls (60: exact function and arguments, optional arguments left out, parallel calls, no-call cases) | 60/60 |
+| JSON schemas | 30/30 |
+| IFEval (150 prompts, the 24 instruction types implemented) | 130 loose / 125 strict |
+| GSM8K (250) | 241 (96.4%) |
+| MGSM (8 languages x 30) | 219 (91.3%) |
+| MMLU (6 a subject, 342) | 283 (82.7%) |
+| HumanEval (164, pass@1, sandboxed) | 157 (95.7%) |
+| repetition (eight 600-word replies) | 8/8, 0.40% repeated 4-grams |
+| long context: needles at 2/50/98% of 128k and 225k and 10/50/90% of 8-57k; ten spread facts at 28k to 225k | 55/55 |
+| vision (12 drawn probes) | 12/12 |
+
+How the speed got here, one user:
 
 | Build | prose | code | structured | list |
 |---|---:|---:|---:|---:|
-| v1: dense linears as bf16 | 54.0 | 87.1 | 72.2 | 91.8 |
-| v2: dense linears as int8 + group scales (exact) | 69.2 | 97.8 | 84.6 | 110.3 |
-| v2 + int8 MTP layer + retuned int8 tiles | 68.9 | 121.5 | 88.6 | 117.4 |
+| v1: dense linears as bf16 (serial) | 54.0 | 87.1 | 72.2 | 91.8 |
+| v2: dense linears as int8 + group scales, exact (serial) | 69.2 | 97.8 | 84.6 | 110.3 |
+| + int8 MTP layer, retuned tiles (serial) | 68.9 | 121.5 | 88.6 | 117.4 |
+| defaults (concurrent, 1M), + fused hyper-connection and shared-expert kernels | 68.7 | 109.0 | 89.0 | 109.9 |
 
-The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays; nothing beat it beyond
-noise, and a low threshold or short drafts cost up to 10%.
+The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays.
 
 ## Where a decode round goes
 
@@ -130,7 +158,7 @@ Checks, all written for this recipe (datasets pinned by commit or sha256, downlo
 | `mmlu` | 6 questions from each of the 57 MMLU subjects (342), fixed sample, exact letter |
 | `humaneval` | 164 Python functions, pass@1, the dataset's tests run in a container with no network |
 | `repetition` | repeated 4-grams and early stops in eight 600-word replies |
-| `long-context` | needles at 10/50/90% depth of 8k, 32k and 64k documents; ten spread facts at 32k and 64k |
+| `long-context` | needles at 10/50/90% depth of 8k, 32k and 64k documents and at the extreme edges (2% and 98%) and middle of 128k and 250k ones; ten spread facts recalled together at 32k, 64k, 128k and 250k (`--long-max` caps the length) |
 | `vision` | 12 generated images: shapes, colours, counts, left/right, above/below, a blank |
 | `snapshot` | the reply set; `--compare a.json b.json` diffs two servers (two ranks vs one GPU, one quantization vs another) |
 

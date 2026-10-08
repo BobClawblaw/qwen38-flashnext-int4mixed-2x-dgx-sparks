@@ -6,7 +6,7 @@
     python3 -m quality.suite --compare a/replies.json b/replies.json   # two servers' reply sets (ranks, quantizations)
 
 Checks: drafts, concurrent, behaviour (streaming, multiturn, stop, thinking, copy, max-tokens), tools, json,
-ifeval, gsm8k, mgsm, mmlu, humaneval (sandboxed), repetition, long-context (to 64k), vision, snapshot (the reply set
+ifeval, gsm8k, mgsm, mmlu, humaneval (sandboxed), repetition, long-context (needles to 250k at the edges, spread facts), vision, snapshot (the reply set
 for comparisons). Each writes its details to <out>/<check>.json; <out>/report.md and report.json hold the table.
 """
 
@@ -41,7 +41,7 @@ def run_check(name: str, client: Client, out: Path, a) -> Result:
     if name == "repetition":
         return repetition.run(client, workers=a.workers)
     if name == "long-context":
-        return needles.run(client)
+        return needles.run(client, max_tokens=a.long_max)
     if name == "vision":
         return vision.run(client)
     if name == "snapshot":
@@ -69,6 +69,7 @@ def main(argv=None) -> int:
     ap.add_argument("--gsm8k-n", type=int, default=250)
     ap.add_argument("--ifeval-n", type=int, default=150)
     ap.add_argument("--mgsm-n", type=int, default=30, help="problems per MGSM language")
+    ap.add_argument("--long-max", type=int, default=0, help="skip long-context documents above this many tokens (0: all, to 250k)")
     ap.add_argument("--mmlu-per-subject", type=int, default=6)
     ap.add_argument("--sandbox-image", default="tf-qwen38-int4mixed:0.6.6", help="image HumanEval code runs in (no network)")
     ap.add_argument("--thinking", action="store_true", help="GSM8K with thinking on")
