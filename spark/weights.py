@@ -94,7 +94,7 @@ def download_converted(s: Settings, head: Node) -> None:
     tmp = s.converted_dir.with_name(s.converted + ".partial")
     head.run(["rm", "-rf", str(tmp), str(s.converted_dir)])
     head.run(["mkdir", "-p", str(tmp)])
-    log(f"Downloading the converted checkpoint {s.converted_repo}@{s.converted_revision[:8]} (about 130 GB)")
+    log(f"Downloading the converted checkpoint {s.converted_repo}@{s.converted_revision[:8]} (128 GB)")
     rc = subprocess.call([hf, "download", s.converted_repo, "--revision", s.converted_revision, "--local-dir", str(tmp)],
                          env={**os.environ, "HF_HOME": str(s.hf_cache), "HF_HUB_DISABLE_XET": os.environ.get("HF_HUB_DISABLE_XET", "1")})
     if rc:

@@ -7,8 +7,12 @@ int8 head and mixers, bf16 router, MTP and vision), across two NVIDIA DGX Spark 
 both ranks by default with a 1M-token window (static YaRN), sixteen concurrent streams by default, MTP and copy drafts, image and video input, tool calls, an OpenAI-compatible
 API, and a systemd unit.
 
-TensorFold does not read this checkpoint's format; this recipe converts it once per node into the engine's own
-layout (the int4 experts bit for bit, the rest to bf16 and e4m3) and adds the loader branch that serves it
+TensorFold does not read this checkpoint's format, so the recipe serves it converted into the engine's own layout:
+the int4 experts bit for bit, the int6 and int8 linears as their exact integers with their group scales, the n-gram
+table as e4m3. `spark up` downloads that converted checkpoint from this project's Hugging Face repository,
+[BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold](https://huggingface.co/BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold)
+(public, pinned to a revision), so there is nothing to convert; the converter ships too, for checking or rebuilding it
+from Minachist's export. The patch adds the loader branch that serves it
 ([`docs/design.md`](docs/design.md), [`docker/patches/README.md`](docker/patches/README.md)). The recipe is built
 from scratch: a stdlib-only Python orchestrator, its own quality suite and ruler, no inherited code and no harness
 dependencies.
@@ -102,9 +106,11 @@ between the nodes they cost 15 us eager and 44-71 us inside a CUDA graph.
 ## Requirements
 
 - Two DGX Sparks on the QSFP RoCE link, Docker and the NVIDIA Container Toolkit on both, key-based ssh from the head
-  to the worker, Python 3.11+ on the head (the orchestrator is stdlib only), the `hf` CLI for the download.
-- Disk on the head: the snapshot (165 GB, the bf16 n-gram shards are most of it) plus the converted checkpoint
-  (about 130 GB); on the worker: the converted checkpoint (copied from the head). Plus 25 GB for the image on each.
+  to the worker, Python 3.11+ on the head (the orchestrator is stdlib only), the `hf` CLI for the download
+  (`pip install -U huggingface_hub`; the repository is public, no token needed).
+- Disk: the converted checkpoint on each node, 128 GB (119 GiB; downloaded on the head, copied to the worker over
+  the link), plus 25 GB for the image on each. Converting locally instead (`converted_repo = ""`) also needs
+  Minachist's 165 GB snapshot on the head.
 - Exclusive GPUs: `spark up` refuses to start beside another GPU container.
 
 ### Both halves of the port
@@ -126,6 +132,7 @@ The same gather then takes 1.1 ms, prompt passes run 9-12% faster, and decode is
 
 ```bash
 git clone https://github.com/BobClawblaw/qwen38-flashnext-int4mixed-2x-dgx-sparks.git && cd qwen38-flashnext-int4mixed-2x-dgx-sparks
+pip install -U huggingface_hub      # the hf CLI that downloads the weights (public, no token)
 cp cluster.example.toml cluster.toml && $EDITOR cluster.toml   # head_ip, worker (user@host), hca, port
 python3 -m spark validate            # the settings and the guards, touches nothing
 python3 -m spark up                  # sixteen streams, 1,048,576-token window; waits for the API
@@ -137,8 +144,8 @@ python3 -m spark image --rebuild   # after a patch change: rebuild on the head; 
 ```
 
 The weights come ready-made from [BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold](https://huggingface.co/BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold)
-at the revision `recipe.toml` pins (`converted_repo`, `converted_revision`): about 119 GB, the converter's output for
-the pinned source snapshot. Set `converted_repo = ""` to convert locally from Minachist's snapshot instead (a 165 GB
+at the revision `recipe.toml` pins (`converted_repo`, `converted_revision`): 128 GB (119 GiB), the converter's output
+for the pinned source snapshot, with the converter's hash in the model card. Set `converted_repo = ""` to convert locally from Minachist's snapshot instead (a 165 GB
 download and about 25 GPU minutes); a folder converted locally with the same converter is accepted as the same.
 
 The first `up` builds the image (a few minutes on top of the NGC base, pulled once), downloads the converted checkpoint (or converts the
