@@ -1,0 +1,25 @@
+prompt 28429 tokens in 14.0 s (eager, synchronized stages)
+prompt 114678 tokens in 61.7 s (eager, synchronized stages)
+moe_block                    24.63 s    3675 calls    6702.7 us
+hc_block                     19.18 s    7350 calls    2609.0 us
+attn_block                   15.87 s     975 calls   16275.7 us
+_gather                      15.67 s    7350 calls    2131.7 us
+gdn_block                    14.74 s    2700 calls    5460.4 us
+experts.gate_up               7.98 s    3675 calls    2171.6 us
+attention.qsa_rows            7.71 s    7436 calls    1036.6 us
+experts.down                  5.11 s    3675 calls    1389.9 us
+glue.hc_writeback             4.12 s    7575 calls     543.9 us
+attention.attention           3.66 s    7424 calls     493.0 us
+glue.hc_mix                   3.14 s    7500 calls     418.6 us
+glue.hc_normed                2.95 s    7500 calls     393.0 us
+mtp_compute                   2.79 s      75 calls   37258.0 us
+glue.moe_partial              2.22 s    3675 calls     603.4 us
+gdn.chain                     1.64 s    2772 calls     590.0 us
+_embed                        1.02 s     150 calls    6769.8 us
+gdn_io.front                  0.82 s    2700 calls     302.0 us
+moe.router                    0.47 s    3675 calls     127.0 us
+gdn_io.back                   0.47 s    2808 calls     165.8 us
+ple_block                     0.31 s      75 calls    4130.0 us
+finish                        0.20 s     150 calls    1312.6 us
+moe.select_rows               0.17 s    3675 calls      45.3 us
+glue.hc_act                   0.16 s    6958 calls      22.7 us

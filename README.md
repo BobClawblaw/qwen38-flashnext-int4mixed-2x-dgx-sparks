@@ -69,6 +69,15 @@ How the speed got here, one user:
 
 The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays.
 
+## Where a prompt pass goes
+
+A 28k and a 114k prompt with the stage timer (`TENSORFOLD_STAGE_TIMES`, `evidence/2026-10-08-shipped-image/`), shares of
+the prompt pass on rank 0: the MoE about a third (the grouped expert kernels 13 s of 76 s), the hyper-connection read-out a
+quarter (its elementwise write-back, norm and mix 10 s), the cross-rank gathers a fifth (each 2,048-row chunk moves 20 MB a
+rank, 2.1 ms a gather at about 11 GB/s each way: NCCL stages through host memory, GPU-direct RDMA is off on GB10), the
+attention a fifth (the sparse indexer's scoring grows with the prompt), the DeltaNet a fifth. The int8 matmuls are no longer
+the large part after the prompt-tile change.
+
 ## Where a decode round goes
 
 A round on rank 0 reads about 3 GB: the routed experts it picks (int4), the int8 dense projections (DeltaNet,
