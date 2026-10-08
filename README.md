@@ -137,7 +137,7 @@ cp cluster.example.toml cluster.toml && $EDITOR cluster.toml   # head_ip, worker
 python3 -m spark validate            # the settings and the guards, touches nothing
 python3 -m spark up                  # sixteen streams, 1,048,576-token window; waits for the API
 python3 -m spark status
-PROFILE=serial python3 -m spark up   # one stream on CUDA graphs (and response_format)
+PROFILE=serial python3 -m spark up   # one stream on CUDA graphs
 YARN=0 CONTEXT=262144 python3 -m spark up   # the trained window on the plain rotary
 python3 -m spark down
 python3 -m spark image --rebuild   # after a patch change: rebuild on the head; the worker gets a copy on the next up
@@ -163,7 +163,7 @@ environment variable of the same name in upper case (`PORT=8001 python3 -m spark
 
 | Setting | Default | Notes |
 |---|---|---|
-| `profile` | `concurrent` | `concurrent`: sixteen streams (`parallel=16`); `serial`: one stream on CUDA graphs, serves `response_format` |
+| `profile` | `concurrent` | `concurrent`: sixteen streams (`parallel=16`); `serial`: one stream on CUDA graphs |
 | `yarn` | true | static YaRN x4 over the trained 262,144 (a profile folder's `config.json`; the weights untouched). Every prompt sees the scaled rotary, short ones too (Qwen's card notes a possible cost on short texts); `yarn = false` keeps the plain rotary |
 | `context` | 1048576 | up to 1,048,576 with `yarn`, up to 262,144 without |
 | `kv_dtype` | `int8` | `bf16`, `int8`, `int4` |
@@ -194,7 +194,7 @@ Checks, all written for this recipe (datasets pinned by commit or sha256, downlo
 | `concurrent` | four streams together give the same replies as each alone |
 | `behaviour` | six serving checks: streamed equals non-streamed, facts recalled over six turns, stop strings, thinking mode (`reasoning_content` present, no tag leaks, right answers), verbatim copy of a passage and a code block, exact `max_tokens` |
 | `tools` | 60 tool calls: exact function and argument set, optional arguments left out unless asked, parallel calls, no call where none is wanted |
-| `json` | 30 JSON-schema prompts checked by our validator (`--guided-json` for `response_format` on the serial profile) |
+| `json` | 30 JSON-schema prompts checked by our validator (`--guided-json` sends `response_format`) |
 | `ifeval` | 150 IFEval prompts of the 24 instruction types we implement, strict and loose |
 | `gsm8k` | 250 grade-school math problems, exact number |
 | `mgsm` | the same kind of problems in 8 languages (de, es, fr, ja, zh, ru, sw, bn), 30 each |
@@ -209,8 +209,8 @@ Both run against any OpenAI-compatible server, which is how the comparison table
 
 ## Not supported
 
-- With `parallel` above 1: no `response_format` / `guided_*` grammars and no logprobs on two ranks (the serial
-  profile serves `response_format`).
+- With `parallel` above 1: no logprobs on two ranks. Grammars (`response_format`, `guided_*`) are served in both
+  profiles.
 - Each request decodes to `max_tokens` or EOS on both ranks; a client disconnect stops what is sent, not the work.
 - A rank that dies mid-request leaves the other in NCCL without a timeout: `python3 -m spark down && up`.
 - No `n > 1`, no presence or frequency penalties, the reasoning field is `reasoning_content`.

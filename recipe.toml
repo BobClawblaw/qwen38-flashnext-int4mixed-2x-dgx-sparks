@@ -17,7 +17,7 @@ tensorfold_repo = "https://github.com/ashhart/TensorFold.git"
 tensorfold_sha = "cb2ebf0540f42604e2759b2ddef497861e928248"
 patch = "flashnext-int4mixed-0.6.6.patch"
 # sha256 of docker/patches/<patch>; the image carries it as a label and `up` refuses a mismatch
-patch_sha256 = "e286b13430b176cb4ab40def418ec4d53ff5d651e3aaf88f2872ba31174602ac"
+patch_sha256 = "5b45f8f921e6982105ee3bb4afb24e796da24fa016bd40ef58b0e2a70a13f73f"
 image = "tf-qwen38-int4mixed:0.6.6"
 base_image = "nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c"
 container = "tf-qwen38-int4mixed"
