@@ -2,7 +2,7 @@
 [cluster]
 head_ip = "10.100.8.1"
 worker = "user@10.100.8.2"
-hca = "rocep1s0f1"
+hca = "rocep1s0f1,roceP2p1s0f1"   # both PCIe halves of the cabled QSFP port (see README, "Both halves of the port")
 port = 8000
 
 [serve]

@@ -34,12 +34,13 @@ Prompt passes (time to the first token, one prompt, needle found in each):
 
 | Prompt | Time | Rate |
 |---:|---:|---:|
-| 7,089 tokens | 3.0 s | 2,342 tok/s |
-| 28,442 | 12.1 s | 2,351 tok/s |
-| 114,587 | 54.8 s | 2,091 tok/s |
-| 224,822 | 120.2 s | 1,871 tok/s |
+| 7,089 tokens | 2.8 s | 2,565 tok/s |
+| 28,442 | 10.8 s | 2,639 tok/s |
+| 114,587 | 50.0 s | 2,292 tok/s |
+| 224,822 | 110.2 s | 2,040 tok/s |
 
-Before the prompt-pass fusions (pin `f188bd45`): 2,124 / 2,096 / 1,888 / 1,741 tok/s at the same lengths, so 8-12% faster.
+With both halves of the QSFP port as NCCL rails. On one rail: 2,342 / 2,351 / 2,091 / 1,871 tok/s; before the
+prompt-pass fusions (pin `f188bd45`, one rail): 2,124 / 2,096 / 1,888 / 1,741, so 17-26% faster in all.
 The decode table above is from pin `f188bd45`; pin `e286b134` measured the same within run-to-run noise
 ([`evidence/2026-10-08-prefill-fusions/`](evidence/2026-10-08-prefill-fusions/)).
 
@@ -84,7 +85,7 @@ the large part after the prompt-tile change.
 
 Done since: the read-out's write-back and norm run as one pass on int8 prompts (the byte-checked kernel TensorFold already
 used for MLX 4-bit), and its int8 up projection and mix are one new kernel (337 us against 695 for a 2,048-row chunk,
-bit-identical to the two kernels, with a test). Tried without gain: 4,096-row prompt chunks, NCCL channel, queue-pair and
+bit-identical to the two kernels, with a test). Done since: both halves of the QSFP port as NCCL rails (above). Tried without gain: 4,096-row prompt chunks (also with two rails), NCCL channel, queue-pair and
 buffer settings, a 9000-byte MTU on the link (RoCE at 4096-byte packets; the gathers stay at about 11 GB/s), and NCCL's
 DMA-BUF and C2C GPU-direct switches (NCCL still reports GPU-direct RDMA off; `nvidia-peermem` does not load on this kernel).
 Next in line: the grouped expert prompt kernels and the indexer.
@@ -105,6 +106,21 @@ between the nodes they cost 15 us eager and 44-71 us inside a CUDA graph.
 - Disk on the head: the snapshot (165 GB, the bf16 n-gram shards are most of it) plus the converted checkpoint
   (about 130 GB); on the worker: the converted checkpoint (copied from the head). Plus 25 GB for the image on each.
 - Exclusive GPUs: `spark up` refuses to start beside another GPU container.
+
+### Both halves of the port
+
+A Spark's QSFP port reaches the GB10 over two PCIe Gen5 x4 links, so one cable shows up as two netdevs and two RoCE
+devices (`enp1s0f1np1` / `rocep1s0f1` and `enP2p1s0f1np1` / `roceP2p1s0f1` on the second port). Each half carries about
+112 Gb/s of the port's 200; with only one addressed, NCCL uses one, and a 2,048-row prompt gather took 1.9 ms (about
+11 GB/s each way). Address the second half on both Sparks in its own subnet, persistently, and list both in `hca`:
+
+```bash
+sudo nmcli connection add type ethernet ifname enP2p1s0f1np1 con-name roce-twin ipv4.method manual \
+  ipv4.addresses 10.0.1.1/24 ipv4.never-default yes ipv6.method disabled 802-3-ethernet.mtu 9000   # .2 on the worker
+```
+
+The same gather then takes 1.1 ms, prompt passes run 9-12% faster, and decode is unchanged (16-row gathers 75 to
+57 us). NCCL keeps the first device's address for its own connection setup (`iface`).
 
 ## Quick start
 
@@ -148,7 +164,7 @@ environment variable of the same name in upper case (`PORT=8001 python3 -m spark
 | `vision` | true | images and video on both ranks: the tower on rank 0, rank 1 receives each request's features |
 | `tool_system` | an instruction | added to tool requests without a system message; empty serves none |
 | `max_tokens` | 32768 | the reply cap when a request sets none |
-| `hca`, `iface`, `master_port` | | NCCL: pin one HCA, GB10 exposes dead ones |
+| `hca`, `iface`, `master_port` | | NCCL: the RoCE devices to use, comma-separated (both halves of the cabled port); GB10 also exposes dead ones |
 | `extra_args`, `extra_env` | | passed to the engine; flags the recipe owns are refused |
 
 `python3 -m spark validate` refuses, before anything runs: a window above the trained 262,144 with `yarn = false`
