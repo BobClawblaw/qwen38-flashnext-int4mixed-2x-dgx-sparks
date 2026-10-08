@@ -150,7 +150,7 @@ class NewChecks(unittest.TestCase):
 
 
 @unittest.skipUnless(__import__("shutil").which("docker") and __import__("subprocess").run(
-    ["docker", "image", "inspect", "tf-qwen38-int4mixed:0.6.6"], capture_output=True).returncode == 0,
+    ["docker", "image", "inspect", "tf-qwen38-int4mixed:py0.6-ed78d6f"], capture_output=True).returncode == 0,
     "needs docker and the recipe image")
 class HumanEvalSandbox(unittest.TestCase):
     def test_canonical_solutions_pass_and_a_wrong_one_fails(self) -> None:
@@ -158,7 +158,7 @@ class HumanEvalSandbox(unittest.TestCase):
         progs = {p["task_id"].replace("/", "_"): humaneval.program(p, p["prompt"] + p["canonical_solution"]) for p in probs}
         progs["wrong"] = humaneval.program(probs[0], probs[0]["prompt"] + "    return None\n")
         progs["net"] = "import urllib.request\nurllib.request.urlopen('http://1.1.1.1', timeout=3)\n"
-        v = humaneval.execute(progs, "tf-qwen38-int4mixed:0.6.6")
+        v = humaneval.execute(progs, "tf-qwen38-int4mixed:py0.6-ed78d6f")
         for p in probs:
             self.assertEqual(v[p["task_id"].replace("/", "_")], "pass")
         self.assertTrue(v["wrong"].startswith("fail"))

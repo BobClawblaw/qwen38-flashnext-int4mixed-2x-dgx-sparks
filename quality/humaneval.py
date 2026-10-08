@@ -74,7 +74,7 @@ def execute(programs: dict[str, str], image: str) -> dict[str, str]:
         return json.loads(p.stdout.decode().strip().splitlines()[-1])
 
 
-def run(client: Client, *, image: str = "tf-qwen38-int4mixed:0.6.6", workers: int = 4, max_tokens: int = 1024,
+def run(client: Client, *, image: str = "tf-qwen38-int4mixed:py0.6-ed78d6f", workers: int = 4, max_tokens: int = 1024,
         n: int | None = None) -> Result:
     probs = problems()[:n] if n else problems()
     t0 = time.time()

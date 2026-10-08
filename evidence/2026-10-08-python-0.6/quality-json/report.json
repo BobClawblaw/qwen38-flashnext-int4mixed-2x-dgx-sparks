@@ -1,0 +1,17 @@
+{
+ "url": "http://127.0.0.1:8890/v1",
+ "model": "x",
+ "results": [
+  {
+   "name": "json-guided",
+   "score": 1.0,
+   "cases": 30,
+   "passed": 30,
+   "seconds": 11.737821340560913,
+   "notes": [
+    "all valid"
+   ],
+   "details": {}
+  }
+ ]
+}

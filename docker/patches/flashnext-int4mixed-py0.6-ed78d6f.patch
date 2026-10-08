@@ -74,10 +74,10 @@ index 8af9581..e1c6d02 100644
  
  The default CUDA cap is six MTP drafts, with chains stopping below the configured confidence threshold.
 diff --git a/src/tensorfold/cli.py b/src/tensorfold/cli.py
-index 58121f1..0def950 100644
+index 930f164..ce19513 100644
 --- a/src/tensorfold/cli.py
 +++ b/src/tensorfold/cli.py
-@@ -306,7 +306,8 @@ def _serve_cuda(args: argparse.Namespace, family: Any, model_dir: Path, context:
+@@ -310,7 +310,8 @@ def _serve_cuda(args: argparse.Namespace, family: Any, model_dir: Path, context:
                      vision_max_images=getattr(args, "vision_max_images", None),
                      **({"vision_image_tokens": args.vision_image_tokens}
                         if getattr(args, "vision_image_tokens", None) is not None else {}),
@@ -88,7 +88,7 @@ index 58121f1..0def950 100644
          f"{k} {v}" for k, v in sampling.items())
      effective_context = app.effective_context_window
 diff --git a/src/tensorfold/cli_args.py b/src/tensorfold/cli_args.py
-index cd4fa5b..6128d72 100644
+index 7f8e419..c3903a4 100644
 --- a/src/tensorfold/cli_args.py
 +++ b/src/tensorfold/cli_args.py
 @@ -31,6 +31,10 @@ def build_parser(handlers: dict[str, Callable[[argparse.Namespace], int]]) -> ar
@@ -102,6 +102,32 @@ index cd4fa5b..6128d72 100644
      endpoint.add_argument("--api-key", action="append", default=[], help="require this API key; repeat for more keys")
      endpoint.add_argument("--api-key-file", help="restricted key file, one key or label: key per line; # comments")
      endpoint.add_argument("--metrics-open", action="store_true", help="allow metrics without an API key")
+diff --git a/src/tensorfold/cuda/comm.py b/src/tensorfold/cuda/comm.py
+index 8e897be..73414d8 100644
+--- a/src/tensorfold/cuda/comm.py
++++ b/src/tensorfold/cuda/comm.py
+@@ -165,6 +165,21 @@ def check(comm: Comm) -> None:
+         found()
+ 
+ 
++def warm_exchange(comm: Comm, rank: int) -> None:
++    """Open the two ranks' point-to-point connection now: NCCL sets it up at the first send/recv and registers its
++    buffers then, and on a GB10 worker deep into serving that registration can fail (ibv_reg_mr: Cannot allocate
++    memory), killing rank 1 mid-request."""
++
++    warm = (torch.zeros((4096,), dtype=torch.bfloat16, device="cuda"),
++            torch.zeros((64,), dtype=torch.int32, device="cuda"))
++    none = tuple(t.new_empty((0,)) for t in warm)
++    if rank == 0:
++        exchange(comm, list(warm), list(none), 1)
++    else:
++        exchange(comm, list(none), list(warm), 0)
++    torch.cuda.synchronize()
++
++
+ def exchange(comm: Comm, sends: list[torch.Tensor], recvs: list[torch.Tensor], peer: int | None = None) -> None:
+     """``comm.exchange`` when it has one, else (two ranks) each pair traded as bytes through the all-gather."""
+ 
 diff --git a/src/tensorfold/cuda/exl3/experts.py b/src/tensorfold/cuda/exl3/experts.py
 index f4569ec..2ac1250 100644
 --- a/src/tensorfold/cuda/exl3/experts.py
@@ -528,221 +554,46 @@ index f43360e..1240cb8 100644
  
      rows = [p.b.weight if isinstance(p, _Routed) else p.weight for p in parts]
      return b16_from_rows(torch.cat(rows, dim=0))
-diff --git a/src/tensorfold/families/qwen4_exp/cuda/copy_drafts.py b/src/tensorfold/families/qwen4_exp/cuda/copy_drafts.py
-new file mode 100644
-index 0000000..2e1186e
---- /dev/null
-+++ b/src/tensorfold/families/qwen4_exp/cuda/copy_drafts.py
-@@ -0,0 +1,48 @@
-+"""Copy drafts for Flash Next on CUDA: a repeated tail drafts its earlier continuation, the same chain on both ranks."""
-+
-+from __future__ import annotations
-+
-+import os
-+from collections.abc import Sequence
-+
-+COPY_MATCH = 8          # the context's last this many tokens must have appeared before, and at least this many follow
-+
-+
-+def enabled(default: bool = True) -> bool:
-+    """TENSORFOLD_COPY_DRAFTS=0 (or off, false, no) turns copy drafts off."""
-+    value = os.environ.get("TENSORFOLD_COPY_DRAFTS")
-+    return default if value is None else value.strip().lower() not in ("0", "off", "false", "no")
-+
-+
-+class CopyIndex:
-+    """Longest continuation of an earlier copy of the last ``min_match`` tokens; n-gram starts keep a round O(new)."""
-+
-+    def __init__(self, context: Sequence[int], min_match: int = COPY_MATCH):
-+        self.m = int(min_match)
-+        self.ctx: list[int] = []
-+        self.starts: dict[tuple, list[int]] = {}
-+        self.extend(context)
-+
-+    def extend(self, tokens: Sequence[int]) -> None:
-+        for t in tokens:
-+            self.ctx.append(int(t))
-+            s = len(self.ctx) - self.m
-+            if s >= 0:
-+                self.starts.setdefault(tuple(self.ctx[s:]), []).append(s)
-+
-+    def chain(self, max_nodes: int) -> list[int]:
-+        """Up to ``max_nodes`` tokens after the tail's latest earlier copy; [] without one or under ``min_match``."""
-+
-+        ctx, m = self.ctx, self.m
-+        if len(ctx) < 2 * m or max_nodes < m:
-+            return []
-+        best: list[int] = []
-+        for start in reversed(self.starts.get(tuple(ctx[-m:]), [])):
-+            if start > len(ctx) - m - 1:                 # the needle itself
-+                continue
-+            cont = ctx[start + m:start + m + max_nodes]
-+            if len(cont) > len(best):
-+                best = cont
-+                if len(best) == max_nodes:
-+                    break
-+        return best if len(best) >= m else []
-diff --git a/src/tensorfold/families/qwen4_exp/cuda/decode.py b/src/tensorfold/families/qwen4_exp/cuda/decode.py
-index ea765aa..afe811b 100644
---- a/src/tensorfold/families/qwen4_exp/cuda/decode.py
-+++ b/src/tensorfold/families/qwen4_exp/cuda/decode.py
-@@ -194,7 +194,7 @@ class Engine:
-     def forward(self, tokens: Sequence[int]) -> torch.Tensor:
-         """A decode step's forward (a CUDA graph when enabled): logits [R, V]."""
- 
--        if self.graphs is not None:
-+        if self.graphs is not None and self.st.image_positions is None:    # graphs are captured for text rows
-             return self.graphs.forward(tokens)
-         return forward(self.w, self.st, self.buf, tokens)
- 
-@@ -245,7 +245,7 @@ class Engine:
-         return int(tok), float(np.exp(float(got[hit[0]]) - float(got[k]))) if len(hit) else 0.0
- 
-     def mtp_forward(self, next_tokens: Sequence[int], streams: torch.Tensor) -> torch.Tensor:
--        if self.graphs is not None:
-+        if self.graphs is not None and self.st.image_positions is None:
-             return self.graphs.mtp_forward(next_tokens, streams)
-         return mtp_forward(self.w, self.st, self.mbuf, next_tokens, streams)
- 
-@@ -443,9 +443,17 @@ def serial_decode(e: Engine, pending: int, count: int, sampling: Sampling | None
- @torch.no_grad()
- def mtp_decode(e: Engine, pending: int, count: int, sampling: Sampling | None, *, depth: int = DEPTH,
-                confidence: float = CONFIDENCE, stop_eos: bool = False, on_tokens=None, constraint=None,
--               probabilities=None) -> DecodeResult:
-+               probabilities=None, copies=None) -> DecodeResult:  # copies: a CopyIndex over the prompt and pending
-     """Verify pending and drafted tokens from the prefill state, commit rows before the first mismatched draft, and call ``on_tokens(new)`` with kept tokens after pending, stopping on True."""
- 
-+    def propose(streams, next_tokens, n):
-+        """Copy drafts when the index has a chain (the MTP cache still absorbs the kept rows), else the MTP chain."""
-+        copied = copies.chain(n) if copies is not None else []
-+        if copied:
-+            absorb(e, streams, next_tokens)
-+            return copied
-+        return draft(e, streams, next_tokens, st.pos + 1, n, sampling, confidence)
-+
-     w, st, b = e.w, e.st, e.buf
-     out = [pending]
-     rounds = drafted = accepted = 0
-@@ -455,7 +463,7 @@ def mtp_decode(e: Engine, pending: int, count: int, sampling: Sampling | None, *
-     unabsorbed = None                                  # the last round's kept rows, not yet in the MTP cache
-     torch.cuda.synchronize()
-     start = time.perf_counter()
--    drafts = draft(e, e.last_streams, [pending], st.pos + 1, min(depth, count - len(out)), sampling, confidence)
-+    drafts = propose(e.last_streams, [pending], min(depth, count - len(out)))
-     while len(out) < count and not (stop_eos and out[-1] in w.cfg.eos):
-         tokens = [out[-1]] + drafts
-         window = constraint.window(tokens, list(range(-1, len(tokens) - 1))) if constraint is not None else None
-@@ -485,6 +493,8 @@ def mtp_decode(e: Engine, pending: int, count: int, sampling: Sampling | None, *
-         if constraint is not None:
-             constraint.advance(sampled[:keep])
-         out.extend(sampled[:keep])
-+        if copies is not None:
-+            copies.extend(sampled[:keep])
-         if on_tokens is not None and new and on_tokens(new):
-             break
-         if len(out) >= count or (stop_eos and out[-1] in w.cfg.eos):
-@@ -492,7 +502,7 @@ def mtp_decode(e: Engine, pending: int, count: int, sampling: Sampling | None, *
-         n = min(depth, count - len(out))
-         drafts = []
-         if n > 0:
--            drafts = draft(e, b.streams[:keep], sampled[:keep], st.pos + 1, n, sampling, confidence)
-+            drafts = propose(b.streams[:keep], sampled[:keep], n)
-             unabsorbed = None
-     torch.cuda.synchronize()
-     seconds = time.perf_counter() - start
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/engine.py b/src/tensorfold/families/qwen4_exp/cuda/engine.py
-index 002ff1f..6019838 100644
+index 6d506e6..1d2c25d 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/engine.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/engine.py
-@@ -61,19 +61,20 @@ class FlashNextEngine:
-                  draft_vocab: str | int | None = "default", max_len: int | None = None,
-                  context_explicit: bool | None = None, tp: int = 1, rank: int = 0, master: str = "", port: int = 29551,
-                  prefetch: bool = True, graphs: bool = True, streams: int = 1, ple_on_ssd: bool = False,
--                 kv_dtype: str = "bf16", share: float = 0.0, vision: bool = False, vision_urls: bool = False) -> None:
-+                 kv_dtype: str = "bf16", share: float = 0.0, vision: bool = False, vision_urls: bool = False,
-+                 copy_drafts: bool | None = None) -> None:
-         import torch
- 
-+        from .copy_drafts import enabled as copy_enabled
-+
-         from .exl3_pack import admission, extra_files, is_exl3
- 
+@@ -72,9 +72,9 @@ class FlashNextEngine:
          from tensorfold.families import quant_method, read_config
  
          exl3 = is_exl3(model_dir)
 -        if (exl3 or quant_method(read_config(model_dir)) == "modelopt") and tp != 1:
 -            raise ValueError(f"{'EXL3 packs' if exl3 else 'NVFP4 checkpoints'} of Flash Next run on one GPU: drop --tp "
 -                             "2, or serve the MLX checkpoint (TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP) on two")
--        if vision and (streams < 2 or tp != 1):
--            raise ValueError("image input on Flash Next runs on one GPU with --parallel 2 or more")
 +        if not exl3 and quant_method(read_config(model_dir)) == "modelopt" and tp != 1:
 +            raise ValueError("NVFP4 checkpoints of Flash Next run on one GPU: drop --tp 2, or serve the MLX "
 +                             "checkpoint (TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP) or an EXL3 pack on two")
          if exl3 and ple_on_ssd:
              raise ValueError("--ple-on-ssd reads the MLX checkpoint's n-gram tables; an EXL3 pack maps its own table "
                               "from its file, so drop --ple-on-ssd")
-@@ -96,6 +97,11 @@ class FlashNextEngine:
-             raise ValueError(f"MTP draft confidence: a probability from 0 to 1, not {confidence}")
-         torch.cuda.set_device(0)
+@@ -99,6 +99,9 @@ class FlashNextEngine:
          self.tp, self.rank, self.depth, self.confidence = tp, rank, int(depth), float(confidence)
-+        # copy drafts (copy_drafts.py): on unless TENSORFOLD_COPY_DRAFTS=0, and never without MTP drafts
-+        self.copy_drafts = bool(self.depth > 0 and copy_enabled(True if copy_drafts is None else bool(copy_drafts)))
+         # copy drafts (copy_drafts.py): on unless TENSORFOLD_COPY_DRAFTS=0, and never without MTP drafts
+         self.copy_drafts = bool(self.depth > 0 and copy_enabled(True if copy_drafts is None else bool(copy_drafts)))
 +        from . import stage_times
 +        if stage_times.ENABLED:                       # timing events need eager rounds
 +            graphs = False
          self.streams, self.master, self.graphs_enabled = int(streams), master, bool(graphs)
          self.kv_dtype = check_kv(kv_dtype)
          self.comm = None
-@@ -108,6 +114,19 @@ class FlashNextEngine:
+@@ -111,6 +114,10 @@ class FlashNextEngine:
                  raise ValueError("two ranks need rank 0's address (master)")
              self.comm = open_comm(rank, 2, master, port)
              self.comm.barrier()
-+            # Open the point-to-point connection (the image-feature exchange) now, while memory is fresh: NCCL sets it
-+            # up at the first send/recv and registers its buffers then; on a GB10 worker deep into serving that
-+            # registration can fail (ibv_reg_mr: Cannot allocate memory), killing rank 1 mid-request.
-+            from tensorfold.cuda.comm import exchange as _swap
++            # the point-to-point connection (the image-feature exchange) opens now, while memory is fresh
++            from tensorfold.cuda.comm import warm_exchange
 +
-+            warm = (torch.zeros((4096,), dtype=torch.bfloat16, device="cuda"),
-+                    torch.zeros((64,), dtype=torch.int32, device="cuda"))
-+            none = tuple(t.new_empty((0,)) for t in warm)
-+            if rank == 0:
-+                _swap(self.comm, list(warm), list(none), 1)
-+            else:
-+                _swap(self.comm, list(none), list(warm), 0)
-+            torch.cuda.synchronize()
++            warm_exchange(self.comm, rank)
          gather = (lambda values: gather_ints(torch, self.comm.all_gather, values)) if tp == 2 else None
          each, mtp, bits = self.depth + 1, self.depth > 0, BITS_OF[self.kv_dtype]
          # one admission for one stream or many (every slot, the shared rows and kept snapshots), before any load
-@@ -136,7 +155,7 @@ class FlashNextEngine:
-                   f"planned peak {peak:.2f} GiB at the admitted window", flush=True)
-         self.max_len = self.capacity_plan["cache_slots"]
-         if tp == 2:
--            self._same_settings(torch, ids)
-+            self._same_settings(torch, ids, vision)
-         build_kernels(exl3=exl3, nvfp4=not exl3 and quant_method(read_config(model_dir)) == "modelopt",
-                       solo=streams == 1 or (graphs and mtp))
-         from concurrent.futures import wait
-@@ -165,21 +184,24 @@ class FlashNextEngine:
-         from tensorfold.cuda.markers import resume_points
- 
-         self.points = resume_points(model_dir)          # a prompt's message starts to keep states at, or None
--        if vision:
-+        if vision and rank == 0:
-             from tensorfold.vision.qwen_cuda import QwenCudaVision
- 
-             self.vision = QwenCudaVision(model_dir, torch.device("cuda", 0),
-                                          allow_urls=vision_urls)
-             torch.cuda.empty_cache()
-+            ranks = "; rank 1 receives each request's image features from this rank" if tp == 2 else ""
-             print(f"[tensorfold] vision: image{' and video' if self.vision.videos else ''} input, a "
-                   f"{self.vision.weight_bytes / 2**30:.2f} GiB tower with {vision_workspace() / 2**30:.2f} GiB of "
--                  f"workspace reserved{'; https URLs allowed' if vision_urls else ''}", flush=True)
-+                  f"workspace reserved{'; https URLs allowed' if vision_urls else ''}"
-+                  f"{ranks}",
-+                  flush=True)
-+        elif vision:                                   # rank 1: no tower; rank 0's features arrive with each admission
-+            print("[tensorfold] vision: image input on two ranks; this rank attaches the features rank 0 encodes",
-+                  flush=True)
+@@ -185,10 +192,7 @@ class FlashNextEngine:
+                   flush=True)
          # ``streams`` > 1: up to that many requests decoded together, every stream's chain in one forward
          self.concurrent = streams > 1
 -        self.refuses_structured_output = (
@@ -753,11 +604,7 @@ index 002ff1f..6019838 100644
          self.multi = self.scheduler = None
          if self.concurrent:
              from tensorfold.cuda.scheduler import Scheduler
-@@ -189,9 +211,14 @@ class FlashNextEngine:
-             self.e = None
-             self.multi = MultiDecoder(w, slots=streams, capacity=self.max_len, depth=self.depth,
-                                       confidence=self.confidence, keep=KEEP, points=self.points,
-+                                      copy=getattr(self, "copy_drafts", False),
+@@ -202,6 +206,10 @@ class FlashNextEngine:
                                        kv_dtype=self.kv_dtype, share=share, vision=self.vision,
                                        prefill_rows=self.prefill_rows, workspace_bytes=prompt_workspace, graphs=graphs)
              self.scheduler = Scheduler(self.multi, max_streams=streams)
@@ -768,13 +615,7 @@ index 002ff1f..6019838 100644
          else:
              self.e = Engine(w, capacity=self.max_len, max_rows=max(8, self.depth + 1), graphs=graphs,
                              kv_dtype=self.kv_dtype, prefill_rows=self.prefill_rows)
-@@ -246,10 +273,17 @@ class FlashNextEngine:
-         self.serial = None                                # the serial requests' engine, made on first use
-         rule = (f"1 to {self.depth} MTP drafts a round, a chain stops before a later draft under "
-                 f"{self.confidence:.0%}" if self.depth else "no drafts: the serial reference, one token a round")
-+        if self.copy_drafts:
-+            rule += f", or up to {self.depth} copy drafts where the reply repeats earlier text"
-         where = (f"up to {streams} streams, each growing to {self.context_window} prompt/reply tokens while memory "
+@@ -262,6 +270,11 @@ class FlashNextEngine:
                   f"lasts ({self.multi.memory_gate.room / 2**30:.1f} GiB free for their caches, "
                   f"{self.multi.window_bytes / 2**30:.2f} GiB for one at the full window), eager" if self.concurrent else
                   f"{self.context_window}-token prompt/reply window; {self.max_len}-token cache")
@@ -786,187 +627,6 @@ index 002ff1f..6019838 100644
          if ple_on_ssd:
              how = "read from SSD at each lookup"
          elif tables_read:                             # read during the load: the wait after it, then any lock
-@@ -264,7 +298,7 @@ class FlashNextEngine:
-               f"decode graphs captured; idle prompt pieces {self.prefill_rows} rows; "
-               f"prompt kernels warmed in {warm_s:.1f}s", flush=True)
- 
--    def _same_settings(self, torch, ids) -> None:
-+    def _same_settings(self, torch, ids, vision: bool = False) -> None:
-         """Both ranks must decode with the same rule, context, draft vocabulary and KV cache, or they would fall out of step: refuse to start otherwise."""
- 
-         from .kvcache import BITS_OF
-@@ -273,14 +307,15 @@ class FlashNextEngine:
-         mine = torch.tensor([self.depth, round(self.confidence * 1e6), self.max_len, self.streams,
-                              int(self.graphs_enabled),
-                              len(ids) if ids is not None else -1, total, BITS_OF[self.kv_dtype],
--                             self.prefill_rows, int(prompt_precision.fp8())], dtype=torch.int64, device="cuda")
-+                             self.prefill_rows, int(bool(vision)), int(prompt_precision.fp8())],
-+                            dtype=torch.int64, device="cuda")
-         both = torch.empty((2 * mine.numel(),), dtype=torch.int64, device="cuda")
-         self.comm.all_gather(mine, both)
-         both = both.view(2, -1).cpu()
-         prompt_precision.same_on_ranks(int(both[0, -1]), int(both[1, -1]))
-         if not torch.equal(both[0], both[1]):
-             raise RuntimeError(f"the two ranks were started with different settings (drafts, confidence, context, "
--                               f"parallel streams, graphs, draft vocabulary, KV cache, prompt rows): "
-+                               f"parallel streams, graphs, draft vocabulary, KV cache, prompt rows, --vision): "
-                                f"rank 0 {both[0].tolist()}, rank 1 {both[1].tolist()}")
- 
-     def _key(self, n: int) -> str:
-@@ -296,13 +331,13 @@ class FlashNextEngine:
-             self.comm.store.set(self._key(self.served), json.dumps({"stop": True}))
- 
-     def _share(self, prompt: list[int], max_tokens: int, sampling, draft: bool, cached: int, constraint=None,
--               stop_eos: bool = True) -> tuple:
-+               stop_eos: bool = True, images: dict | None = None) -> tuple:
-         from tensorfold.engine.grammar import pack
- 
-         points = getattr(self, "points", None)
-         body = {"prompt": prompt, "max_tokens": max_tokens, "draft": bool(draft), "cached": int(cached),
--                "points": list(points(prompt)) if draft and points is not None else [],
--                "stop_eos": bool(stop_eos),
-+                "points": list(points(prompt)) if draft and points is not None and images is None else [],
-+                "stop_eos": bool(stop_eos), "images": images,       # an image prompt's rows, offset and feature shape
-                 "sampling": None if sampling is None else [int(sampling.seed), float(sampling.temperature),
-                                                            int(sampling.top_k), float(sampling.top_p),
-                                                            float(sampling.min_p)],
-@@ -338,7 +373,7 @@ class FlashNextEngine:
-         s = body["sampling"]
-         return (body["prompt"], body["max_tokens"], None if s is None else Sampling(*s),
-                 body["draft"], body["cached"], body.get("grammar") or [], body.get("stop_eos", True),
--                body.get("points", []))
-+                body.get("images"), body.get("points", []))      # the points stay last (older followers)
- 
-     @property
-     def context_window(self) -> int:
-@@ -378,7 +413,7 @@ class FlashNextEngine:
-         return self.tp == 1
- 
-     def _serial(self, prompt: list[int], max_tokens: int, sampling, on_tokens, constraint=None,
--                stop_eos: bool = True, probabilities=None) -> dict[str, Any]:
-+                stop_eos: bool = True, probabilities=None, vision=None) -> dict[str, Any]:
-         """One token a round from a fresh prefill in the serial engine's own state (no drafts, no kept states)."""
- 
-         import torch
-@@ -388,7 +423,8 @@ class FlashNextEngine:
-         if self.serial is None:
-             self.serial = self.e.twin()
-         t0 = time.perf_counter()
--        first = prefill(self.serial, prompt, sampling, mtp=False, constraint=constraint, probabilities=probabilities)
-+        first = prefill(self.serial, prompt, sampling, mtp=False, constraint=constraint, probabilities=probabilities,
-+                        vision=vision)
-         torch.cuda.synchronize()
-         stats: dict[str, Any] = {"prefill_s": round(time.perf_counter() - t0, 4), "cached": 0, "drafts": False}
-         if (on_tokens is not None and on_tokens([first])) or (stop_eos and first in self.eos) or max_tokens <= 1:
-@@ -399,12 +435,14 @@ class FlashNextEngine:
-         return stats
- 
-     def _decode(self, prompt: list[int], max_tokens: int, sampling, on_tokens, hit, constraint=None,
--                stop_eos: bool = True, probabilities=None, points=None) -> dict[str, Any]:
-+                stop_eos: bool = True, probabilities=None, points=None, vision=None) -> dict[str, Any]:
-         import torch
- 
-         from .decode import entry_end, mtp_decode, prefill, serial_decode
- 
-         t0 = time.perf_counter()
-+        if vision is not None:
-+            hit = None                                  # an image prompt prefills from its start
-         self._start_from(hit)
-         from tensorfold.cuda.markers import MIN_GAP
- 
-@@ -415,18 +453,26 @@ class FlashNextEngine:
-         stops = [p for p in points if cached + MIN_GAP <= p < end]
-         def keep(p, snap, tail):
-             self._remember(list(prompt[:p]), {"state": snap, "tail": tail})
--        first = prefill(self.e, prompt, sampling, resume=hit[1] if hit else None, constraint=constraint,
--                        probabilities=probabilities, keep_at=end, stops=stops, keep=keep)
--        # the state one token before the prompt's end, so the same prompt or a next turn resumes from it
--        self._remember(list(prompt[:end]), self.e.kept)
-+        if vision is not None:
-+            # image prompts prefill eagerly with no kept snapshot: the captured graphs know no image positions
-+            first = prefill(self.e, prompt, sampling, constraint=constraint, probabilities=probabilities, vision=vision)
-+        else:
-+            first = prefill(self.e, prompt, sampling, resume=hit[1] if hit else None, constraint=constraint,
-+                            probabilities=probabilities, keep_at=end, stops=stops, keep=keep)
-+            # the state one token before the prompt's end, so the same prompt or a next turn resumes from it
-+            self._remember(list(prompt[:end]), self.e.kept)
-         torch.cuda.synchronize()
-         stats: dict[str, Any] = {"prefill_s": round(time.perf_counter() - t0, 4), "cached": len(hit[0]) if hit else 0,
-                                  "drafts": True}
-         if (on_tokens is not None and on_tokens([first])) or (stop_eos and first in self.eos) or max_tokens <= 1:
-             return stats
-         if self.depth > 0:
-+            from .copy_drafts import CopyIndex
-+
-+            copies = CopyIndex(list(prompt) + [first]) if getattr(self, "copy_drafts", False) and constraint is None else None
-             res = mtp_decode(self.e, first, max_tokens, sampling, depth=self.depth, confidence=self.confidence,
--                             stop_eos=stop_eos, on_tokens=on_tokens, constraint=constraint, probabilities=probabilities)
-+                             stop_eos=stop_eos, on_tokens=on_tokens, constraint=constraint, probabilities=probabilities,
-+                             copies=copies)
-             stats.update(drafted=res.drafted, accepted=res.accepted, min_rows=min(res.widths, default=0))
-         else:
-             res = serial_decode(self.e, first, max_tokens, sampling, stop_eos=stop_eos, on_tokens=on_tokens,
-@@ -461,18 +507,26 @@ class FlashNextEngine:
-                                          **grammar, **({"background": True} if background else {}),
-                                          probabilities=probabilities,
-                                          **({"vision": vision} if vision is not None else {}))
--        hit = self._resume(prompt) if draft else None
-+        hit = self._resume(prompt) if draft and vision is None else None
-         points = None
-+        # rank 0 encodes before sharing (a refused image fails here alone), then sends rank 1 the same features
-+        encoded = self.vision.encode(vision, prompt) if vision is not None else None
-         if self.tp == 2:                     # rank 0 decodes exactly what it hands rank 1
--            prompt, max_tokens, sampling, draft, _, _, stop_eos, points = self._share(
--                prompt, max_tokens, sampling, draft, len(hit[0]) if hit else 0, constraint, stop_eos)
-+            from .vision_ranks import describe, exchange
-+
-+            prompt, max_tokens, sampling, draft, _, _, stop_eos, images, points = self._share(
-+                prompt, max_tokens, sampling, draft, len(hit[0]) if hit else 0, constraint, stop_eos,
-+                images=describe(encoded))
-             self.served += 1
-+            if images is not None:
-+                encoded = exchange(self.comm, 0, len(prompt), images, encoded, hidden=int(self.w.cfg.hidden))
-             emit = on_tokens
-             on_tokens = lambda new: (emit(new), False)[1]       # noqa: E731  both ranks decode to the end
-         if not draft:
--            return self._serial(prompt, max_tokens, sampling, on_tokens, constraint, stop_eos, probabilities=probabilities)
-+            return self._serial(prompt, max_tokens, sampling, on_tokens, constraint, stop_eos,
-+                                probabilities=probabilities, vision=encoded)
-         return self._decode(prompt, max_tokens, sampling, on_tokens, hit, constraint, stop_eos,
--                            probabilities=probabilities, points=points)
-+                            probabilities=probabilities, points=points, vision=encoded)
- 
-     def score_labels(self, prompt_ids, label_ids) -> tuple[list[float], float]:
-         """Score the prompt's final row in a fresh state without adding a kept decision prefix."""
-@@ -537,7 +591,9 @@ class FlashNextEngine:
-             request = self._receive()
-             if request is None:
-                 return
--            prompt, max_tokens, sampling, draft, cached, packed, stop_eos, points = request
-+            prompt, max_tokens, sampling, draft, cached, packed, stop_eos = request[:7]
-+            # eight fields from a leader without image support, nine with the image description before the points
-+            images, points = (None, request[7]) if len(request) == 8 else request[7:9]
-             constraint = None
-             if packed:                                      # the request's grammar, compiled here as on rank 0
-                 from tensorfold.engine import grammar
-@@ -551,9 +607,15 @@ class FlashNextEngine:
-                 if hit is None:
-                     raise RuntimeError(f"rank 1 has no kept state for the {cached} tokens rank 0 resumes from")
-             try:
-+                encoded = None
-+                if images is not None:                      # rank 0's image features, attached as it attaches them
-+                    from .vision_ranks import exchange
-+
-+                    encoded = exchange(self.comm, 1, len(prompt), images, hidden=int(self.w.cfg.hidden))
-                 if draft:
--                    self._decode(prompt, max_tokens, sampling, None, hit, constraint, stop_eos, points=points)
-+                    self._decode(prompt, max_tokens, sampling, None, hit, constraint, stop_eos, points=points,
-+                                 vision=encoded)
-                 else:
--                    self._serial(prompt, max_tokens, sampling, None, constraint, stop_eos)
-+                    self._serial(prompt, max_tokens, sampling, None, constraint, stop_eos, vision=encoded)
-             except ValueError as exc:                       # rank 0 raised at the same point on the same input
-                 print(f"[tensorfold] request {self.served} failed on both ranks: {exc}", flush=True)
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/exl3.py b/src/tensorfold/families/qwen4_exp/cuda/exl3.py
 index 64a0bf5..84b270f 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/exl3.py
@@ -1456,32 +1116,6 @@ index f6f515f..edbe99b 100644
          return self.mtp_out[key]
  
      @torch.no_grad()
-diff --git a/src/tensorfold/families/qwen4_exp/cuda/image_rows.py b/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
-index 73e8278..35b2a01 100644
---- a/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
-+++ b/src/tensorfold/families/qwen4_exp/cuda/image_rows.py
-@@ -24,13 +24,17 @@ def rope_axis(pos, ROPE, DELTA, length, index, MODE: tl.constexpr, S1: tl.conste
- 
- 
- def begin(engine, stream, tower) -> None:
--    """Encode an image request on its admitted slot before the normal prompt passes."""
-+    """Encode an image request on its slot before the prompt passes; on two ranks both attach rank 0's features."""
- 
--    if stream.vision is not None:
-+    if stream.vision is None:
-+        return
-+    encoded = stream.vision if hasattr(stream.vision, "features") else None
-+    if encoded is None:
-         if tower is None:
-             raise ValueError("image inputs require starting this server with --vision")
--        attach(engine.st, tower.encode(stream.vision, stream.prompt), len(stream.prompt))
--        stream.vision = None
-+        encoded = tower.encode(stream.vision, stream.prompt)
-+    attach(engine.st, encoded, len(stream.prompt))
-+    stream.vision = None
- 
- 
- def attach(st, encoded, length: int) -> None:
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/mtp.py b/src/tensorfold/families/qwen4_exp/cuda/mtp.py
 index 2a29110..107bb27 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/mtp.py
@@ -1497,49 +1131,29 @@ index 2a29110..107bb27 100644
 +if _st.ENABLED:
 +    mtp_compute = _st.wrap("mtp_compute", mtp_compute)
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi.py b/src/tensorfold/families/qwen4_exp/cuda/multi.py
-index e4326b4..df2b4c8 100644
+index e040b8a..df2b4c8 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/multi.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/multi.py
-@@ -23,6 +23,7 @@ from . import attn_multi, gdn_multi, image_rows, prefixes
- from .forward import commit, compute, compute_mixed, converges, stage
- from .mtp import mtp_compute, mtp_stage
- from .state import Buffers, State
-+from .copy_drafts import CopyIndex
- from .multi_solo import Alone, solo
- from .multi_fill import FILL_GUARD, PASS_MIN, PromptPasses
- from .multi_tp import Link as Link
-@@ -49,8 +50,11 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
- 
-     def __init__(self, w, *, slots: int, capacity: int, depth: int = DEPTH, confidence: float = CONFIDENCE,
-                  stop_eos: bool = True, keep: int = 8, kv_dtype: str = "bf16", prefill_rows: int = PREFILL_ROWS,
--                 share: float = SHARE, points=None, graphs: bool = True, vision=None, workspace_bytes: int = 0) -> None:
-+                 share: float = SHARE, points=None, graphs: bool = True, vision=None, workspace_bytes: int = 0,
-+                 copy: bool = True) -> None:
+@@ -53,6 +53,7 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+                  share: float = SHARE, points=None, graphs: bool = True, vision=None, workspace_bytes: int = 0,
+                  copy: bool = True) -> None:
          self.link = self.follower = None
 +        self.grammar_follow = None                   # rank 1: packed grammar -> constraint (set by the engine)
-+        self.copy = bool(copy)                       # copy drafts (copy_drafts.py) for streams that draft
+         self.copy = bool(copy)                       # copy drafts (copy_drafts.py) for streams that draft
          self.planning, self.pass_plan, self.mixed_plan = False, None, None
          self.pass_index, self.pass_width = 0, prefill_rows
-         self.w, self.depth, self.confidence, self.capacity = w, depth, confidence, capacity
-@@ -250,10 +254,15 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+@@ -253,8 +254,8 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
          s.count = max(1, min(s.count, room))
          if any(x.waiting for x in self.streams.values()):
              raise NoRoom("streams already wait for memory; a new request waits until one finishes")
--        if self.w.comm is not None and any(x is not None for x in (s.constraint, s.vision, s.probabilities)):
+-        if self.w.comm is not None and any(x is not None for x in (s.constraint, s.probabilities)):
 -            raise ValueError("concurrent Flash Next on two ranks serves text without grammars or logprobs")
 +        if self.w.comm is not None and s.probabilities is not None:
 +            raise ValueError("concurrent Flash Next on two ranks serves no logprobs")
          t0 = time.perf_counter()
          if self.w.comm is not None:
-+            if s.vision is not None and self.link is not None and not hasattr(s.vision, "features"):
-+                # rank 0 encodes first, so a refused image fails here alone; a readmitted request keeps its features
-+                if self.vision is None:
-+                    raise ValueError("image inputs require starting this server with --vision")
-+                s.vision = self.vision.encode(s.vision, s.prompt)
-             st, resume, s.cached = self._prepare_admission(s, told)
-         else:
-             st, resume, s.cached = self._slot_for(list(s.prompt), s.draft and s.vision is None)
-@@ -366,15 +375,19 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
+             if s.vision is not None and self.link is not None and not hasattr(s.vision, "features"):
+@@ -374,15 +375,19 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
              self.buf.gdn_tables = self.buf.attn_step = None
          lasts = self._absorb(pieces, psegs, cuts) if pieces else None
          starts = [a0 for _, a0, _ in segs] + [segs[-1][2]]
@@ -1560,69 +1174,11 @@ index e4326b4..df2b4c8 100644
          else:
              sampled = [tp_sample_rows(self.w, logits[a0:a1], pos, smp, offset=int(self.w.meta["vocab_offset"]))
                         for (_, a0, a1), pos, smp in zip(segs, positions, samplings)]
-@@ -399,6 +412,8 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
-                     s.error = exc
-             last = s.error is not None or len(s.out) + len(new) >= s.count or end in self._ends(s)
-             kept.append((s, a0, rows[:len(path)], new, last))
-+            if s.copies is not None:                     # the copy index sees the round's tokens before the next draft
-+                s.copies.extend(new)
-         self._draft_all([(s, a0, keep) for s, a0, keep, _, last in kept if s.draft and not last])
-         for s, _, _, new, _ in kept:
-             if s.error is not None:
-@@ -415,7 +430,7 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
-         return failed + done + ended
- 
-     def _draft_all(self, streams: list) -> None:
--        """Every drafting stream absorbs its kept rows and chains drafts, all streams in one step a depth."""
-+        """Streams absorb kept rows and chain drafts one step a depth; a copying stream still absorbs, then sits out."""
- 
-         for s, _, _ in streams:
-             s.drafts = []
-@@ -423,6 +438,13 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
-         todo = [(s, a0, keep) for s, a0, keep in streams if room[s.sid] > 0 and self.mbuf is not None]
-         if not todo:
-             return
-+        copying: set[int] = set()
-+        for s, _, _ in todo:
-+            if s.copies is not None:
-+                copied = s.copies.chain(room[s.sid])
-+                if copied:
-+                    s.drafts = copied
-+                    copying.add(s.sid)
-         for s, _, _ in todo:
-             st = s.st
-             if st.mtp_drafted:
-@@ -434,10 +456,15 @@ class MultiDecoder(TwoRanks, Alone, PromptPasses):
-         for (s, _, keep), (st, a0, a1) in zip(todo, segs):
-             st.set_mtp_len(st.mtp_len + len(keep))
-         active = [(s, a1 - 1) for s, (_, _, a1) in zip([t[0] for t in todo], segs)]
-+        if len(copying) == len(active):
-+            return
-         for j in range(self.depth):
-+            # level one picks for every absorbed stream (the two-rank gather reads them in order); copiers drop out
-             picks = self._picks(logits, [s.st.pos + 1 + j for s, _ in active], [s.sampling for s, _ in active])
-             nxt = []
-             for (s, row), (d, p) in zip(active, picks):
-+                if s.sid in copying:
-+                    continue
-                 low = self.confidence > 0 and p < self.confidence
-                 if low and j > 0:
-                     continue
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi_fill.py b/src/tensorfold/families/qwen4_exp/cuda/multi_fill.py
-index d909da0..e06dcc1 100644
+index 8dfd8ac..e06dcc1 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/multi_fill.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/multi_fill.py
-@@ -10,7 +10,8 @@ from tensorfold.cuda.logprobs import capture
- from tensorfold.cuda.streams import Stream
- 
- from . import image_rows
--from .decode import _gathered_fits, choose_gathered, entry_end, draft, tp_sample_rows
-+from .copy_drafts import CopyIndex
-+from .decode import _gathered_fits, absorb, choose_gathered, entry_end, draft, tp_sample_rows
- from .forward import Cut, commit, compute, cut_snapshot, stage
- from .mtp import mtp_compute, mtp_stage
- from .state import CAND, ENDS
-@@ -204,7 +205,7 @@ class PromptPasses:
+@@ -205,7 +205,7 @@ class PromptPasses:
                  logits = s.constraint.mask(logits, None, self.w.meta.get("vocab_offset", 0))
              if self.w.comm is None:
                  first = e.sample(logits, [len(s.prompt)], s.sampling)[0]
@@ -1631,169 +1187,44 @@ index d909da0..e06dcc1 100644
                  gathered = candidates[:, head:head + 1].contiguous().view(-1)
                  first = choose_gathered(self.w, gathered, 1, [len(s.prompt)], s.sampling)[0]
              else:
-@@ -216,8 +217,16 @@ class PromptPasses:
-                 s.constraint.advance([first])
-             head += 1
-             s.context = list(s.prompt)
--            s.drafts = draft(e, last, [first], st.pos + 1, min(self.depth, s.count - 1), s.sampling,
--                             self.confidence) if mtp and s.count > 1 else []
-+            s.copies = CopyIndex(list(s.prompt) + [first]) if mtp and getattr(self, "copy", False) and s.constraint is None else None
-+            s.drafts = []
-+            if mtp and s.count > 1:
-+                room = min(self.depth, s.count - 1)
-+                copied = s.copies.chain(room) if s.copies is not None else []
-+                if copied:                               # the MTP cache absorbs the prompt's last row either way
-+                    absorb(e, last, [first])
-+                    s.drafts = copied
-+                else:
-+                    s.drafts = draft(e, last, [first], st.pos + 1, room, s.sampling, self.confidence)
-             s.started = time.perf_counter()
-             self.streams[s.sid] = s
-             s.take([first], self._ends(s))
-diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi_plan.py b/src/tensorfold/families/qwen4_exp/cuda/multi_plan.py
-index 0c83983..7270a0e 100644
---- a/src/tensorfold/families/qwen4_exp/cuda/multi_plan.py
-+++ b/src/tensorfold/families/qwen4_exp/cuda/multi_plan.py
-@@ -19,6 +19,7 @@ class Shadow:
-     def __init__(self, st, index: int, actions: list) -> None:
-         self.source, self.index, self.actions = st, index, actions
-         self.capacity, self.limit, self.pos, self.mtp_len = st.capacity, st.limit, st.pos, st.mtp_len
-+        self.images = getattr(st, "image_positions", None) is not None     # an image prompt's rotary positions
- 
-     def cache_bytes(self, rows=None):
-         return self.source.cache_bytes(self.capacity if rows is None else rows)
-@@ -86,7 +87,8 @@ def layout(p) -> dict:
- 
- def admission(dec, s) -> dict:
-     p = view(dec)
--    st, resume, cached = p._slot_for(list(s.prompt), s.draft)
-+    text = getattr(s, "vision", None) is None            # image prompts reuse no kept prefix (as on one GPU)
-+    st, resume, cached = p._slot_for(list(s.prompt), s.draft and text)
-     source = next((st.index for ids, st, snap, _ in p.kept
-                    if resume is not None and snap is resume["state"] and ids == list(s.prompt[:cached])), None)
-     error = None
-@@ -96,7 +98,7 @@ def admission(dec, s) -> dict:
-         else:
-             p._remember(list(s.prompt[:cached]), st, resume["state"], resume["tail"])
-         error = f"a {len(s.prompt)}-token prompt waits for memory until a live stream finishes"
--    markers = p.points(s.prompt) if s.draft and p.points is not None else []
-+    markers = p.points(s.prompt) if s.draft and text and p.points is not None else []   # image prompts keep none
-     points = sorted({n for n in markers if cached + MIN_GAP <= n < entry_end(s.prompt)})
-     return {**layout(p), "slot": st.index, "cached": cached, "resume_slot": source, "error": error, "points": points}
- 
-@@ -107,7 +109,7 @@ def round_plan(dec) -> dict:
-     live = [s for s in p.streams.values() if not s.done and not s.waiting]
-     solo = None
-     if (p.solo_on and not ended and not p.filling and len(p.streams) == 1
--            and len(live) == 1 and live[0].draft and live[0].constraint is None):
-+            and len(live) == 1 and live[0].draft and live[0].constraint is None and not live[0].st.images):
-         s = live[0]
-         if s.st is not p.solo.st:
-             p._move_to_solo(s)
-diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi_solo.py b/src/tensorfold/families/qwen4_exp/cuda/multi_solo.py
-index 23bc86a..30b4808 100644
---- a/src/tensorfold/families/qwen4_exp/cuda/multi_solo.py
-+++ b/src/tensorfold/families/qwen4_exp/cuda/multi_solo.py
-@@ -8,7 +8,7 @@ from tensorfold.cuda.kernels import gdn
- from tensorfold.cuda.logprobs import capture
- from tensorfold.cuda.streams import Stream, accept
- 
--from .decode import Engine, draft
-+from .decode import absorb, Engine, draft
- from .forward import commit
- from .state import Buffers
- 
-@@ -120,8 +120,15 @@ class Alone:
-         last = len(s.out) + len(new) >= s.count or end in self._ends(s)
-         s.drafts = []
-         room = min(self.depth, s.count - len(s.out) - len(path))
-+        if s.copies is not None:                         # the copy index sees the round's tokens before the next draft
-+            s.copies.extend(new)
-         if not last and room > 0:
--            s.drafts = draft(e, e.buf.streams[:len(path)], rows[:len(path)], st.pos + 1, room, s.sampling,
--                             self.confidence)
-+            copied = s.copies.chain(room) if s.copies is not None else []
-+            if copied:                                   # copy drafts; the MTP cache still absorbs the kept rows
-+                absorb(e, e.buf.streams[:len(path)], rows[:len(path)])
-+                s.drafts = copied
-+            else:
-+                s.drafts = draft(e, e.buf.streams[:len(path)], rows[:len(path)], st.pos + 1, room, s.sampling,
-+                                 self.confidence)
-         s.take(new, self._ends(s))
-         return [s] if s.done else []
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/multi_tp.py b/src/tensorfold/families/qwen4_exp/cuda/multi_tp.py
-index 5dcc6b9..f6d9c0d 100644
+index 6e69045..6f421c5 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/multi_tp.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/multi_tp.py
-@@ -108,7 +108,8 @@ class OutOfStep(RuntimeError):
- def shape(dec) -> list:
-     """The logical state both ranks must share; cache contents are checked when a prefix is selected."""
+@@ -86,6 +86,14 @@ class Link:
+         return json.loads(text)
  
--    return [dec.next_id, [[s.capacity, s.limit, s.pos, s.mtp_len, list(s.cur), s.kv_dtype] for s in dec.slots],
-+    return [dec.next_id, [[s.capacity, s.limit, s.pos, s.mtp_len, list(s.cur), s.kv_dtype,
-+                           getattr(s, "image_positions", None) is not None] for s in dec.slots],
-             [[s.sid, dec._index(s.st), len(s.out), s.out[-1] if s.out else None, list(s.drafts),
-               bool(s.done), bool(s.waiting), s.background, s.draft, s.stop_eos, s.count, _pack(s.sampling)]
-              for s in [*dec.streams.values(), *dec.filling]],
-@@ -168,11 +169,20 @@ class TwoRanks:
-         resume = next(({"state": k[2], "tail": k[3]} for k in self.kept
-                        if self._index(k[1]) == source and len(k[0]) == cached and s.prompt[:cached] == k[0]), None)
-         valid = 0 <= slot < len(self.slots) and (cached == 0 or resume is not None)
-+        # an image prompt: both ranks agree on its rows, decode offset and feature shape before the tensors cross
-+        vision = getattr(s, "vision", None)
-+        images = None if vision is None else vision if isinstance(vision, dict) else {
-+            "rows": [int(r) for r in vision.rows], "delta": int(vision.rope_delta),
-+            "shape": [int(n) for n in vision.features.shape]}
-+        from tensorfold.engine.grammar import pack
+ 
++def _pack_grammar(constraint) -> list[int]:
++    """A request's grammar as ``grammar.pack`` writes it for the other rank ([] for none)."""
 +
-+        grammar = pack(s.constraint)                 # rank 1 compiles the same grammar, walks and masks the same rows
++    from tensorfold.engine.grammar import pack
++
++    return pack(constraint)
++
++
+ def _pack(sampling) -> list | None:
+     """A request's sampling rule as exact JSON (floats round-trip bit for bit)."""
+ 
+@@ -174,11 +182,13 @@ class TwoRanks:
+         images = None if vision is None else vision if isinstance(vision, dict) else {
+             "rows": [int(r) for r in vision.rows], "delta": int(vision.rope_delta),
+             "shape": [int(n) for n in vision.features.shape]}
++        grammar = _pack_grammar(getattr(s, "constraint", None))     # rank 1 compiles the same grammar, walks and masks the same rows
          if self.link is not None:
              self.link.send(["admit", self.next_id, list(s.prompt), s.count, _pack(s.sampling), bool(s.draft),
--                            bool(s.stop_eos), bool(s.background), plan])
+-                            bool(s.stop_eos), bool(s.background), plan, images])
 +                            bool(s.stop_eos), bool(s.background), plan, images, grammar])
          valid, fits = self._agree("admission", [shape(self), plan, list(s.prompt), s.count, _pack(s.sampling),
--                                               bool(s.draft), bool(s.stop_eos), bool(s.background)],
+-                                               bool(s.draft), bool(s.stop_eos), bool(s.background), images],
 +                                               bool(s.draft), bool(s.stop_eos), bool(s.background), images,
 +                                               grammar],
                                    (valid, ready(self, plan)))
          if not valid:
              raise OutOfStep("the agreed prefix is not available on both ranks")
-@@ -180,12 +190,26 @@ class TwoRanks:
-             if not self.streams and not self.filling:
-                 raise ValueError("the prompt cannot fit available memory; shorten it or lower the server context")
-             raise NoRoom("the proposed prompt cache growth does not fit on both ranks")
-+        if images is not None:                       # both ranks reach this point or neither does
-+            s.vision = self._share_vision(s, images)
-         apply(self, plan)
-         if plan["error"]:
-             raise NoRoom(plan["error"])
-         s.stops = list(plan["points"])
-         return self.slots[slot], resume, cached
- 
-+    def _share_vision(self, s, images: dict):
-+        """Rank 0 sends its image features and positions after the agreed plan, before any round collective."""
-+
-+        from .vision_ranks import exchange
-+
-+        leader = self.link is not None
-+        try:
-+            return exchange(self.w.comm, 0 if leader else 1, len(s.prompt), images, s.vision if leader else None,
-+                            hidden=int(self.w.cfg.hidden))
-+        except ValueError as exc:
-+            raise OutOfStep(str(exc)) from exc
-+
-     def _prepare_round(self, told):
-         from .multi_plan import apply, ready, round_plan
- 
-@@ -212,10 +236,15 @@ class TwoRanks:
-             if op is None or op[0] == "stop":
-                 return
-             if op[0] == "admit":
--                sid, prompt, count, smp, drafted, stop, background, plan = op[1:]
-+                sid, prompt, count, smp, drafted, stop, background, plan = op[1:9]
-                 s = Stream(prompt, count, _unpack(smp), draft=drafted, stop_eos=stop)
+@@ -237,6 +247,10 @@ class TwoRanks:
                  s.background = background
-+                s.vision = op[9] if len(op) > 9 else None    # an image prompt's rows, delta and feature shape
+                 s.vision = op[9] if len(op) > 9 else None    # an image prompt's rows, delta and feature shape
                  try:
 +                    if len(op) > 10 and op[10]:              # the reply's grammar, compiled here as on rank 0
 +                        if self.grammar_follow is None:
@@ -2238,52 +1669,6 @@ index 0000000..3e7cf2d
 +if REPLAY and not ENABLED:
 +    PATH = REPLAY
 +    threading.Thread(target=_fold, daemon=True, name="stage-times").start()
-diff --git a/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py b/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py
-new file mode 100644
-index 0000000..d21d7eb
---- /dev/null
-+++ b/src/tensorfold/families/qwen4_exp/cuda/vision_ranks.py
-@@ -0,0 +1,40 @@
-+"""Image features on two ranks: rank 0 encodes once and sends, so both feed identical hidden states to every layer."""
-+
-+from __future__ import annotations
-+
-+import torch
-+
-+
-+def describe(encoded) -> dict | None:
-+    """The rows, decode offset and feature shape of an encoded image prompt, as the request message carries them."""
-+
-+    if encoded is None:
-+        return None
-+    return {"rows": [int(r) for r in encoded.rows], "delta": int(encoded.rope_delta),
-+            "shape": [int(n) for n in encoded.features.shape]}
-+
-+
-+def exchange(comm, rank: int, length: int, images: dict, encoded=None, *, hidden: int):
-+    """Rank 0 sends ``encoded``'s bf16 features and int32 positions; both ranks validate the description first."""
-+
-+    from tensorfold.cuda.comm import exchange as swap
-+    from tensorfold.vision.qwen_cuda import EncodedVision
-+
-+    rows, delta, shape = images["rows"], int(images["delta"]), tuple(int(n) for n in images["shape"])
-+    if (len(shape) != 2 or shape[0] != len(rows) or shape[1] != int(hidden) or not rows
-+            or sorted(set(rows)) != list(rows) or rows[0] < 0 or rows[-1] >= length):
-+        raise ValueError("the image rows rank 0 encoded do not fit the prompt it admitted")
-+    if rank == 0:
-+        if encoded is None:
-+            raise ValueError("rank 0 shares an image prompt it has not encoded")
-+        features = encoded.features.to(dtype=torch.bfloat16).contiguous()
-+        positions = encoded.positions.to(dtype=torch.int32).contiguous()
-+        if tuple(features.shape) != shape or tuple(positions.shape) != (3, length):
-+            raise ValueError("the image features rank 0 encoded do not match what it told rank 1")
-+        swap(comm, [features, positions], [features.new_empty((0,)), positions.new_empty((0,))], 1)
-+        return EncodedVision(tuple(rows), features, positions, delta)
-+    device = torch.device("cuda", 0)
-+    features = torch.empty(shape, dtype=torch.bfloat16, device=device)
-+    positions = torch.empty((3, length), dtype=torch.int32, device=device)
-+    swap(comm, [features.new_empty((0,)), positions.new_empty((0,))], [features, positions], 0)
-+    return EncodedVision(tuple(rows), features, positions, delta)
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/weight_types.py b/src/tensorfold/families/qwen4_exp/cuda/weight_types.py
 index 6043ec8..74a8637 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/weight_types.py
@@ -3003,65 +2388,20 @@ index 560152c..daf7187 100644
 +    assert torch.equal(one[:, 0], got[:, 200])
 +    with pytest.raises(ValueError):
 +        lin.partials(torch.randn(257, 10240, device=DEV).to(torch.bfloat16))
-diff --git a/tests/test_copy_drafts.py b/tests/test_copy_drafts.py
-new file mode 100644
-index 0000000..d9ac0af
---- /dev/null
-+++ b/tests/test_copy_drafts.py
-@@ -0,0 +1,53 @@
-+"""Copy drafts: the latest earlier copy's continuation, at least COPY_MATCH long, never the needle; the env switch."""
-+
-+import os
-+
-+from tensorfold.families.qwen4_exp.cuda.copy_drafts import COPY_MATCH, CopyIndex, enabled
-+
-+A = list(range(100, 140))                 # 40 distinct tokens
-+B = list(range(200, 212))                 # 12 more
-+
-+
-+def test_no_copy_no_chain():
-+    assert CopyIndex(A).chain(15) == []
-+    assert CopyIndex(A + A[:COPY_MATCH - 1]).chain(15) == []      # the tail repeats fewer than COPY_MATCH tokens
-+
-+
-+def test_a_repeated_tail_drafts_its_continuation():
-+    ctx = A + B + A[:COPY_MATCH]                                    # the tail is A's first 8 tokens again
-+    assert CopyIndex(ctx).chain(15) == A[COPY_MATCH:COPY_MATCH + 15]
-+    assert CopyIndex(ctx).chain(40) == A[COPY_MATCH:] + B[:8]       # up to max_nodes, across what followed
-+
-+
-+def test_a_round_without_room_for_a_chain_gets_none():
-+    ctx = A + B + A[:COPY_MATCH]
-+    assert CopyIndex(ctx).chain(COPY_MATCH - 1) == []               # the MTP chain takes such a round
-+    assert CopyIndex(ctx).chain(COPY_MATCH) == A[COPY_MATCH:2 * COPY_MATCH]
-+
-+
-+def test_the_latest_copy_wins_and_the_needle_is_not_a_copy():
-+    first = A[:COPY_MATCH] + [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-+    second = A[:COPY_MATCH] + [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
-+    ctx = first + second + A[:COPY_MATCH]
-+    assert CopyIndex(ctx).chain(10) == [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
-+    # a tail repeated back to back: the earlier copy is followed by the needle, which is drafted (the pattern repeats)
-+    assert CopyIndex(A[:COPY_MATCH] + A[:COPY_MATCH]).chain(15) == A[:COPY_MATCH]
-+
-+
-+def test_extend_is_the_same_as_rebuilding():
-+    ctx = A + B + A[:COPY_MATCH + 4]
-+    grown = CopyIndex(ctx[:30])
-+    for t in ctx[30:]:
-+        grown.extend([t])
-+    assert grown.chain(15) == CopyIndex(ctx).chain(15) == A[COPY_MATCH + 4:COPY_MATCH + 4 + 15]
-+    assert grown.ctx == ctx
-+
-+
-+def test_switch(monkeypatch):
-+    monkeypatch.delenv("TENSORFOLD_COPY_DRAFTS", raising=False)
-+    assert enabled() and not enabled(False)
-+    for off in ("0", "off", "False", " no "):
-+        monkeypatch.setenv("TENSORFOLD_COPY_DRAFTS", off)
-+        assert not enabled()
-+    monkeypatch.setenv("TENSORFOLD_COPY_DRAFTS", "1")
-+    assert enabled(False)
+diff --git a/tests/test_cuda_capacity.py b/tests/test_cuda_capacity.py
+index 6de7ed9..fe5a4d4 100644
+--- a/tests/test_cuda_capacity.py
++++ b/tests/test_cuda_capacity.py
+@@ -135,7 +135,8 @@ def fake_runtime(monkeypatch):
+     def both(send, recv):
+         recv.view(-1).copy_(torch.cat([send.view(-1), send.view(-1)]))
+     comm = SimpleNamespace(barrier=lambda: None, ready=lambda *a, **k: None, all_gather=both)
+-    monkeypatch.setitem(sys.modules, "tensorfold.cuda.comm", SimpleNamespace(open_comm=lambda *a, **k: comm))
++    monkeypatch.setitem(sys.modules, "tensorfold.cuda.comm", SimpleNamespace(open_comm=lambda *a, **k: comm,
++                                                                          warm_exchange=lambda *a, **k: None))
+     for family in ("qwen3_5", "qwen4_exp", "glm5_next"):
+         prefix = f"tensorfold.families.{family}.cuda"
+         weights = SimpleNamespace(load=load, draft_token_ids=lambda *a: None,
 diff --git a/tests/test_cuda_tool_system.py b/tests/test_cuda_tool_system.py
 new file mode 100644
 index 0000000..504d93b
@@ -3131,281 +2471,50 @@ index 0000000..504d93b
 +    args = cli.build_parser().parse_args(["serve", "m", "--tool-system", RULE])
 +    assert args.tool_system == RULE
 +    assert cli.build_parser().parse_args(["serve", "m"]).tool_system is None
+diff --git a/tests/test_flash_next_tp_readiness_host.py b/tests/test_flash_next_tp_readiness_host.py
+index 96d4204..948d863 100644
+--- a/tests/test_flash_next_tp_readiness_host.py
++++ b/tests/test_flash_next_tp_readiness_host.py
+@@ -54,7 +54,7 @@ def test_skewed_rank_memory_produces_identical_admission_and_rounds(rooms, expec
+                             empty=lambda shape, **kwargs: Tensor([0] * shape[0]))
+     namespace = {'hashlib': hashlib, 'json': json, 'torch': torch, 'Callable': Callable,
+                  'OutOfStep': OutOfStep, 'NoRoom': NoRoom,
+-                 'shape': lambda dec: ['shared-state'], '_pack': lambda sampling: None,
++                 'shape': lambda dec: ['shared-state'], '_pack': lambda sampling: None, '_pack_grammar': lambda constraint: [],
+                  'admission': lambda dec, stream: dict(plan), 'round_plan': lambda dec: dict(plan),
+                  'ready': lambda dec, proposed: dec.room >= proposed['need'],
+                  'apply': lambda dec, proposed: setattr(dec, 'applied', True)}
 diff --git a/tests/test_flashnext_vision_two_ranks_host.py b/tests/test_flashnext_vision_two_ranks_host.py
-new file mode 100644
-index 0000000..9d14ebf
---- /dev/null
+index 9d14ebf..eca7161 100644
+--- a/tests/test_flashnext_vision_two_ranks_host.py
 +++ b/tests/test_flashnext_vision_two_ranks_host.py
-@@ -0,0 +1,269 @@
-+"""Image prompts on two ranks: rank 0 encodes, the admission carries the rows, rank 1 attaches the same features."""
-+
-+import ast
-+import hashlib
-+import json
-+from pathlib import Path
-+import threading
-+from types import SimpleNamespace
-+from typing import Callable
-+
-+import pytest
-+
-+
-+def _methods():
-+    root = Path(__file__).resolve().parents[1] / 'src/tensorfold'
-+    module = ast.parse((root / 'families/qwen4_exp/cuda/multi_tp.py').read_text())
-+    owner = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == 'TwoRanks')
-+    methods = [node for node in owner.body if isinstance(node, ast.FunctionDef)
-+               and node.name in ('_agree', '_prepare_admission')]
-+    for method in methods:
-+        method.body = [node for node in method.body if not isinstance(node, ast.ImportFrom)]
-+    body = ast.ClassDef(name='Ranks', bases=[], keywords=[], body=methods, decorator_list=[], type_params=[])
-+    capacity = ast.parse((root / 'cuda/capacity.py').read_text())
-+    gather = next(node for node in capacity.body if isinstance(node, ast.FunctionDef) and node.name == 'gather_ints')
-+    return ast.fix_missing_locations(ast.Module(body=[gather, body], type_ignores=[]))
-+
-+
-+def _ranks(visions, expected):
-+    """Run rank 0 (with ``visions[0]``) and rank 1 (with ``visions[1]``) through one admission; the outcomes."""
-+
-+    barrier = threading.Barrier(2)
-+    values, results, sent, shared = {}, [None, None], [], {}
-+    plan = {'slot': 0, 'cached': 0, 'resume_slot': None, 'error': None, 'points': [], 'need': 7}
-+
-+    class OutOfStep(RuntimeError):
-+        pass
-+
-+    class NoRoom(RuntimeError):
-+        pass
-+
-+    class Tensor:
-+        def __init__(self, data):
-+            self.data, self.rows = list(data), None
-+
-+        def view(self, rows, unused):
-+            self.rows = rows
-+            return self
-+
-+        def tolist(self):
-+            width = len(self.data) // self.rows
-+            return [self.data[start:start + width] for start in range(0, len(self.data), width)]
-+
-+    torch = SimpleNamespace(int64=None, tensor=lambda data, **kwargs: Tensor(data),
-+                            empty=lambda shape, **kwargs: Tensor([0] * shape[0]))
-+    namespace = {'hashlib': hashlib, 'json': json, 'torch': torch, 'Callable': Callable,
-+                 'OutOfStep': OutOfStep, 'NoRoom': NoRoom,
-+                 'shape': lambda dec: ['shared-state'], '_pack': lambda sampling: None,
-+                 'admission': lambda dec, stream: dict(plan),
-+                 'ready': lambda dec, proposed: True,
-+                 'apply': lambda dec, proposed: setattr(dec, 'applied', True)}
-+
-+    def gather(rank, send, receive):
-+        values[rank] = list(send.data)
-+        barrier.wait(timeout=2)
-+        receive.data = [*values[0], *values[1]]
-+        barrier.wait(timeout=2)
-+    exec(compile(_methods(), 'actual-tp-planning-methods', 'exec'), namespace)
-+
-+    def run(rank):
-+        decoder = namespace['Ranks']()
-+        decoder.w = SimpleNamespace(comm=SimpleNamespace(all_gather=lambda send, receive: gather(rank, send, receive)))
-+        decoder.next_id, decoder.link = 0, None
-+        if rank == 0:
-+            decoder.link = SimpleNamespace(send=lambda op: sent.append(op))
-+        decoder._share_vision = lambda s, images: shared.setdefault(rank, ('features', images))
-+        decoder.slots, decoder.kept, decoder.streams, decoder.filling = [object()], [], {}, []
-+        stream = SimpleNamespace(prompt=[1, 2, 3, 4], count=4, sampling=None, draft=True,
-+                                 stop_eos=False, background=False, vision=visions[rank])
-+        try:
-+            decoder._prepare_admission(stream, None if rank == 0 else dict(plan))
-+            results[rank] = ('admit', stream.vision)
-+        except Exception as error:
-+            results[rank] = (type(error).__name__, None)
-+
-+    threads = [threading.Thread(target=run, args=(rank,)) for rank in (0, 1)]
-+    for thread in threads:
-+        thread.start()
-+    for thread in threads:
-+        thread.join(5)
-+        assert not thread.is_alive()
-+    assert [r[0] for r in results] == [expected, expected]
-+    return results, sent, shared
-+
-+
-+def test_text_admissions_carry_no_image_metadata_and_share_nothing():
-+    results, sent, shared = _ranks([None, None], 'admit')
-+    assert sent[0][0] == 'admit' and sent[0][-1] is None and len(sent[0]) == 10
-+    assert shared == {} and [r[1] for r in results] == [None, None]
-+
-+
-+def test_rank_0_sends_the_rows_it_encoded_and_both_ranks_share_the_same_tensors():
-+    encoded = SimpleNamespace(rows=(1, 2), rope_delta=-1, features=SimpleNamespace(shape=(2, 2560)))
-+    meta = {'rows': [1, 2], 'delta': -1, 'shape': [2, 2560]}
-+    results, sent, shared = _ranks([encoded, json.loads(json.dumps(meta))], 'admit')
-+    assert sent[0][-1] == meta                                   # what the follower is told, JSON-exact
-+    assert shared == {0: ('features', meta), 1: ('features', meta)}
-+    assert [r[1] for r in results] == [('features', meta)] * 2  # the stream now carries the shared features
-+
-+
-+def test_an_image_admission_one_rank_does_not_know_about_falls_out_of_step():
-+    encoded = SimpleNamespace(rows=(1, 2), rope_delta=-1, features=SimpleNamespace(shape=(2, 2560)))
-+    _, _, shared = _ranks([encoded, None], 'OutOfStep')
-+    assert shared == {}                                          # the digest differs before any tensor crosses
-+
-+
-+def test_begin_attaches_features_another_rank_encoded_without_a_tower():
-+    torch = pytest.importorskip('torch')
-+    from tensorfold.families.qwen4_exp.cuda import image_rows
-+
-+    class State:
-+        def __init__(self):
-+            self.image_positions = self.image_rows = self.image_features = None
-+            self.rope_delta = 0
-+
-+        def set_rope_delta(self, delta):
-+            self.rope_delta = delta
-+
-+    st = State()
-+    encoded = SimpleNamespace(rows=(1, 2), features=torch.zeros((2, 8)), rope_delta=-1,
-+                              positions=torch.zeros((3, 4), dtype=torch.int32))
-+    stream = SimpleNamespace(prompt=[5, 6, 7, 8], vision=encoded)
-+    image_rows.begin(SimpleNamespace(st=st), stream, None)
-+    assert stream.vision is None and st.image_rows == (1, 2) and st.rope_delta == -1
-+    assert st.image_features is encoded.features and tuple(st.image_positions.shape) == (4, 3)
-+    with pytest.raises(ValueError, match='--vision'):            # a prepared prompt still needs the tower
-+        image_rows.begin(SimpleNamespace(st=State()), SimpleNamespace(prompt=[5], vision=object()), None)
-+
-+
-+@pytest.fixture
-+def planning():
-+    pytest.importorskip('torch')
-+    from tests.test_cuda_geometry import allocations as geometry   # noqa: F401  (patched allocation sizes)
-+    import tests.test_flashnext_round_plan as plans
-+    from tensorfold.families.qwen4_exp.cuda.multi import MultiDecoder
-+    from tensorfold.families.qwen4_exp.cuda.multi_plan import admission, round_plan
-+
-+    plans.MultiDecoder = MultiDecoder                                # what its autouse fixture would set
-+    return plans.decoder, admission, round_plan
-+
-+
-+def test_image_prompts_reuse_no_prefix_keep_no_points_and_stay_off_the_graph_slot(planning):
-+    from tensorfold.cuda.streams import Stream
-+
-+    decoder, admission, round_plan = planning
-+    d = decoder()
-+    d.points = lambda prompt: [8, 16]
-+    kept_prompt = [7] * 30
-+    d.slots[0].pos, d.slots[0].mtp_len = 30, 29
-+    d.free = d.slots[1:]
-+    d.kept = [(kept_prompt, d.slots[0], {'mtp_len': 29}, None)]
-+    text = admission(d, Stream(kept_prompt + [9] * 10, 8))
-+    assert text['cached'] == 30 and text['points'] == []           # the text prompt resumes the kept prefix
-+    image = admission(d, Stream(kept_prompt + [9] * 10, 8, vision={'rows': [3], 'delta': 0, 'shape': [1, 8]}))
-+    assert image['cached'] == 0 and image['slot'] != 0 and image['points'] == []
-+    d = decoder()
-+    live = Stream([7], 12, sid=0, st=d.slots[0], out=[3], drafts=[4])
-+    live.st.pos, live.st.image_positions = 255, object()
-+    d.streams, d.free = {0: live}, d.slots[1:]
-+    d.solo, d.solo_on = SimpleNamespace(st=d.slots[1]), True
-+    assert round_plan(d)['solo'] is None                           # the graph slot's captures know no image rows
-+    live.st.image_positions = None
-+    assert round_plan(d)['solo'] == 0
-+
-+
-+# --- the serial engine (no --parallel): image prompts on one GPU and on two ranks ---
-+
-+def test_serial_request_message_carries_the_image_description_and_keeps_no_points():
-+    pytest.importorskip('torch')
-+    from tensorfold.families.qwen4_exp.cuda.engine import FlashNextEngine
-+
-+    class Store:
-+        def __init__(self):
-+            self.kv = {}
-+
-+        def set(self, key, value):
-+            self.kv[key] = value
-+
-+    e = object.__new__(FlashNextEngine)
-+    e.comm, e.served, e.points = SimpleNamespace(store=Store()), 3, lambda prompt: [2, 4]
-+    text = e._share([1, 2, 3, 4, 5], 8, None, True, 0)
-+    assert text[7] is None and text[-1] == [2, 4] and len(text) == 9    # the points stay the last field
-+    images = {'rows': [1, 2], 'delta': -1, 'shape': [2, 2560]}
-+    shared = e._share([1, 2, 3, 4, 5], 8, None, True, 0, images=images)
-+    assert shared[7] == images and shared[-1] == []           # an image prompt keeps no prompt states
-+    assert json.loads(e.comm.store.kv['tensorfold/flashnext/request/3'])['images'] == images
-+    assert FlashNextEngine._unpack(json.dumps({'prompt': [1], 'max_tokens': 1, 'draft': True, 'cached': 0,
-+                                               'sampling': None}))[7] is None    # an older leader's message
-+    follower = object.__new__(FlashNextEngine)
-+    follower.served, follower.cache, follower.multi, follower.points = 0, [], None, None
-+    requests = iter([([1, 2, 3], 4, None, True, 0, [], True, [2]),                # eight fields: no images
-+                     ([1, 2, 3], 4, None, True, 0, [], True, None, [2]), None])    # nine: images before points
-+    follower._receive = lambda: next(requests)
-+    seen = []
-+    follower._decode = lambda *args, **kwargs: seen.append((kwargs['points'], kwargs['vision']))
-+    follower.follow()
-+    assert seen == [([2], None), ([2], None)] and follower.served == 2
-+
-+
-+def test_describe_and_exchange_validate_the_same_description_on_both_ranks():
-+    torch = pytest.importorskip('torch')
-+    from tensorfold.families.qwen4_exp.cuda import vision_ranks
-+
-+    encoded = SimpleNamespace(rows=(1, 2), rope_delta=-1, features=torch.zeros((2, 16)),
-+                              positions=torch.zeros((3, 4), dtype=torch.int32))
-+    images = vision_ranks.describe(encoded)
-+    assert images == {'rows': [1, 2], 'delta': -1, 'shape': [2, 16]} and vision_ranks.describe(None) is None
-+    for bad in ({**images, 'rows': [2, 1]}, {**images, 'rows': [1, 4]}, {**images, 'shape': [3, 16]},
-+                {**images, 'shape': [2, 8]}):
-+        with pytest.raises(ValueError, match='do not fit'):
-+            vision_ranks.exchange(None, 1, 4, bad, hidden=16)
-+    with pytest.raises(ValueError, match='has not encoded'):
-+        vision_ranks.exchange(None, 0, 4, images, None, hidden=16)
-+    moved = []
-+    comm = SimpleNamespace(rank=0, world=2, exchange=lambda sends, recvs, peer: moved.append((len(sends), peer)))
-+    out = vision_ranks.exchange(comm, 0, 4, images, encoded, hidden=16)
-+    assert moved == [(2, 1)] and out.rows == (1, 2) and out.rope_delta == -1
-+    assert out.features.dtype == torch.bfloat16 and tuple(out.positions.shape) == (3, 4)
-+
-+
-+def test_serial_engine_decodes_an_image_state_eagerly_and_keeps_no_snapshot(monkeypatch):
-+    pytest.importorskip('torch')
-+    from tensorfold.families.qwen4_exp.cuda import decode, engine as engine_module
-+    from tensorfold.families.qwen4_exp.cuda.engine import FlashNextEngine
-+
-+    calls = []
-+    eng = object.__new__(decode.Engine)
-+    eng.w, eng.st, eng.buf, eng.mbuf = object(), SimpleNamespace(image_positions=None), object(), object()
-+    eng.graphs = SimpleNamespace(forward=lambda tokens: calls.append('graph'),
-+                                 mtp_forward=lambda nxt, streams: calls.append('graph-mtp'))
-+    monkeypatch.setattr(decode, 'forward', lambda w, st, b, tokens: calls.append('eager'))
-+    monkeypatch.setattr(decode, 'mtp_forward', lambda w, st, b, nxt, streams: calls.append('eager-mtp'))
-+    eng.forward([1])
-+    eng.mtp_forward([1], None)
-+    eng.st.image_positions = object()
-+    eng.forward([1])
-+    eng.mtp_forward([1], None)
-+    assert calls == ['graph', 'graph-mtp', 'eager', 'eager-mtp']
-+
-+    seen = {}
-+
-+    def prefill(e, prompt, sampling, **kwargs):
-+        seen.update(kwargs)
-+        return 7
-+
-+    monkeypatch.setattr(decode, 'prefill', prefill)
-+    monkeypatch.setattr(engine_module.time, 'perf_counter', lambda: 0.0)
-+    import torch
-+    monkeypatch.setattr(torch.cuda, 'synchronize', lambda: None)
-+    fe = object.__new__(FlashNextEngine)
-+    fe.e, fe.cache, fe.eos, fe.depth, fe.points = SimpleNamespace(kept={'state': 's', 'tail': None}), [([1], {})], (), 3, None
-+    kept = ([1], {'state': 'old'})
-+    fe.cache = [kept]
-+    stats = fe._decode([1, 2, 3], 1, None, lambda new: True, kept, vision=SimpleNamespace(rows=(1,)))
-+    assert seen == {'constraint': None, 'probabilities': None, 'vision': seen['vision']}
-+    assert fe.cache == [] and stats['cached'] == 0            # from the start, nothing kept, nothing resumed
-+    seen.clear()
-+    fe.cache = [kept]
-+    fe._decode([1, 2, 3], 1, None, lambda new: True, kept)
-+    assert 'vision' not in seen and seen['resume'] == {'state': 'old'} and fe.cache[-1][0] == [1, 2]
+@@ -54,7 +54,7 @@ def _ranks(visions, expected):
+                             empty=lambda shape, **kwargs: Tensor([0] * shape[0]))
+     namespace = {'hashlib': hashlib, 'json': json, 'torch': torch, 'Callable': Callable,
+                  'OutOfStep': OutOfStep, 'NoRoom': NoRoom,
+-                 'shape': lambda dec: ['shared-state'], '_pack': lambda sampling: None,
++                 'shape': lambda dec: ['shared-state'], '_pack': lambda sampling: None, '_pack_grammar': lambda constraint: [],
+                  'admission': lambda dec, stream: dict(plan),
+                  'ready': lambda dec, proposed: True,
+                  'apply': lambda dec, proposed: setattr(dec, 'applied', True)}
+@@ -94,7 +94,7 @@ def _ranks(visions, expected):
+ 
+ def test_text_admissions_carry_no_image_metadata_and_share_nothing():
+     results, sent, shared = _ranks([None, None], 'admit')
+-    assert sent[0][0] == 'admit' and sent[0][-1] is None and len(sent[0]) == 10
++    assert sent[0][0] == 'admit' and sent[0][9] is None and sent[0][10] == [] and len(sent[0]) == 11   # images, grammar
+     assert shared == {} and [r[1] for r in results] == [None, None]
+ 
+ 
+@@ -102,7 +102,7 @@ def test_rank_0_sends_the_rows_it_encoded_and_both_ranks_share_the_same_tensors(
+     encoded = SimpleNamespace(rows=(1, 2), rope_delta=-1, features=SimpleNamespace(shape=(2, 2560)))
+     meta = {'rows': [1, 2], 'delta': -1, 'shape': [2, 2560]}
+     results, sent, shared = _ranks([encoded, json.loads(json.dumps(meta))], 'admit')
+-    assert sent[0][-1] == meta                                   # what the follower is told, JSON-exact
++    assert sent[0][9] == meta                                   # what the follower is told, JSON-exact
+     assert shared == {0: ('features', meta), 1: ('features', meta)}
+     assert [r[1] for r in results] == [('features', meta)] * 2  # the stream now carries the shared features
+ 
 diff --git a/tests/test_tool_undeclared_arguments.py b/tests/test_tool_undeclared_arguments.py
 new file mode 100644
 index 0000000..b57691d

@@ -11,7 +11,7 @@ and shared-expert linears, int8 on the mixers, embeddings, head and indexer, and
 the vision tower and the n-gram table. Its card reports IFBench 81.0, GPQA Diamond 90.4 and LiveCodeBench 92.4
 against 81.3 / 91.7 / 91.9 for the bf16 release.
 
-It ships as compressed-tensors `pack-quantized`, which TensorFold 0.6.6 does not read (it reads MLX affine 4-bit,
+It ships as compressed-tensors `pack-quantized`, which TensorFold's Python engine does not read (it reads MLX affine 4-bit,
 NVFP4 and EXL3 for this model). Two routes were open: teach vLLM's two-Spark path to serve it (its author's patches
 target 24 GB cards and a specific nightly, int6 is not in stock vLLM, and he reports no gain from tensor
 parallelism), or give TensorFold a reader. The TensorFold route keeps everything this pair already has: two-rank

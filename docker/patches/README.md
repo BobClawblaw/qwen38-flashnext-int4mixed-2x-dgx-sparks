@@ -1,13 +1,16 @@
 # docker/patches/
 
-The image build applies `flashnext-int4mixed-0.6.6.patch` to TensorFold at the commit `recipe.toml` pins. The patch's
+The image build applies `flashnext-int4mixed-py0.6-ed78d6f.patch` to TensorFold at the commit `recipe.toml` pins
+(`ed78d6f`, the tip of upstream's `python-0.6` branch). The patch's
 sha256 is pinned in `recipe.toml` (`[engine] patch_sha256`); the build refuses a file that differs, the image carries the
 hash as a label, and `spark up` refuses an image whose label differs. A changed patch is a new pin and new evidence.
 
-## What the patch changes in TensorFold 0.6.6
+## What the patch changes in TensorFold's Python engine (`python-0.6` at `ed78d6f`)
 
-TensorFold's Python engine is frozen at 0.6.6 (its author moved fast-kernel work to a new engine), so this lives
-in the recipe. Every part is this project's own work on TensorFold; nothing is copied from another recipe.
+TensorFold 1.0 is a native Zig engine, and it does not serve Flash Next on CUDA (its CUDA support is Nemotron on
+GB10; Flash Next is qualified on Metal). The Python engine continues on upstream's `python-0.6` branch, which this
+recipe follows to its tip (it still reports version 0.6.6: no release has been tagged after it), so this lives in
+the recipe. Every part is this project's own work on TensorFold; nothing is copied from another recipe.
 
 ### Serving this checkpoint: `affine-experts` (new in this recipe)
 
@@ -18,7 +21,7 @@ Files: `families/qwen4_exp/cuda/affine_moe.py` (new), `weights.py` (`moe_affine`
 - **The checkpoint** is compressed-tensors `pack-quantized`: int4 routed experts (symmetric, groups of 128), int6 for
   the DeltaNet, attention and shared-expert linears (groups of 64), int8 for the hyper-connection mixers, embeddings,
   head, indexer and PLE projections, bf16 for the router, the MTP layer, the vision tower and the 102 GB n-gram table.
-  TensorFold 0.6.6 reads none of that. `spark/convert_mixed.py` turns it, once per node, into what the engine's
+  TensorFold's Python engine reads none of that. `spark/convert_mixed.py` turns it, once per node, into what the engine's
   Flash Next loader can take: the routed experts as affine 4-bit words in groups of 64 (the packed words are
   bit-identical, eight little-endian nibbles an int32 either way; a 128-group fp16 scale becomes two bf16 64-group
   scales with bias minus eight scales, so a weight decodes to scale x (q - 8) as the source defines it), the int6 and
@@ -72,18 +75,29 @@ separate kernels.
 `TENSORFOLD_STAGE_TIMES=<file>` (with `TENSORFOLD_STAGE_SYNC=1` for isolated timings) records GPU time per forward
 stage with CUDA events and turns decode graphs off; unset, it changes nothing.
 
+### Structured output with `--parallel` on two ranks (`multi_tp.py`, `multi.py`, `multi_fill.py`, `engine.py`)
+
+Rank 0 sends each admitted request's packed grammar with the admission (and both ranks agree on it), rank 1 compiles
+the same grammar; both mask their own vocabulary columns, and a constrained stream samples from its masked rows
+rather than the forward's pre-mask candidates, its first token too. The engine no longer refuses `response_format`
+or `guided_*` under the concurrent profile on two ranks.
+
+### The point-to-point link opens at startup (`cuda/comm.py` `warm_exchange`, `engine.py`)
+
+NCCL sets the two ranks' send/recv connection up at the first exchange and registers its buffers then; on a worker
+deep into serving that registration can fail (`ibv_reg_mr`), so the engine opens it right after the communicator.
+
 ### Carried from this project's earlier TensorFold work
+
+(Two-rank image input (#473) and copy drafts (#468) were merged upstream and are in `python-0.6`; they are no longer
+in this patch.)
+
 
 - **EXL3 packs on two ranks and a sixteen-stream EXL3 decode window** (the EXL3 loader, `exl3_mm.py`,
   `cuda/exl3/experts.py`, the admission estimate): not used by this checkpoint, kept so one patch serves the pair's
   recipes.
 - **YaRN from `config.json`** (`weight_types.py` `rotary_inv_freq`, `scale_rotary`): the long profile's rotary,
   computed as transformers computes it, the attention factor folded into the rotated dims of the norm scales.
-- **Image and video input on two ranks, on the concurrent decoder and the serial engine** (`vision_ranks.py`,
-  `multi_tp.py`, `engine.py`): rank 0 runs the tower and sends each request's features to rank 1 inside the
-  admission lockstep. Merged upstream in TensorFold main (#473).
-- **Copy drafts** (`draft_depth`, `decode.py`): a reply that repeats earlier text drafts the continuation whole,
-  byte-identical output. Merged upstream (#468).
 - **`--tool-system`** on the CUDA server and **declared-parameter tool calls** (`tool_parameters.py`, the parsers,
   the streamer).
 

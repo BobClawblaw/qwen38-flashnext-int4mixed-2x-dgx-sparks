@@ -1,0 +1,4 @@
+prefill 7089 tokens 2.8 s 2575 tok/s
+prefill 28442 tokens 11.4 s 2506 tok/s
+prefill 114587 tokens 52.6 s 2177 tok/s
+prefill 224822 tokens 113.1 s 1988 tok/s

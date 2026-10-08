@@ -7,7 +7,7 @@ no harness dependencies, stdlib Python only.
 - **Entry point:** `python3 -m spark up|down|status|logs|convert|image|validate`. Settings: `recipe.toml` defaults,
   `cluster.toml` per cluster (git-ignored), environment variables in upper case. `python3 -m spark validate` is the
   dry run; CI runs it on every profile and the refusals.
-- **The patch** (`docker/patches/flashnext-int4mixed-0.6.6.patch`) is pinned by sha256 in `recipe.toml`. Never edit it
+- **The patch** (`docker/patches/flashnext-int4mixed-py0.6-ed78d6f.patch`) is pinned by sha256 in `recipe.toml`. Never edit it
   in place: change a clean TensorFold checkout at the pinned commit, run its tests inside the image, regenerate,
   re-pin, rebuild, rerun the suite.
 - **The conversion** (`spark/convert_mixed.py`) is part of the served artefact: a changed converter is a new

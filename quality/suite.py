@@ -71,7 +71,7 @@ def main(argv=None) -> int:
     ap.add_argument("--mgsm-n", type=int, default=30, help="problems per MGSM language")
     ap.add_argument("--long-max", type=int, default=0, help="skip long-context documents above this many tokens (0: all, to 250k)")
     ap.add_argument("--mmlu-per-subject", type=int, default=6)
-    ap.add_argument("--sandbox-image", default="tf-qwen38-int4mixed:0.6.6", help="image HumanEval code runs in (no network)")
+    ap.add_argument("--sandbox-image", default="tf-qwen38-int4mixed:py0.6-ed78d6f", help="image HumanEval code runs in (no network)")
     ap.add_argument("--thinking", action="store_true", help="GSM8K with thinking on")
     ap.add_argument("--guided-json", action="store_true", help="json through response_format (serial profile)")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A", "B"))
