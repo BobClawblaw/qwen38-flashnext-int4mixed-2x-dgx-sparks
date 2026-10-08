@@ -2,6 +2,7 @@
 
 ## 2026-10-08
 
+- **Prompt passes 8-12% faster** (patch pin `e286b134`): the hyper-connection read-out's write-back and norm in one pass on int8 prompts, and a new kernel for its int8 up projection and mix (bit-identical, tested). 7k / 28k / 115k / 225k tokens: 2,342 / 2,351 / 2,091 / 1,871 tok/s, from 2,124 / 2,096 / 1,888 / 1,741. Decode and exactness unchanged (12/12, 12/12, vision 12/12). Profile of a prompt pass in the README; network and NCCL settings tried without gain listed there.
 - **Shipped image verified on its own** (no source tree mounted): exactness 12/12 twice, vision 12/12, rulers as the development tree. Fused the hyper-connection down projection's slice sums into its activation and the shared expert's SwiGLU into one kernel (16 users, code: 415 -> 475 tok/s); prompt-sized int8 calls on 64 x 128 tiles (the dense matmuls 2x, a 28k prompt 15.6 -> 13.6 s, the same bits). The ranks' point-to-point link opens at startup: the image exchange had registered memory mid-serving and the worker refused it (ibv_reg_mr), hanging the first image request on the 1M default.
 - **Tool calls 60/60:** the matcher accepts only true equivalents (an expression with the same value, a place named with its city), with tests that wrong calls still fail; the tool instruction adds "When a request asks for several things, make one call for each of them" (a dropped second call).
 - **Long-context check to 225k**, needles at the 2% and 98% edges, ten spread facts at every length: 55/55.

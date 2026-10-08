@@ -1,0 +1,23 @@
+== bake 2026-10-08T02:21:49Z
+pin e286b13430b176cb4ab40def418ec4d53ff5d651e3aaf88f2872ba31174602ac
+02:22:09 ==> Image tf-qwen38-int4mixed:0.6.6 (TensorFold cb2ebf05, patch flashnext-int4mixed-0.6.6.patch sha256 e286b134)
+== shipped image 2026-10-08T02:22:09Z
+02:22:10 ==> Copying tf-qwen38-int4mixed:0.6.6 to worker (worker has sha256:75c687a7fc1c355768b321437007db73c0a7b93e7a731c58d0c1098bfc941316
+02:27:43 ==> Ready: http://0.0.0.0:8890/v1 (context=1048576, 140s)
+drafts            12/12     100.0%  (69s)  drafted 82 tok/s vs undrafted 34 tok/s
+concurrent        12/12     100.0%  (31s)  4 streams together vs alone
+vision            12/12     100.0%  (3s)  all probes answered
+  c=1   prose         67.6 /    67.6 tok/s   ttft 0.07s   256 tokens a reply
+  c=1   code         107.6 /   107.6 tok/s   ttft 0.08s   218 tokens a reply
+  c=1   structured    88.0 /    88.0 tok/s   ttft 0.10s   178 tokens a reply
+  c=1   list         109.9 /   109.9 tok/s   ttft 0.06s   217 tokens a reply
+  c=16  prose         18.7 /   297.9 tok/s   ttft 0.45s   249 tokens a reply
+  c=16  code          26.1 /   441.7 tok/s   ttft 0.51s   210 tokens a reply
+  c=16  structured    23.0 /   375.3 tok/s   ttft 0.58s   155 tokens a reply
+  c=16  list          33.7 /   535.3 tok/s   ttft 0.51s   238 tokens a reply
+== prefill 2026-10-08T02:31:13Z
+prefill 7089 tokens 3.0 s 2342 tok/s
+prefill 28442 tokens 12.1 s 2351 tok/s
+prefill 114587 tokens 54.8 s 2091 tok/s
+prefill 224822 tokens 120.2 s 1871 tok/s
+== BAKE DONE 2026-10-08T02:34:23Z

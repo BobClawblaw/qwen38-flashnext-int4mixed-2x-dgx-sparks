@@ -15,7 +15,7 @@ dependencies.
 
 ## Measured on this pair
 
-The shipped image (patch pin `f188bd45`) with the defaults: sixteen concurrent streams, a 1,048,576-token window
+The shipped image (patch pin `e286b134`) with the defaults: sixteen concurrent streams, a 1,048,576-token window
 (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link. `bench/ruler.py`, greedy,
 thinking off, 256-token replies, a distinct prompt per stream, median of 2 runs. Receipts:
 [`evidence/`](evidence/).
@@ -34,10 +34,14 @@ Prompt passes (time to the first token, one prompt, needle found in each):
 
 | Prompt | Time | Rate |
 |---:|---:|---:|
-| 7,164 tokens | 3.4 s | 2,124 tok/s |
-| 28,562 | 13.6 s | 2,096 tok/s |
-| 114,680 | 60.7 s | 1,888 tok/s |
-| 224,986 | 129.2 s | 1,741 tok/s |
+| 7,089 tokens | 3.0 s | 2,342 tok/s |
+| 28,442 | 12.1 s | 2,351 tok/s |
+| 114,587 | 54.8 s | 2,091 tok/s |
+| 224,822 | 120.2 s | 1,871 tok/s |
+
+Before the prompt-pass fusions (pin `f188bd45`): 2,124 / 2,096 / 1,888 / 1,741 tok/s at the same lengths, so 8-12% faster.
+The decode table above is from pin `f188bd45`; pin `e286b134` measured the same within run-to-run noise
+([`evidence/2026-10-08-prefill-fusions/`](evidence/2026-10-08-prefill-fusions/)).
 
 ## Quality
 
@@ -77,6 +81,13 @@ quarter (its elementwise write-back, norm and mix 10 s), the cross-rank gathers 
 rank, 2.1 ms a gather at about 11 GB/s each way: NCCL stages through host memory, GPU-direct RDMA is off on GB10), the
 attention a fifth (the sparse indexer's scoring grows with the prompt), the DeltaNet a fifth. The int8 matmuls are no longer
 the large part after the prompt-tile change.
+
+Done since: the read-out's write-back and norm run as one pass on int8 prompts (the byte-checked kernel TensorFold already
+used for MLX 4-bit), and its int8 up projection and mix are one new kernel (337 us against 695 for a 2,048-row chunk,
+bit-identical to the two kernels, with a test). Tried without gain: 4,096-row prompt chunks, NCCL channel, queue-pair and
+buffer settings, a 9000-byte MTU on the link (RoCE at 4096-byte packets; the gathers stay at about 11 GB/s), and NCCL's
+DMA-BUF and C2C GPU-direct switches (NCCL still reports GPU-direct RDMA off; `nvidia-peermem` does not load on this kernel).
+Next in line: the grouped expert prompt kernels and the indexer.
 
 ## Where a decode round goes
 

@@ -1238,7 +1238,7 @@ index 6b0bf41..5a1230c 100644
      w = torch.cat([r.to(torch.float16) for r in rows]).to(device).contiguous()
      n, k = w.shape
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/forward.py b/src/tensorfold/families/qwen4_exp/cuda/forward.py
-index c5fa44d..2682fec 100644
+index c5fa44d..5b0db9c 100644
 --- a/src/tensorfold/families/qwen4_exp/cuda/forward.py
 +++ b/src/tensorfold/families/qwen4_exp/cuda/forward.py
 @@ -16,7 +16,7 @@ from tensorfold.cuda.kernels import gdn as shared_gdn
@@ -1262,13 +1262,40 @@ index c5fa44d..2682fec 100644
      if not isinstance(q, qmm.Q4):                 # an EXL3 pack's matrix (``exl3_mm``): prompts on its prompt path
          return q.prefill(x, out) if b.prefill else q(x, out)
      mm = qmm.prefill_matmul if b.prefill else qmm.matmul
-@@ -82,9 +83,13 @@ def _readout_b16(hc: HC, b: Buffers, h: torch.Tensor, R: int, eps: float, stream
+@@ -53,12 +54,15 @@ def hc_block(hc: HC, b: Buffers, R: int, eps: float, streams: int, low: int, mod
+              inject_out, h: torch.Tensor, branch=None, y=None, wts=None) -> None:
+     """Write the pending branch back into the streams h (in place), then the hyper-connection's read-out: b.mixed [R, D] (+ group sums), and its inject gates into ``inject_out``."""
+ 
+-    if b.prefill and R > FUSED_ROWS and isinstance(hc.down, qmm.Q4):
++    if b.prefill and R > FUSED_ROWS and isinstance(hc.down, (qmm.Q4, q8.Q8Face)):
+         fused = _hc_fuser(h.device)
+-        if fused is not None:
++        if fused is not None:                          # write-back and norm in one pass (checked byte-exact at start)
+             fused(h[:R], b.pss[:R], hc.scale, b.normed[:R], b.xs_normed[:R], streams, eps, mode,
+                   branch=branch, inject=inject_prev, y=y, wts=wts)
+-            _readout_plain(hc, b, h, R, eps, streams, low, inject_out[:R] if hc.inject else None, normed=True)
++            if isinstance(hc.down, q8.Q8Face):
++                _readout_b16(hc, b, h, R, eps, streams, low, inject_out[:R] if hc.inject else None, normed=True)
++            else:
++                _readout_plain(hc, b, h, R, eps, streams, low, inject_out[:R] if hc.inject else None, normed=True)
+             return
+     glue.hc_writeback(h[:R], h[:R], b.pss[:R], streams, mode, branch=branch, inject=inject_prev, y=y, wts=wts)
+     _readout(hc, b, h, R, eps, streams, low, inject_out[:R] if hc.inject else None)
+@@ -78,13 +82,22 @@ def _readout(hc: HC, b: Buffers, h: torch.Tensor, R: int, eps: float, streams: i
+         _readout_plain(hc, b, h, R, eps, streams, low, inject)
+ 
+ 
+-def _readout_b16(hc: HC, b: Buffers, h: torch.Tensor, R: int, eps: float, streams: int, low: int, inject) -> None:
++def _readout_b16(hc: HC, b: Buffers, h: torch.Tensor, R: int, eps: float, streams: int, low: int, inject,
++                 normed: bool = False) -> None:
      """The read-out on the bf16 kernels: norm, down, activation and inject gates, up, the mix; same bits per row."""
  
-     glue.hc_normed(h[:R], b.pss[:R], hc.scale, b.normed[:R], b.xs_normed[:R], streams, eps)
+-    glue.hc_normed(h[:R], b.pss[:R], hc.scale, b.normed[:R], b.xs_normed[:R], streams, eps)
 -    got = bf16.matmul(b.normed[:R], hc.down.b, out=torch.empty((R, hc.down.n), dtype=torch.float32,
 -                                                               device=h.device), f32=True)
 -    glue.hc_act(got, b.act[:R], b.xs_act[:R], inject, streams, low)
++    if not normed:
++        glue.hc_normed(h[:R], b.pss[:R], hc.scale, b.normed[:R], b.xs_normed[:R], streams, eps)
 +    part = q8.partials(b.normed[:R], hc.down) if isinstance(hc.down, q8.Q8Face) else None
 +    if part is not None:                               # int8 down: its K slices summed inside the activation
 +        glue.hc_reduce_act(part, b.act[:R], b.xs_act[:R], inject, streams, low)
@@ -1276,10 +1303,13 @@ index c5fa44d..2682fec 100644
 +        got = bf16.matmul(b.normed[:R], hc.down.b, out=torch.empty((R, hc.down.n), dtype=torch.float32,
 +                                                                   device=h.device), f32=True)
 +        glue.hc_act(got, b.act[:R], b.xs_act[:R], inject, streams, low)
++    if b.prefill and R > 128 and isinstance(hc.up, q8.Q8Face) and \
++            q8.hc_upmix(b.act[:R], hc.up, b.normed[:R], b.mixed[:R], b.xs_mixed[:R], streams):
++        return                                         # int8 up and the mix in one pass (same bits)
      _mm(b.act[:R], hc.up, b.xs_act[:R], b.up[:R], b)
      glue.hc_mix(b.up[:R], b.normed[:R], b.mixed[:R], b.xs_mixed[:R], streams)
  
-@@ -196,14 +201,14 @@ def _prefill_chain(g, st: State, li: int, b: Buffers, a0: int, a1: int, c, cut:
+@@ -196,14 +209,14 @@ def _prefill_chain(g, st: State, li: int, b: Buffers, a0: int, a1: int, c, cut:
  def _out_proj(w: Weights, b: Buffers, x: torch.Tensor, q: qmm.Q4, xs: torch.Tensor, R: int):
      """A block's output projection: (1, bf16 branch) on one GPU; (3, gathered fp32 partials) across ranks."""
  
@@ -1296,7 +1326,7 @@ index c5fa44d..2682fec 100644
      return 3, _gather(w, b, b.part_branch, b.g_branch, R)
  
  
-@@ -321,10 +326,13 @@ def moe_block(layer: LayerW, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -321,10 +334,13 @@ def moe_block(layer: LayerW, w: Weights, b: Buffers, R: int) -> tuple:
      """Routed experts + the shared expert. Returns the pending write-back: (2, slots y, weights) on one GPU, (3, gathered fp32 partials, None) across ranks."""
  
      m = layer.moe
@@ -1312,7 +1342,7 @@ index c5fa44d..2682fec 100644
          return _exl3_moe(m, w, b, R)
      else:
          buf = moe_mod.moe(b.mixed[:R], m.router, m.experts, b.moe, w.cfg.top_k, w.cfg.experts)
-@@ -344,6 +352,8 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -344,6 +360,8 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
      buf = b.moe
      moe_mod.router(b.mixed[:R], m.router, buf.logits[:R])
      moe_mod.select_rows(buf.logits[:R], buf, w.cfg.top_k, w.cfg.experts)
@@ -1321,7 +1351,7 @@ index c5fa44d..2682fec 100644
      if not b.prefill and R <= MOE_WINDOW:
          y = routed(b.mixed[:R], buf.pick[:R], None, m.experts, w.x3.moe, None, R)
          return 2, y.view(R, buf.slots, -1), buf.wts[:R]
-@@ -354,6 +364,28 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
+@@ -354,6 +372,28 @@ def _exl3_moe(m, w: Weights, b: Buffers, R: int) -> tuple:
      return 2, buf.y[:R], buf.wts[:R]
  
  
@@ -1350,7 +1380,7 @@ index c5fa44d..2682fec 100644
  def _writeback(h: torch.Tensor, b: Buffers, R: int, c, pending) -> None:
      """Apply a pending branch to the streams (in place), no read-out."""
  
-@@ -610,3 +642,19 @@ def cut_snapshot(w: Weights, st: State, b: Buffers, cut: Cut, mtp_len: int) -> d
+@@ -610,3 +650,22 @@ def cut_snapshot(w: Weights, st: State, b: Buffers, cut: Cut, mtp_len: int) -> d
          shift_windows(tail[None], b.ple_nrow[None, cut.at:cut.at + cut.row], cut.row, tail.shape[1])
      return {"pos": st.pos + cut.row, "rec": cut.rec, "conv": cut.conv, "ple_tail": tail,
              "ple_history": None if history is None else history.copy(), "mtp_len": mtp_len}
@@ -1365,8 +1395,11 @@ index c5fa44d..2682fec 100644
 +        globals()[_name] = _st.wrap(_name, globals()[_name])
 +    _mm = _st.wrap(lambda x, q, *a, **k: f"mm {getattr(q, 'n', '?')}x{getattr(q, 'k', '?')}", _mm)
 +    affine_moe.moe = _st.wrap("experts+shared", affine_moe.moe)
++    from tensorfold.cuda import experts as _grouped
 +    for _mod, _fns in ((attn_mod, ("attention", "qsa_pool", "qsa_rows", "qsa_select")), (gdn_mod, ("chain",)),
-+                       (glue, ("hc_writeback", "hc_normed", "moe_partial")), (nvfp4_moe, ())):
++                       (glue, ("hc_writeback", "hc_normed", "moe_partial", "hc_reduce_act", "hc_act", "hc_mix")),
++                       (gdn_io, ("front", "back")), (shared_gdn, ("chain",)), (moe_mod, ("router", "select_rows")),
++                       (_grouped, ("route", "gate_up", "down"))):
 +        for _f in _fns:
 +            if hasattr(_mod, _f):
 +                setattr(_mod, _f, _st.wrap(f"{_mod.__name__.rsplit('.', 1)[-1]}.{_f}", getattr(_mod, _f)))
@@ -1716,10 +1749,10 @@ index 5dcc6b9..6e69045 100644
                  except (ValueError, NoRoom, OutOfStep) as exc:
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/q8.py b/src/tensorfold/families/qwen4_exp/cuda/q8.py
 new file mode 100644
-index 0000000..8772e06
+index 0000000..628ae7a
 --- /dev/null
 +++ b/src/tensorfold/families/qwen4_exp/cuda/q8.py
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,314 @@
 +"""Int8 linears with a scale per output row and group of inputs, for checkpoints whose non-expert linears are int6 or
 +int8 (symmetric): the stored integers widened to int8 bytes, half the bytes of bf16 and exact.
 +
@@ -1738,6 +1771,8 @@ index 0000000..8772e06
 +import torch
 +import triton
 +import triton.language as tl
++
++from .glue import _bsig
 +
 +BN = 64
 +BK = 64
@@ -1980,6 +2015,58 @@ index 0000000..8772e06
 +        else:
 +            acc += d
 +    tl.store(PART + (pid_s * M + rm[:, None]) * NALL + col0 + rn[None, :], acc, mask=m_ok[:, None] & n_ok[None, :])
++
++
++@triton.jit
++def _q8upmix(A, W, S, NORMED, MIXED, XS, M, a_stride, D: tl.constexpr, K: tl.constexpr, GS: tl.constexpr,
++             STREAMS: tl.constexpr, BM: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr):
++    """The hyper-connection's up projection and mix in one pass: for dims [c BLOCK_N, (c + 1) BLOCK_N) of rows
++    [r BM, (r + 1) BM), up_s = bf16(act @ W[s D + d]) exactly as ``_q8mm`` sums it, then mixed = bf16(sum over
++    streams in order of bf16(bf16(sigmoid(up_s)) * normed_s) / S) and its 32-group sums, as ``glue.hc_mix``."""
++    rm = tl.program_id(0) * BM + tl.arange(0, BM)
++    c = tl.program_id(1)
++    d = c * BLOCK_N + tl.arange(0, BLOCK_N)
++    rk = tl.arange(0, BLOCK_K)
++    m_ok = rm < M
++    total = tl.zeros((BM, BLOCK_N), dtype=tl.float32)
++    for st in tl.static_range(STREAMS):
++        rn = st * D + d
++        acc = tl.zeros((BM, BLOCK_N), dtype=tl.float32)
++        for i in range(K // BLOCK_K):
++            k0 = i * BLOCK_K
++            x = tl.load(A + rm[:, None] * a_stride + (k0 + rk)[None, :], mask=m_ok[:, None], other=0.0)
++            w = tl.load(W + rn[:, None] * K + (k0 + rk)[None, :])
++            dd = tl.dot(x, tl.trans(w.to(tl.bfloat16)), out_dtype=tl.float32)
++            sc = tl.load(S + rn * (K // GS) + k0 // GS)
++            acc += dd * sc[None, :]
++        u = acc.to(tl.bfloat16).to(tl.float32)
++        n = tl.load(NORMED + rm[:, None] * (STREAMS * D) + rn[None, :], mask=m_ok[:, None], other=0.0).to(tl.float32)
++        total += (_bsig(u) * n).to(tl.bfloat16).to(tl.float32)
++    mixed = (total / STREAMS).to(tl.bfloat16)
++    tl.store(MIXED + rm[:, None] * D + d[None, :], mixed, mask=m_ok[:, None])
++    sums = tl.sum(tl.reshape(mixed.to(tl.float32), (BM, BLOCK_N // 32, 32)), axis=2)
++    g = c * (BLOCK_N // 32) + tl.arange(0, BLOCK_N // 32)
++    tl.store(XS + rm[:, None] * (D // 32) + g[None, :], sums, mask=m_ok[:, None])
++
++
++def hc_upmix(act: torch.Tensor, face: Q8Face, normed: torch.Tensor, mixed: torch.Tensor, xs: torch.Tensor,
++             streams: int) -> bool:
++    """Fused up projection + mix for an int8 up face (one part, short K); False when the face does not qualify
++    (the caller then runs the matmul and ``glue.hc_mix``). The same bits as those two kernels."""
++    if len(face.parts) != 1 or face.parts[0].scale is None:
++        return False
++    p = face.parts[0]
++    m, k = act.shape
++    n = p.n
++    d = n // streams
++    bm, _, bk, sk, _, _ = config(n, k, p.gs, m)
++    if sk != 1 or k % bk or d % 64 or act.stride(1) != 1:
++        return False
++    bm, bn = (16, 32) if m <= 128 else (32, 64)        # 2,048 rows: 337 us against 695 for the matmul and the mix
++    _q8upmix[(triton.cdiv(m, bm), d // bn)](act, p.weight, p.scale, normed, mixed, xs, m, act.stride(0), D=d, K=k,
++                                           GS=p.gs, STREAMS=streams, BM=bm, BLOCK_N=bn, BLOCK_K=bk,
++                                           num_warps=4, num_stages=4)
++    return True
 diff --git a/src/tensorfold/families/qwen4_exp/cuda/stage_times.py b/src/tensorfold/families/qwen4_exp/cuda/stage_times.py
 new file mode 100644
 index 0000000..3e7cf2d
@@ -2659,10 +2746,10 @@ index 0000000..656a585
 +    assert torch.equal(buf.act[:rows, top_k], want_act)
 diff --git a/tests/cuda/test_flashnext_q8.py b/tests/cuda/test_flashnext_q8.py
 new file mode 100644
-index 0000000..33b6672
+index 0000000..cf2d7c2
 --- /dev/null
 +++ b/tests/cuda/test_flashnext_q8.py
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,84 @@
 +"""Int8 linears with group scales (affine-experts format 2): exact against the dequantized weight, row-invariant,
 +mixed int8/bf16 faces, and the bf16 matmul's dispatch."""
 +
@@ -2730,6 +2817,23 @@ index 0000000..33b6672
 +    big = q8.matmul(x, face)
 +    for r in (0, 77, 299):
 +        assert torch.equal(q8.matmul(x[r:r + 1], face)[0], big[r])
++
++
++@pytest.mark.parametrize("m", [129, 2048])
++def test_hc_upmix_matches_up_then_mix(m) -> None:
++    """The fused int8 up projection + mix gives the bits of the matmul followed by ``glue.hc_mix``."""
++    from tensorfold.families.qwen4_exp.cuda import glue, q8
++
++    streams, d, k = 4, 2560, 320
++    face, _ = _face(streams * d, k, 64)
++    act = (torch.randn(m, k, device="cuda") * 0.5).to(torch.bfloat16)
++    normed = torch.randn(m, streams * d, device="cuda").to(torch.bfloat16)
++    up = q8.matmul(act, face)
++    mixed, xs = torch.empty(m, d, dtype=torch.bfloat16, device="cuda"), torch.empty(m, d // 32, device="cuda")
++    glue.hc_mix(up, normed, mixed, xs, streams)
++    mixed2, xs2 = torch.empty_like(mixed), torch.empty_like(xs)
++    assert q8.hc_upmix(act, face, normed, mixed2, xs2, streams)
++    assert torch.equal(mixed, mixed2) and torch.equal(xs.view(torch.int32), xs2.view(torch.int32))
 diff --git a/tests/cuda/test_qwen4_exp_exl3.py b/tests/cuda/test_qwen4_exp_exl3.py
 index 560152c..daf7187 100644
 --- a/tests/cuda/test_qwen4_exp_exl3.py

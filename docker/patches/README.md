@@ -53,6 +53,14 @@ concurrent rows agree bit for bit). The MTP layer's bf16 linears are quantized t
 64 inputs): they only draft, the main weights verify, so replies are unchanged (drafted equals undrafted 12/12).
 Tests: `tests/cuda/test_flashnext_q8.py`.
 
+### Prompt-pass fusions (`forward.py`, `q8.py`)
+
+On int8 prompts (more than 128 rows) the hyper-connection read-out runs its write-back and norm as one pass (the
+fused kernel TensorFold already used for MLX 4-bit, enabled only after its byte check at start-up), and its int8 up
+projection and the stream mix as one kernel (`q8.hc_upmix`): the same K order and roundings as the int8 matmul
+followed by `glue.hc_mix`, so the bits are the same (`test_hc_upmix_matches_up_then_mix`). Decode rows keep the
+separate kernels.
+
 ### Two fixes the first boot found
 
 - `vision/qwen_cuda.py`: accept the vision config's newer `model_type` name, `qwen4_exp_vision` (this export's).
