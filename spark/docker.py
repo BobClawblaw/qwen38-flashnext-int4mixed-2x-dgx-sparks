@@ -26,6 +26,8 @@ def image_id(node: Node, image: str) -> str | None:
 
 def ensure_image(s: Settings, head: Node, rebuild: bool = False) -> None:
     """Build the image on the head when it is missing (or ``rebuild``); refuse one whose labels name another patch."""
+    if s.native:
+        return ensure_native(s, head, rebuild)
     have = labels(head, s.image)
     if have is None or (rebuild and have != (s.tensorfold_sha, s.patch_sha256)):
         log(f"Building {s.image} (TensorFold {s.tensorfold_sha[:8]}, patch {s.patch}) from docker/Dockerfile")
@@ -42,14 +44,35 @@ def ensure_image(s: Settings, head: Node, rebuild: bool = False) -> None:
     log(f"Image {s.image} (TensorFold {s.tensorfold_sha[:8]}, patch {s.patch} sha256 {s.patch_sha256[:8]})")
 
 
+def ensure_native(s: Settings, head: Node, rebuild: bool = False) -> None:
+    """The native engine's image: TensorFold's release at native_tensorfold_sha with native_patch, docker/Dockerfile.native."""
+    want = (s.native_tensorfold_sha, s.native_patch_sha256)
+    have = labels(head, s.native_image)
+    if have is None or (rebuild and have != want):
+        log(f"Building {s.native_image} (TensorFold {s.native_tensorfold_sha[:8]}, patch {s.native_patch}) from "
+            "docker/Dockerfile.native")
+        rc = head.stream(["docker", "build", "-f", str(ROOT / "docker" / "Dockerfile.native"),
+                          "--build-arg", f"TF_REPO={s.tensorfold_repo}", "--build-arg", f"TF_SHA={s.native_tensorfold_sha}",
+                          "--build-arg", f"TF_PATCH={s.native_patch}", "--build-arg", f"TF_PATCH_SHA={s.native_patch_sha256}",
+                          "--build-arg", f"BASE_IMAGE={s.base_image}", "-t", s.native_image, str(ROOT / "docker")])
+        if rc:
+            raise RuntimeError(f"docker build of {s.native_image} failed ({rc})")
+        have = labels(head, s.native_image)
+    if have != want:
+        raise RuntimeError(f"image {s.native_image} carries TensorFold/patch {have}, not {want}: rebuild it")
+    log(f"Image {s.native_image} (TensorFold {s.native_tensorfold_sha[:8]}, patch {s.native_patch} sha256 "
+        f"{s.native_patch_sha256[:8]})")
+
+
 def sync_image(s: Settings, head: Node, worker: Node) -> bool:
     """The worker runs the head's exact image: same ID, or the head's copy goes over the link. True when it copied."""
-    local, remote = image_id(head, s.image), image_id(worker, s.image)
+    image = s.run_image
+    local, remote = image_id(head, image), image_id(worker, image)
     if local == remote:
         return False
-    log(f"Copying {s.image} to {worker.name} (worker has {remote or 'none'})")
-    pipe(["docker", "save", s.image], worker, ["docker", "load"])
-    if image_id(worker, s.image) != local:
+    log(f"Copying {image} to {worker.name} (worker has {remote or 'none'})")
+    pipe(["docker", "save", image], worker, ["docker", "load"])
+    if image_id(worker, image) != local:
         raise RuntimeError(f"{worker.name}: the image copy did not take")
     return True
 
@@ -84,7 +107,10 @@ def run_rank(s: Settings, node: Node, rank: int, *, src_mount: Path | None = Non
         argv += ["-v", f"{src_mount}:/usr/local/lib/python3.12/dist-packages/tensorfold:ro"]
     for k, v in s.container_env().items():
         argv += ["-e", f"{k}={v}"]
-    argv += [s.image, "tensorfold", "serve", s.model_in_container, *s.serve_args(rank)]
+    if s.native:              # the image's entrypoint is tensorfold-native
+        argv += [s.run_image, "serve", s.model_in_container, *s.native_args(rank)]
+    else:
+        argv += [s.image, "tensorfold", "serve", s.model_in_container, *s.serve_args(rank)]
     # --init: rank 1 installs no SIGTERM handler (docker stop would wait out its timeout). memlock + IPC_LOCK: the
     # n-gram table pages are locked. --ulimit core=1: no multi-GiB core dumps in host memory.
     log(f"Starting {s.container} rank={rank} on {node.name}: {s.summary()}")

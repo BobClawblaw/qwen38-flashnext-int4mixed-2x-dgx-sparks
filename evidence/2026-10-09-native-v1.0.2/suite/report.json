@@ -1,0 +1,1274 @@
+{
+ "url": "http://127.0.0.1:8888",
+ "model": "Qwen3.8-Flash-Next-INT4-Mixed",
+ "results": [
+  {
+   "name": "drafts",
+   "score": 1.0,
+   "cases": 12,
+   "passed": 12,
+   "seconds": 61.0199499130249,
+   "notes": [
+    "drafted 82 tok/s vs undrafted 41 tok/s"
+   ],
+   "details": {
+    "drafted": [
+     {
+      "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+      "sha": "f36d294aa7ea",
+      "tokens": 177,
+      "tok_s": 66.0677055822539,
+      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+     },
+     {
+      "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+      "sha": "a2de17a92857",
+      "tokens": 187,
+      "tok_s": 107.74628800664053,
+      "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+     },
+     {
+      "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+      "sha": "2125a9b7c96c",
+      "tokens": 168,
+      "tok_s": 57.19949384385272,
+      "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+     },
+     {
+      "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+      "sha": "9a37a0431d60",
+      "tokens": 21,
+      "tok_s": 58.39703947377608,
+      "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+     },
+     {
+      "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+      "sha": "de7ccced89ac",
+      "tokens": 300,
+      "tok_s": 116.97613924225917,
+      "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+     },
+     {
+      "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+      "sha": "054f893bb6fb",
+      "tokens": 177,
+      "tok_s": 95.46590436808236,
+      "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+     },
+     {
+      "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+      "sha": "09328242ac9b",
+      "tokens": 116,
+      "tok_s": 50.32408557117265,
+      "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+     },
+     {
+      "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+      "sha": "5dea0629376a",
+      "tokens": 120,
+      "tok_s": 108.71111465493388,
+      "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+     },
+     {
+      "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+      "sha": "2d78ae470d32",
+      "tokens": 42,
+      "tok_s": 54.05958886545637,
+      "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+     },
+     {
+      "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+      "sha": "c3e560f64dd2",
+      "tokens": 103,
+      "tok_s": 102.2240212360186,
+      "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+     },
+     {
+      "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+      "sha": "1ab435054414",
+      "tokens": 262,
+      "tok_s": 108.1561819356289,
+      "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+     },
+     {
+      "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+      "sha": "c903db274cd2",
+      "tokens": 28,
+      "tok_s": 62.048786347642114,
+      "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+     }
+    ],
+    "undrafted": [
+     {
+      "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+      "sha": "f36d294aa7ea",
+      "tokens": 177,
+      "tok_s": 42.166831155122644,
+      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+     },
+     {
+      "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+      "sha": "a2de17a92857",
+      "tokens": 187,
+      "tok_s": 41.967364789576,
+      "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+     },
+     {
+      "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+      "sha": "2125a9b7c96c",
+      "tokens": 168,
+      "tok_s": 41.80748648534065,
+      "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+     },
+     {
+      "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+      "sha": "9a37a0431d60",
+      "tokens": 21,
+      "tok_s": 35.70621028087844,
+      "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+     },
+     {
+      "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+      "sha": "de7ccced89ac",
+      "tokens": 300,
+      "tok_s": 42.533040613657995,
+      "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+     },
+     {
+      "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+      "sha": "054f893bb6fb",
+      "tokens": 177,
+      "tok_s": 41.90925686111483,
+      "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+     },
+     {
+      "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+      "sha": "09328242ac9b",
+      "tokens": 116,
+      "tok_s": 41.03158675280084,
+      "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+     },
+     {
+      "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+      "sha": "5dea0629376a",
+      "tokens": 120,
+      "tok_s": 41.296841463797705,
+      "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+     },
+     {
+      "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+      "sha": "2d78ae470d32",
+      "tokens": 42,
+      "tok_s": 38.81112806210454,
+      "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+     },
+     {
+      "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+      "sha": "c3e560f64dd2",
+      "tokens": 103,
+      "tok_s": 40.64608885611189,
+      "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+     },
+     {
+      "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+      "sha": "1ab435054414",
+      "tokens": 262,
+      "tok_s": 42.368792389049894,
+      "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+     },
+     {
+      "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+      "sha": "c903db274cd2",
+      "tokens": 28,
+      "tok_s": 37.27964631781288,
+      "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+     }
+    ]
+   }
+  },
+  {
+   "name": "concurrent",
+   "score": 1.0,
+   "cases": 12,
+   "passed": 12,
+   "seconds": 31.61063528060913,
+   "notes": [
+    "4 streams together vs alone"
+   ],
+   "details": {
+    "alone": [
+     {
+      "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+      "sha": "f36d294aa7ea",
+      "tokens": 177,
+      "tok_s": 66.86029996300613,
+      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+     },
+     {
+      "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+      "sha": "a2de17a92857",
+      "tokens": 187,
+      "tok_s": 107.05924930859398,
+      "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+     },
+     {
+      "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+      "sha": "2125a9b7c96c",
+      "tokens": 168,
+      "tok_s": 57.54433977343469,
+      "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+     },
+     {
+      "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+      "sha": "9a37a0431d60",
+      "tokens": 21,
+      "tok_s": 57.94876584400066,
+      "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+     },
+     {
+      "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+      "sha": "de7ccced89ac",
+      "tokens": 300,
+      "tok_s": 113.33766513906268,
+      "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+     },
+     {
+      "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+      "sha": "054f893bb6fb",
+      "tokens": 177,
+      "tok_s": 95.53287169340707,
+      "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+     },
+     {
+      "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+      "sha": "09328242ac9b",
+      "tokens": 116,
+      "tok_s": 51.89473985216459,
+      "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+     },
+     {
+      "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+      "sha": "5dea0629376a",
+      "tokens": 120,
+      "tok_s": 109.57565415223094,
+      "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+     },
+     {
+      "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+      "sha": "2d78ae470d32",
+      "tokens": 42,
+      "tok_s": 54.50697502809327,
+      "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+     },
+     {
+      "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+      "sha": "c3e560f64dd2",
+      "tokens": 103,
+      "tok_s": 104.69029314602906,
+      "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+     },
+     {
+      "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+      "sha": "1ab435054414",
+      "tokens": 262,
+      "tok_s": 108.70777468646222,
+      "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+     },
+     {
+      "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+      "sha": "c903db274cd2",
+      "tokens": 28,
+      "tok_s": 65.54475442820618,
+      "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+     }
+    ],
+    "together": [
+     {
+      "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+      "sha": "f36d294aa7ea",
+      "tokens": 177,
+      "tok_s": 26.71500718942572,
+      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+     },
+     {
+      "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+      "sha": "a2de17a92857",
+      "tokens": 187,
+      "tok_s": 64.75952192506746,
+      "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+     },
+     {
+      "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+      "sha": "2125a9b7c96c",
+      "tokens": 168,
+      "tok_s": 23.063477503537563,
+      "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+     },
+     {
+      "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+      "sha": "9a37a0431d60",
+      "tokens": 21,
+      "tok_s": 23.509843198670346,
+      "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+     },
+     {
+      "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+      "sha": "de7ccced89ac",
+      "tokens": 300,
+      "tok_s": 58.19399891794223,
+      "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+     },
+     {
+      "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+      "sha": "054f893bb6fb",
+      "tokens": 177,
+      "tok_s": 55.99041447631993,
+      "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+     },
+     {
+      "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+      "sha": "09328242ac9b",
+      "tokens": 116,
+      "tok_s": 23.62366647071451,
+      "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+     },
+     {
+      "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+      "sha": "5dea0629376a",
+      "tokens": 120,
+      "tok_s": 58.92591292576848,
+      "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+     },
+     {
+      "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+      "sha": "2d78ae470d32",
+      "tokens": 42,
+      "tok_s": 28.743971258989117,
+      "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+     },
+     {
+      "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+      "sha": "c3e560f64dd2",
+      "tokens": 103,
+      "tok_s": 59.26120771447701,
+      "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+     },
+     {
+      "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+      "sha": "1ab435054414",
+      "tokens": 262,
+      "tok_s": 76.50692811254024,
+      "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+     },
+     {
+      "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+      "sha": "c903db274cd2",
+      "tokens": 28,
+      "tok_s": 29.906142966420663,
+      "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+     }
+    ]
+   }
+  },
+  {
+   "name": "streaming",
+   "score": 1.0,
+   "cases": 4,
+   "passed": 4,
+   "seconds": 11.965811729431152,
+   "notes": [
+    "identical"
+   ],
+   "details": {}
+  },
+  {
+   "name": "multiturn",
+   "score": 1.0,
+   "cases": 8,
+   "passed": 8,
+   "seconds": 13.111627101898193,
+   "notes": [
+    "recalled 8/8 facts"
+   ],
+   "details": {
+    "reply": "Name: Odile, City: Lyon\nCat: Pistache, Age: 7\nJob: Luthier (violin repair)\nFavourite Number: 314\nTravel: Montreal, Nov 14"
+   }
+  },
+  {
+   "name": "stop",
+   "score": 1.0,
+   "cases": 3,
+   "passed": 3,
+   "seconds": 0.6250650882720947,
+   "notes": [
+    "3/3 stopped before the string"
+   ],
+   "details": {}
+  },
+  {
+   "name": "thinking",
+   "score": 1.0,
+   "cases": 10,
+   "passed": 10,
+   "seconds": 12.708428382873535,
+   "notes": [
+    "0 replies without reasoning_content, 0 with think tags in content"
+   ],
+   "details": {}
+  },
+  {
+   "name": "copy",
+   "score": 1.0,
+   "cases": 2,
+   "passed": 2,
+   "seconds": 0.972529411315918,
+   "notes": [
+    "2/2 byte-identical"
+   ],
+   "details": {}
+  },
+  {
+   "name": "max-tokens",
+   "score": 1.0,
+   "cases": 3,
+   "passed": 3,
+   "seconds": 0.9512317180633545,
+   "notes": [
+    "3/3 exact"
+   ],
+   "details": {}
+  },
+  {
+   "name": "tools",
+   "score": 1.0,
+   "cases": 60,
+   "passed": 60,
+   "seconds": 45.01172399520874,
+   "notes": [
+    "all exact"
+   ],
+   "details": {}
+  },
+  {
+   "name": "json",
+   "score": 1.0,
+   "cases": 30,
+   "passed": 30,
+   "seconds": 7.638225555419922,
+   "notes": [
+    "all valid"
+   ],
+   "details": {}
+  },
+  {
+   "name": "ifeval",
+   "score": 0.8666666666666667,
+   "cases": 150,
+   "passed": 130,
+   "seconds": 320.8401679992676,
+   "notes": [
+    "loose 130/150, strict 125/150, 150 covered prompts"
+   ],
+   "details": {
+    "strict": 125,
+    "loose": 130,
+    "n": 150
+   }
+  },
+  {
+   "name": "gsm8k",
+   "score": 0.964,
+   "cases": 250,
+   "passed": 241,
+   "seconds": 344.3207585811615,
+   "notes": [
+    "misses at [40, 85, 87, 93, 98, 119, 163, 187, 234]"
+   ],
+   "details": {
+    "n": 250,
+    "thinking": false,
+    "misses": [
+     40,
+     85,
+     87,
+     93,
+     98,
+     119,
+     163,
+     187,
+     234
+    ]
+   }
+  },
+  {
+   "name": "mgsm",
+   "score": 0.9125,
+   "cases": 240,
+   "passed": 219,
+   "seconds": 490.30318546295166,
+   "notes": [
+    "de 28/30, es 29/30, fr 26/30, ja 27/30, zh 27/30, ru 30/30, sw 27/30, bn 25/30"
+   ],
+   "details": {
+    "per_language": {
+     "de": 28,
+     "es": 29,
+     "fr": 26,
+     "ja": 27,
+     "zh": 27,
+     "ru": 30,
+     "sw": 27,
+     "bn": 25
+    },
+    "n": 30
+   }
+  },
+  {
+   "name": "mmlu",
+   "score": 0.827485380116959,
+   "cases": 342,
+   "passed": 283,
+   "seconds": 637.0223739147186,
+   "notes": [
+    "57 subjects x 6; weakest college_mathematics 1/6, high_school_mathematics 2/6, business_ethics 3/6"
+   ],
+   "details": {
+    "per_subject": {
+     "abstract_algebra": [
+      5,
+      6
+     ],
+     "anatomy": [
+      5,
+      6
+     ],
+     "astronomy": [
+      6,
+      6
+     ],
+     "business_ethics": [
+      3,
+      6
+     ],
+     "clinical_knowledge": [
+      5,
+      6
+     ],
+     "college_biology": [
+      6,
+      6
+     ],
+     "college_chemistry": [
+      3,
+      6
+     ],
+     "college_computer_science": [
+      5,
+      6
+     ],
+     "college_mathematics": [
+      1,
+      6
+     ],
+     "college_medicine": [
+      4,
+      6
+     ],
+     "college_physics": [
+      6,
+      6
+     ],
+     "computer_security": [
+      6,
+      6
+     ],
+     "conceptual_physics": [
+      6,
+      6
+     ],
+     "econometrics": [
+      4,
+      6
+     ],
+     "electrical_engineering": [
+      6,
+      6
+     ],
+     "elementary_mathematics": [
+      5,
+      6
+     ],
+     "formal_logic": [
+      5,
+      6
+     ],
+     "global_facts": [
+      3,
+      6
+     ],
+     "high_school_biology": [
+      5,
+      6
+     ],
+     "high_school_chemistry": [
+      6,
+      6
+     ],
+     "high_school_computer_science": [
+      6,
+      6
+     ],
+     "high_school_european_history": [
+      5,
+      6
+     ],
+     "high_school_geography": [
+      6,
+      6
+     ],
+     "high_school_government_and_politics": [
+      5,
+      6
+     ],
+     "high_school_macroeconomics": [
+      6,
+      6
+     ],
+     "high_school_mathematics": [
+      2,
+      6
+     ],
+     "high_school_microeconomics": [
+      5,
+      6
+     ],
+     "high_school_physics": [
+      4,
+      6
+     ],
+     "high_school_psychology": [
+      6,
+      6
+     ],
+     "high_school_statistics": [
+      4,
+      6
+     ],
+     "high_school_us_history": [
+      5,
+      6
+     ],
+     "high_school_world_history": [
+      6,
+      6
+     ],
+     "human_aging": [
+      5,
+      6
+     ],
+     "human_sexuality": [
+      5,
+      6
+     ],
+     "international_law": [
+      5,
+      6
+     ],
+     "jurisprudence": [
+      5,
+      6
+     ],
+     "logical_fallacies": [
+      5,
+      6
+     ],
+     "machine_learning": [
+      3,
+      6
+     ],
+     "management": [
+      6,
+      6
+     ],
+     "marketing": [
+      5,
+      6
+     ],
+     "medical_genetics": [
+      6,
+      6
+     ],
+     "miscellaneous": [
+      6,
+      6
+     ],
+     "moral_disputes": [
+      5,
+      6
+     ],
+     "moral_scenarios": [
+      5,
+      6
+     ],
+     "nutrition": [
+      3,
+      6
+     ],
+     "philosophy": [
+      6,
+      6
+     ],
+     "prehistory": [
+      6,
+      6
+     ],
+     "professional_accounting": [
+      6,
+      6
+     ],
+     "professional_law": [
+      4,
+      6
+     ],
+     "professional_medicine": [
+      6,
+      6
+     ],
+     "professional_psychology": [
+      6,
+      6
+     ],
+     "public_relations": [
+      4,
+      6
+     ],
+     "security_studies": [
+      6,
+      6
+     ],
+     "sociology": [
+      6,
+      6
+     ],
+     "us_foreign_policy": [
+      5,
+      6
+     ],
+     "virology": [
+      3,
+      6
+     ],
+     "world_religions": [
+      6,
+      6
+     ]
+    }
+   }
+  },
+  {
+   "name": "humaneval",
+   "score": 0.9573170731707317,
+   "cases": 164,
+   "passed": 157,
+   "seconds": 138.2347993850708,
+   "notes": [
+    "pass@1 greedy; failed ['HumanEval_116', 'HumanEval_129', 'HumanEval_132', 'HumanEval_140', 'HumanEval_145', 'HumanEval_147'] ..."
+   ],
+   "details": {
+    "verdicts": {
+     "HumanEval_0": "pass",
+     "HumanEval_1": "pass",
+     "HumanEval_10": "pass",
+     "HumanEval_100": "pass",
+     "HumanEval_101": "pass",
+     "HumanEval_102": "pass",
+     "HumanEval_103": "pass",
+     "HumanEval_104": "pass",
+     "HumanEval_105": "pass",
+     "HumanEval_106": "pass",
+     "HumanEval_107": "pass",
+     "HumanEval_108": "pass",
+     "HumanEval_109": "pass",
+     "HumanEval_11": "pass",
+     "HumanEval_110": "pass",
+     "HumanEval_111": "pass",
+     "HumanEval_112": "pass",
+     "HumanEval_113": "pass",
+     "HumanEval_114": "pass",
+     "HumanEval_115": "pass",
+     "HumanEval_116": "fail:   File \"/w/HumanEval_116.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n",
+     "HumanEval_117": "pass",
+     "HumanEval_118": "pass",
+     "HumanEval_119": "pass",
+     "HumanEval_12": "pass",
+     "HumanEval_120": "pass",
+     "HumanEval_121": "pass",
+     "HumanEval_122": "pass",
+     "HumanEval_123": "pass",
+     "HumanEval_124": "pass",
+     "HumanEval_125": "pass",
+     "HumanEval_126": "pass",
+     "HumanEval_127": "pass",
+     "HumanEval_128": "pass",
+     "HumanEval_129": "fail:   File \"/w/HumanEval_129.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n",
+     "HumanEval_13": "pass",
+     "HumanEval_130": "pass",
+     "HumanEval_131": "pass",
+     "HumanEval_132": "fail:   File \"/w/HumanEval_132.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n",
+     "HumanEval_133": "pass",
+     "HumanEval_134": "pass",
+     "HumanEval_135": "pass",
+     "HumanEval_136": "pass",
+     "HumanEval_137": "pass",
+     "HumanEval_138": "pass",
+     "HumanEval_139": "pass",
+     "HumanEval_14": "pass",
+     "HumanEval_140": "fail: s assert fails 3 (good for debugging!)\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: This prints if this assert fails 3 (good for debugging!)\n",
+     "HumanEval_141": "pass",
+     "HumanEval_142": "pass",
+     "HumanEval_143": "pass",
+     "HumanEval_144": "pass",
+     "HumanEval_145": "fail:  File \"/w/HumanEval_145.py\", line 28, in check\n    assert candidate([1, 11, -1, -11, -12]) == [-1, -11, 1, -12, 11]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+     "HumanEval_146": "pass",
+     "HumanEval_147": "fail:   File \"/w/HumanEval_147.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n",
+     "HumanEval_148": "pass",
+     "HumanEval_149": "pass",
+     "HumanEval_15": "pass",
+     "HumanEval_150": "pass",
+     "HumanEval_151": "pass",
+     "HumanEval_152": "pass",
+     "HumanEval_153": "pass",
+     "HumanEval_154": "pass",
+     "HumanEval_155": "pass",
+     "HumanEval_156": "pass",
+     "HumanEval_157": "pass",
+     "HumanEval_158": "pass",
+     "HumanEval_159": "pass",
+     "HumanEval_16": "pass",
+     "HumanEval_160": "pass",
+     "HumanEval_161": "pass",
+     "HumanEval_162": "pass",
+     "HumanEval_163": "pass",
+     "HumanEval_17": "pass",
+     "HumanEval_18": "pass",
+     "HumanEval_19": "pass",
+     "HumanEval_2": "pass",
+     "HumanEval_20": "pass",
+     "HumanEval_21": "pass",
+     "HumanEval_22": "pass",
+     "HumanEval_23": "pass",
+     "HumanEval_24": "pass",
+     "HumanEval_25": "pass",
+     "HumanEval_26": "pass",
+     "HumanEval_27": "pass",
+     "HumanEval_28": "pass",
+     "HumanEval_29": "pass",
+     "HumanEval_3": "pass",
+     "HumanEval_30": "pass",
+     "HumanEval_31": "pass",
+     "HumanEval_32": "pass",
+     "HumanEval_33": "pass",
+     "HumanEval_34": "pass",
+     "HumanEval_35": "pass",
+     "HumanEval_36": "pass",
+     "HumanEval_37": "pass",
+     "HumanEval_38": "fail: lic)\n  File \"/w/HumanEval_38.py\", line 25, in check\n    encoded_str = encode_cyclic(str)\n                  ^^^^^^^^^^^^^\nNameError: name 'encode_cyclic' is not defined. Did you mean: 'decode_cyclic'?\n",
+     "HumanEval_39": "pass",
+     "HumanEval_4": "pass",
+     "HumanEval_40": "pass",
+     "HumanEval_41": "pass",
+     "HumanEval_42": "pass",
+     "HumanEval_43": "pass",
+     "HumanEval_44": "pass",
+     "HumanEval_45": "pass",
+     "HumanEval_46": "pass",
+     "HumanEval_47": "pass",
+     "HumanEval_48": "pass",
+     "HumanEval_49": "pass",
+     "HumanEval_5": "pass",
+     "HumanEval_50": "pass",
+     "HumanEval_51": "pass",
+     "HumanEval_52": "pass",
+     "HumanEval_53": "pass",
+     "HumanEval_54": "pass",
+     "HumanEval_55": "pass",
+     "HumanEval_56": "pass",
+     "HumanEval_57": "pass",
+     "HumanEval_58": "pass",
+     "HumanEval_59": "pass",
+     "HumanEval_6": "pass",
+     "HumanEval_60": "pass",
+     "HumanEval_61": "pass",
+     "HumanEval_62": "pass",
+     "HumanEval_63": "pass",
+     "HumanEval_64": "pass",
+     "HumanEval_65": "pass",
+     "HumanEval_66": "pass",
+     "HumanEval_67": "pass",
+     "HumanEval_68": "pass",
+     "HumanEval_69": "pass",
+     "HumanEval_7": "pass",
+     "HumanEval_70": "pass",
+     "HumanEval_71": "pass",
+     "HumanEval_72": "pass",
+     "HumanEval_73": "pass",
+     "HumanEval_74": "pass",
+     "HumanEval_75": "pass",
+     "HumanEval_76": "pass",
+     "HumanEval_77": "pass",
+     "HumanEval_78": "pass",
+     "HumanEval_79": "pass",
+     "HumanEval_8": "pass",
+     "HumanEval_80": "pass",
+     "HumanEval_81": "pass",
+     "HumanEval_82": "pass",
+     "HumanEval_83": "pass",
+     "HumanEval_84": "pass",
+     "HumanEval_85": "pass",
+     "HumanEval_86": "pass",
+     "HumanEval_87": "pass",
+     "HumanEval_88": "pass",
+     "HumanEval_89": "pass",
+     "HumanEval_9": "pass",
+     "HumanEval_90": "pass",
+     "HumanEval_91": "pass",
+     "HumanEval_92": "pass",
+     "HumanEval_93": "pass",
+     "HumanEval_94": "pass",
+     "HumanEval_95": "pass",
+     "HumanEval_96": "pass",
+     "HumanEval_97": "pass",
+     "HumanEval_98": "pass",
+     "HumanEval_99": "pass"
+    }
+   }
+  },
+  {
+   "name": "repetition",
+   "score": 1.0,
+   "cases": 8,
+   "passed": 8,
+   "seconds": 38.73690938949585,
+   "notes": [
+    "repeated 4-grams 0.40% mean, max 1.09%; 0 replies hit max_tokens"
+   ],
+   "details": {
+    "replies": [
+     {
+      "rate": 0.0038510911424903724,
+      "words": 774,
+      "finish": "stop",
+      "tokens": 978
+     },
+     {
+      "rate": 0.006134969325153374,
+      "words": 651,
+      "finish": "stop",
+      "tokens": 813
+     },
+     {
+      "rate": 0.0029411764705882353,
+      "words": 661,
+      "finish": "stop",
+      "tokens": 883
+     },
+     {
+      "rate": 0.010869565217391304,
+      "words": 638,
+      "finish": "stop",
+      "tokens": 907
+     },
+     {
+      "rate": 0.0,
+      "words": 556,
+      "finish": "stop",
+      "tokens": 683
+     },
+     {
+      "rate": 0.0015748031496062992,
+      "words": 617,
+      "finish": "stop",
+      "tokens": 816
+     },
+     {
+      "rate": 0.006420545746388443,
+      "words": 616,
+      "finish": "stop",
+      "tokens": 770
+     },
+     {
+      "rate": 0.0,
+      "words": 630,
+      "finish": "stop",
+      "tokens": 773
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-context",
+   "score": 1.0,
+   "cases": 55,
+   "passed": 55,
+   "seconds": 802.0975344181061,
+   "notes": [
+    "needles 15/15 to 224k, facts 10/10@28k, 10/10@57k, 10/10@114k, 10/10@225k, slowest prefill 1998 tok/s"
+   ],
+   "details": {
+    "needles": [
+     {
+      "tokens": 7121,
+      "depth": 0.1,
+      "found": true,
+      "seconds": 2.844475797988707,
+      "prefill_tok_s": 2503.448967656947,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 7124,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 2.8419718309887685,
+      "prefill_tok_s": 2506.7102785186453,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 7152,
+      "depth": 0.9,
+      "found": true,
+      "seconds": 2.8460270409996156,
+      "prefill_tok_s": 2512.9768259292396,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 28509,
+      "depth": 0.1,
+      "found": true,
+      "seconds": 11.208269544993527,
+      "prefill_tok_s": 2543.5683791825213,
+      "reply": "74335"
+     },
+     {
+      "tokens": 28513,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 11.16234633498243,
+      "prefill_tok_s": 2554.391267241116,
+      "reply": "74335"
+     },
+     {
+      "tokens": 28538,
+      "depth": 0.9,
+      "found": true,
+      "seconds": 11.203168709995225,
+      "prefill_tok_s": 2547.3150265548543,
+      "reply": "74335"
+     },
+     {
+      "tokens": 56999,
+      "depth": 0.1,
+      "found": true,
+      "seconds": 23.192310011014342,
+      "prefill_tok_s": 2457.668079330192,
+      "reply": "74335"
+     },
+     {
+      "tokens": 57047,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 23.19405972500681,
+      "prefill_tok_s": 2459.5521731150175,
+      "reply": "74335"
+     },
+     {
+      "tokens": 56992,
+      "depth": 0.9,
+      "found": true,
+      "seconds": 23.140830650983844,
+      "prefill_tok_s": 2462.832940596147,
+      "reply": "74335"
+     },
+     {
+      "tokens": 114584,
+      "depth": 0.02,
+      "found": true,
+      "seconds": 50.80719606700586,
+      "prefill_tok_s": 2255.2710810666194,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 114659,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 50.93597462400794,
+      "prefill_tok_s": 2251.041642893334,
+      "reply": "74335"
+     },
+     {
+      "tokens": 114566,
+      "depth": 0.98,
+      "found": true,
+      "seconds": 50.83692411700031,
+      "prefill_tok_s": 2253.5981865529143,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 224738,
+      "depth": 0.02,
+      "found": true,
+      "seconds": 112.48704386799363,
+      "prefill_tok_s": 1997.9012006372545,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 224825,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 112.48467261399492,
+      "prefill_tok_s": 1998.7167564732558,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 224752,
+      "depth": 0.98,
+      "found": true,
+      "seconds": 112.44990668800892,
+      "prefill_tok_s": 1998.6855180197886,
+      "reply": "7-4-3-3-5"
+     }
+    ],
+    "facts": [
+     {
+      "tokens": 28632,
+      "recalled": 10,
+      "of": 10,
+      "seconds": 11.8096239399747,
+      "prefill_tok_s": 2424.463314456848,
+      "reply": "Avery: 563\nBlake: 986\nCasey: 673\nDevin: 977\nEmery: 899\nFinley: 576\nHarper: 562\nJordan: 620\nKendall: 975\nMorgan: 701"
+     },
+     {
+      "tokens": 57099,
+      "recalled": 10,
+      "of": 10,
+      "seconds": 23.702831271017203,
+      "prefill_tok_s": 2408.952725821332,
+      "reply": "Avery: 563\nBlake: 986\nCasey: 673\nDevin: 977\nEmery: 899\nFinley: 576\nHarper: 562\nJordan: 620\nKendall: 975\nMorgan: 701"
+     },
+     {
+      "tokens": 114758,
+      "recalled": 10,
+      "of": 10,
+      "seconds": 51.64293553700554,
+      "prefill_tok_s": 2222.143238115664,
+      "reply": "Avery: 563\nBlake: 986\nCasey: 673\nDevin: 977\nEmery: 899\nFinley: 576\nHarper: 562\nJordan: 620\nKendall: 975\nMorgan: 701"
+     },
+     {
+      "tokens": 225035,
+      "recalled": 10,
+      "of": 10,
+      "seconds": 113.22664785198867,
+      "prefill_tok_s": 1987.4738347298653,
+      "reply": "Avery: 563\nBlake: 986\nCasey: 673\nDevin: 977\nEmery: 899\nFinley: 576\nHarper: 562\nJordan: 620\nKendall: 975\nMorgan: 701"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vision",
+   "score": 0.9166666666666666,
+   "cases": 12,
+   "passed": 11,
+   "seconds": 3.2722930908203125,
+   "notes": [
+    "blank: 'The image is a solid, uniform white square with no'"
+   ],
+   "details": {
+    "probes": [
+     {
+      "name": "red-circle-blue-square",
+      "ok": true,
+      "reply": "There is a red circle and a blue square.",
+      "error": null
+     },
+     {
+      "name": "green-triangle",
+      "ok": true,
+      "reply": "Green triangle",
+      "error": null
+     },
+     {
+      "name": "three-circles",
+      "ok": true,
+      "reply": "3",
+      "error": null
+     },
+     {
+      "name": "two-squares",
+      "ok": true,
+      "reply": "2",
+      "error": null
+     },
+     {
+      "name": "left-right",
+      "ok": true,
+      "reply": "left",
+      "error": null
+     },
+     {
+      "name": "right-left",
+      "ok": true,
+      "reply": "right",
+      "error": null
+     },
+     {
+      "name": "yellow-circle",
+      "ok": true,
+      "reply": "Yellow",
+      "error": null
+     },
+     {
+      "name": "four-triangles",
+      "ok": true,
+      "reply": "4",
+      "error": null
+     },
+     {
+      "name": "blank",
+      "ok": false,
+      "reply": "The image is a solid, uniform white square with no discernible features, text, or objects.",
+      "error": null
+     },
+     {
+      "name": "black-square-top",
+      "ok": true,
+      "reply": "above",
+      "error": null
+     },
+     {
+      "name": "mixed-count",
+      "ok": true,
+      "reply": "2",
+      "error": null
+     },
+     {
+      "name": "colours-list",
+      "ok": true,
+      "reply": "red, green, blue",
+      "error": null
+     }
+    ]
+   }
+  },
+  {
+   "name": "snapshot",
+   "score": 1.0,
+   "cases": 12,
+   "passed": 12,
+   "seconds": 20.723385095596313,
+   "notes": [
+    "replies written to evidence/2026-10-09-native-v1.0.2/suite/replies.json"
+   ],
+   "details": {}
+  }
+ ]
+}

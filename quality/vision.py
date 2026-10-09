@@ -81,8 +81,10 @@ def probes() -> list[dict]:
         "What colour is the circle? One word.", ["yellow"], ["red", "blue", "green"])
     add("four-triangles", lambda p: [triangle(p, 40 + 58 * i, 128, 24, "green") for i in range(4)],
         "How many triangles do you see? Answer with a number.", [r"\b(4|four)\b"], [r"\b(3|three|5|five)\b"])
+    # the canvas is itself a white square: calling the image a (blank, uniform, solid) white square is right; any other
+    # shape, a border, a drawing or a figure is not (torch's bf16 tower reads this image either way from run to run)
     add("blank", lambda p: None, "Describe what is in this image in one sentence.", [r"(blank|empty|white|plain|nothing|solid)"],
-        ["circle", "square", "triangle"])
+        ["circle", "triangle", r"(?<!white )\bsquares?\b", "border", "drawing", "icon", "figure", "outline", "line art"])
     add("black-square-top", lambda p: (square(p, 128, 60, 30, "black"), circle(p, 128, 196, 30, "red")),
         "Is the black square above or below the red circle? Answer above or below.", [r"\babove\b"], [r"\bbelow\b"])
     add("mixed-count", lambda p: (circle(p, 60, 80, 24, "red"), circle(p, 196, 80, 24, "red"), square(p, 128, 180, 28, "blue")),

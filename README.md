@@ -79,6 +79,36 @@ How the speed got here, one user:
 
 The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays.
 
+## On TensorFold 1.0.2 (the native engine)
+
+`ENGINE=native python3 -m spark up` serves the same converted checkpoint on TensorFold's latest release, the Zig
+engine (v1.0.2), with [`docker/patches/tensorfold-native-v1.0.2.patch`](docker/patches/tensorfold-native-v1.0.2.patch):
+a Flash Next family for two CUDA ranks (our port; the release serves Flash Next on Metal only), shared rounds for up to
+16 streams, MTP drafts batched across them, images and video, and `--tool-system`. Same defaults otherwise (1M window,
+YaRN, int8 KV). Receipts: [`evidence/2026-10-09-native-v1.0.2/`](evidence/2026-10-09-native-v1.0.2/).
+
+Greedy tokens equal the Python engine's (the reference reply token for token with the same drafts and acceptances,
+one stream and shared rounds; image prompts with the same tower features likewise). Decode, aggregate tok/s (Python
+engine in brackets, the table above):
+
+| Users | prose | code | structured | list |
+|---:|---:|---:|---:|---:|
+| 1 | 68.7 (68.7) | 105.2 (109.0) | 86.2 (89.0) | 107.5 (109.9) |
+| 4 | 144.0 (147.4) | 221.2 (230.0) | 180.6 (197.3) | 249.7 (279.9) |
+| 8 | 194.2 (214.1) | 331.0 (366.0) | 238.9 (273.2) | 354.4 (403.7) |
+| 16 | 259.7 (299.5) | 412.2 (475.2) | 311.2 (372.0) | 428.8 (542.0) |
+
+Quality suite, same datasets: drafts 12/12, concurrent 12/12, behaviour all pass, tools 60/60, JSON 30/30, IFEval
+130/125, GSM8K 241, MGSM 219, MMLU 283, HumanEval 157, repetition 8/8, long context 55/55 (slowest prefill 1,998
+tok/s at 225k), vision 12/12 -- each equal to the Python engine's. (The blank probe's rule now accepts a reply that
+calls the canvas a white square, which it is; it still fails any other shape, a border or a drawing. Torch's own bf16
+tower reads that image either way from run to run:
+[`vision/README.md`](evidence/2026-10-09-native-v1.0.2/vision/README.md).)
+
+Not yet on the native engine: sampling (it draws greedily; requests without a temperature get greedy), grammars
+(`response_format`), logprobs, prompt caching. `TENSORFOLD_VISION_FP32=1` runs the vision tower in fp32 (within 0.02%
+of torch's fp32 tower, about 2.5x its time).
+
 ## Where a prompt pass goes
 
 A 28k and a 114k prompt with the stage timer (`TENSORFOLD_STAGE_TIMES`, `evidence/2026-10-08-shipped-image/`), shares of
@@ -164,6 +194,7 @@ environment variable of the same name in upper case (`PORT=8001 python3 -m spark
 
 | Setting | Default | Notes |
 |---|---|---|
+| `engine` | `python` | `native`: TensorFold v1.0.2 (the Zig engine) with this recipe's patch; see the section above |
 | `profile` | `concurrent` | `concurrent`: sixteen streams (`parallel=16`); `serial`: one stream on CUDA graphs |
 | `yarn` | true | static YaRN x4 over the trained 262,144 (a profile folder's `config.json`; the weights untouched). Every prompt sees the scaled rotary, short ones too (Qwen's card notes a possible cost on short texts); `yarn = false` keeps the plain rotary |
 | `context` | 1048576 | up to 1,048,576 with `yarn`, up to 262,144 without |

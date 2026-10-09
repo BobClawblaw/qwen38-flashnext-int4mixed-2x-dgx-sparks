@@ -110,3 +110,15 @@ suite (`quality/`) and the ruler (`bench/`), receipts under `evidence/`.
 
 To change the patch: edit a clean TensorFold checkout at the pinned commit, run the tests, `git diff HEAD` to a new
 file, pin its sha256 in `recipe.toml`, rebuild the image, rerun the suite. Never edit a patch file in place.
+
+## The native engine's patch (`tensorfold-native-v1.0.2.patch`)
+
+`engine = "native"` builds TensorFold v1.0.2 (`f8fe17d`) with this patch, docker/Dockerfile.native: the diff of this
+project's port (branch `flashnext-zig-port` of github.com/BobClawblaw/TensorFold) against the release. It adds
+`zig/src/families/flashnext_cuda/` (the weight loader for the converted checkpoint, the forward, shared rounds,
+batched drafts, growing caches, the vision tower), the extension kernels it launches (`zig/kernels/cuda/flashnext/`,
+device copies of this recipe's Python extensions plus the sampling and vision kernels), image and video inputs in the
+native server (`zig/src/vision/`, `zig/src/server/vision_inputs.zig`; stb_image vendored under `zig/vendor/stb`,
+public domain/MIT), and the two-rank link. The Triton kernels it launches are captured from the Python engine and
+shipped beside it (`docker/kernels/sm121`). Pinned by sha256 in `recipe.toml` (`native_patch_sha256`).
+

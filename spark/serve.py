@@ -90,7 +90,7 @@ def wait_ready(s: Settings, head: Node, worker: Node | None, limit: int = 3600) 
     n = 0
     while time.time() - t0 < limit:
         h = health(s)
-        if h and h.get("ok"):
+        if h and (h.get("ok") or h.get("status") == "ok"):   # the Python server says ok: true, the native status: ok
             try:
                 with urllib.request.urlopen(f"http://127.0.0.1:{s.port}/v1/models", timeout=3) as r:
                     body = r.read().decode()
@@ -159,8 +159,10 @@ def up(s: Settings, *, src_mount: dict[str, Path] | None = None, download: bool 
         except RuntimeError as exc:
             # GB10: the worker's first NCCL memory registration can fail with ENOMEM (ibv_reg_mr) for a while
             # after a rank freed its memory or a large image load; a pause and a compaction clear it.
+            time.sleep(3)   # rank 0 can exit before the worker has logged its refusal
             text = str(exc) + (docker.logs(worker, s.container, 2000) if worker is not None else "")
-            if "ibv_reg_mr" not in text or attempt == ATTEMPTS:
+            # the native engine names the collective that failed: its warm-up gather, right after the communicator
+            if not ("ibv_reg_mr" in text or "warm gather" in text) or attempt == ATTEMPTS:
                 raise
             log(f"NCCL could not register memory on the worker (attempt {attempt} of {ATTEMPTS}); retrying in {RETRY_WAIT}s")
             docker.stop(head, s.container)
@@ -193,7 +195,12 @@ def status(s: Settings) -> str:
     if worker is not None:
         lines.append(f"worker: {s.container} {docker.state(worker, s.container) if worker.reachable() else 'unreachable'}")
     h = health(s)
-    if h:
+    if h and "live" in h:       # the native server: its own fields
+        lv = h["live"]
+        lines.append(f"api:    ok (native), {h.get('max_batch_size')} stream, {lv.get('connections')} connected / "
+                     f"{lv.get('waiting')} waiting, decode {lv.get('decode_tokens_per_second'):.1f} tok/s, "
+                     f"prefill {lv.get('prefill_tokens_per_second'):.0f} tok/s, peak {h['memory']['peak'] / 2**30:.1f} GiB")
+    elif h:
         st = h.get("streams", {})
         lines.append(f"api:    ok, context {h.get('context_length')}, streams {st.get('decoding')} decoding / "
                      f"{st.get('prefilling')} prefilling of {st.get('max')}, {h.get('requests_total')} requests served")

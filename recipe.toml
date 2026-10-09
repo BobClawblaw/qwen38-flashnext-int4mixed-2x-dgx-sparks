@@ -21,6 +21,13 @@ patch_sha256 = "44e82a02ff65ad8ecdab5e094182d7220996f03dfa75ba06af01f2759b2ffb05
 image = "tf-qwen38-int4mixed:py0.6-ed78d6f"
 base_image = "nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c"
 container = "tf-qwen38-int4mixed"
+# engine = "native": TensorFold's latest release (the Zig engine) with this recipe's patch, docker/Dockerfile.native.
+# Up to 16 streams, images and video, greedy; "python" also serves sampling, grammars and logprobs.
+engine = "python"
+native_tensorfold_sha = "f8fe17d24629aedabf90bbf78279dd776e6d62e7"     # v1.0.2
+native_patch = "tensorfold-native-v1.0.2.patch"
+native_patch_sha256 = "4f15fe17f68f55f7adbdb5bbb15aa0ea4de34bb2bcafa40ba04fab3fcce7355a"
+native_image = "tf-qwen38-int4mixed:native-v1.0.2"
 
 [cluster]
 head_ip = "10.100.8.1"           # the head's address on the RoCE link (rank 1 rendezvous)

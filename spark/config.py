@@ -50,6 +50,11 @@ class Settings:
     image: str
     base_image: str
     container: str
+    engine: str                      # python (the Python line, every feature) | native (the Zig release engine)
+    native_tensorfold_sha: str       # the release the native engine builds from
+    native_patch: str
+    native_patch_sha256: str
+    native_image: str
     # [cluster]
     head_ip: str
     worker: str
@@ -131,6 +136,45 @@ class Settings:
     def extra_env_pairs(self) -> list[str]:
         return [kv for kv in self.extra_env.split() if kv]
 
+    # ----- the engine in use: the Python line's image or the native one ----------------------------------------
+    @property
+    def native(self) -> bool:
+        return self.engine == "native"
+
+    @property
+    def run_image(self) -> str:
+        return self.native_image if self.native else self.image
+
+    @property
+    def run_sha(self) -> str:
+        return self.native_tensorfold_sha if self.native else self.tensorfold_sha
+
+    @property
+    def run_patch(self) -> str:
+        return self.native_patch if self.native else self.patch
+
+    @property
+    def run_patch_sha256(self) -> str:
+        return self.native_patch_sha256 if self.native else self.patch_sha256
+
+    def native_args(self, rank: int) -> list[str]:
+        """``tensorfold-native serve <model>`` arguments: the flags the native server reads (it refuses the rest)."""
+        args = ["--context", str(self.context), "--no-update-check", "--tp", "2", "--rank", str(rank),
+                "--master", self.head_ip, "--master-port", str(self.master_port)]
+        if self.mtp_drafts == 0:
+            args.append("--no-drafts")
+        if rank == 0:
+            args += ["--name", self.served_name, "--host", "0.0.0.0", "--port", str(self.port),
+                     "--max-tokens", str(self.max_tokens), "--thinking" if self.thinking else "--no-thinking",
+                     "--parallel", str(self.parallel),
+                     # the native engine draws greedily only: requests that leave sampling out get greedy, not a refusal
+                     "--temperature", "0"]
+            if self.tool_system:
+                args += ["--tool-system", self.tool_system]
+        if self.vision:
+            args.append("--vision")                 # both ranks: the tower on rank 0, rank 1 receives the features
+        return args + self.extra_args.split()
+
     # ----- the engine's command line ------------------------------------------------------------------------
     def serve_args(self, rank: int) -> list[str]:
         """``tensorfold serve <model>`` arguments for one rank; both ranks share every engine setting."""
@@ -170,7 +214,8 @@ class Settings:
     def summary(self) -> str:
         return (f"profile={self.profile} tp={self.tp} ctx={self.context} yarn={int(self.yarn)} kv={self.kv_dtype} "
                 f"mtp={self.mtp_drafts}@{self.mtp_confidence} parallel={self.parallel} vision={int(self.vision)} "
-                f"image={self.image} patch={self.patch} model={self.repo}@{self.revision[:8]} port={self.port}")
+                f"engine={self.engine} image={self.run_image} patch={self.run_patch} model={self.repo}@{self.revision[:8]} "
+                f"port={self.port}")
 
 
 # ----- loading ---------------------------------------------------------------------------------------------------
@@ -279,6 +324,19 @@ def validate(s: Settings) -> None:
                           f"to {s.long_context}")
     if s.context % 256:
         raise ConfigError(f"context={s.context} must be a multiple of 256")
+    if s.engine not in ("python", "native"):
+        raise ConfigError(f"engine={s.engine} must be python or native")
+    if s.native:
+        if s.tp != 2 or not 1 <= s.parallel <= 16:
+            raise ConfigError("engine=native serves two ranks and up to 16 streams: tp=2, parallel=1..16")
+        if not re.fullmatch(r"[0-9a-f]{40}", s.native_tensorfold_sha):
+            raise ConfigError(f"native_tensorfold_sha={s.native_tensorfold_sha} is not a 40-hex commit")
+        npath = ROOT / "docker" / "patches" / s.native_patch
+        if not npath.is_file():
+            raise ConfigError(f"docker/patches/{s.native_patch} is missing")
+        nhave = hashlib.sha256(npath.read_bytes()).hexdigest()
+        if nhave != s.native_patch_sha256:
+            raise ConfigError(f"docker/patches/{s.native_patch} has sha256 {nhave}, not the pinned {s.native_patch_sha256}")
     if not re.fullmatch(r"[A-Za-z0-9._-]+\.patch", s.patch):
         raise ConfigError(f"patch={s.patch} must be a file name under docker/patches/")
     if not s.patch_path.is_file():

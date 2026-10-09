@@ -1,0 +1,48 @@
+# The native engine: TensorFold's latest release (the Zig engine, TF_SHA) with this recipe's patch, built with the
+# PyTorch image's nvcc (the kernels' SASS then equals the Python extensions'), on that image's runtime (NCCL, CUDA).
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE} AS build
+ARG TF_REPO=https://github.com/ashhart/TensorFold.git
+ARG TF_SHA
+ARG TF_PATCH
+ARG ZIG_URL=https://ziglang.org/download/0.17.0/zig-aarch64-linux-0.17.0.tar.xz
+ARG ZIG_SHA256=9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
+# video inputs: libtfvideo (in the patch) against FFmpeg 9.0.2's headers and PyAV 19.0.1's own FFmpeg libraries (the
+# ones the Python engine decodes with, so the frames are the same)
+ARG FFMPEG_URL=https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+ARG PYAV=av==19.0.1
+COPY patches/${TF_PATCH} /opt/patches/${TF_PATCH}
+RUN set -eu \
+ && curl -fsSL "${ZIG_URL}" -o /tmp/zig.tar.xz \
+ && echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum -c - \
+ && mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 && rm /tmp/zig.tar.xz \
+ && git clone --quiet --filter=blob:none "${TF_REPO}" /opt/tensorfold-src \
+ && git -C /opt/tensorfold-src checkout --quiet "${TF_SHA}" \
+ && git -C /opt/tensorfold-src apply --index "/opt/patches/${TF_PATCH}" \
+ && cd /opt/tensorfold-src \
+ && /opt/zig/zig build native -Doptimize=ReleaseFast -Dnvcc=/usr/local/cuda/bin/nvcc -Dsm=121 -Dflashnext=true \
+      --prefix /opt/tensorfold -j8 \
+ && pip install --no-cache-dir --no-deps "${PYAV}" \
+ && L=$(python3 -c "import av, pathlib; print(pathlib.Path(av.__file__).parent.parent / 'av.libs')") \
+ && mkdir -p /opt/tensorfold/native/lib/av.libs && cp "$L"/* /opt/tensorfold/native/lib/av.libs/ \
+ && curl -fsSL "${FFMPEG_URL}" -o /tmp/ffmpeg.tar.xz \
+ && echo "${FFMPEG_SHA256}  /tmp/ffmpeg.tar.xz" | sha256sum -c - \
+ && mkdir -p /tmp/ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1 --wildcards '*/libav*/*.h' '*/libswscale/*.h' \
+ && printf '#ifndef AVUTIL_AVCONFIG_H\n#define AVUTIL_AVCONFIG_H\n#define AV_HAVE_BIGENDIAN 0\n#define AV_HAVE_FAST_UNALIGNED 1\n#endif\n' > /tmp/ffmpeg/libavutil/avconfig.h \
+ && A=/opt/tensorfold/native/lib/av.libs \
+ && /opt/zig/zig cc -shared -O2 -fPIC zig/src/vision/tf_video.c -o /opt/tensorfold/native/lib/libtfvideo.so -I/tmp/ffmpeg \
+      $(ls $A/libavformat-*.so* $A/libavcodec-*.so* $A/libswscale-*.so* $A/libavutil-*.so*) -Wl,-rpath,'$ORIGIN/av.libs' -lm \
+ && rm -rf /tmp/ffmpeg /tmp/ffmpeg.tar.xz
+
+FROM ${BASE_IMAGE}
+ARG TF_SHA
+ARG TF_PATCH_SHA
+LABEL tensorfold.sha="${TF_SHA}" tensorfold.patch_sha="${TF_PATCH_SHA}" tensorfold.engine="native"
+COPY --from=build /opt/tensorfold /opt/tensorfold
+# the Triton kernels Flash Next launches, captured from the Python engine and packed (aot.json + cubins)
+COPY kernels/sm121 /opt/tensorfold/share/tensorfold/cuda/sm121
+ENV TENSORFOLD_CUDA_KERNELS=/opt/tensorfold/share/tensorfold/cuda/sm121
+# libtfvideo, loaded when a request carries a video
+ENV LD_LIBRARY_PATH=/opt/tensorfold/native/lib:${LD_LIBRARY_PATH}
+ENTRYPOINT ["/opt/tensorfold/native/bin/tensorfold-native"]

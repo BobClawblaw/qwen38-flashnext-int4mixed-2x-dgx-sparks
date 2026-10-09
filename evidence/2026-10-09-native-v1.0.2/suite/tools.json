@@ -1,0 +1,11 @@
+{
+ "name": "tools",
+ "score": 1.0,
+ "cases": 60,
+ "passed": 60,
+ "seconds": 45.01172399520874,
+ "notes": [
+  "all exact"
+ ],
+ "details": {}
+}
