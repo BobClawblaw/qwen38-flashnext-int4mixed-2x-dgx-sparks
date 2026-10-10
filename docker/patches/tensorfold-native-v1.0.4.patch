@@ -3352,7 +3352,7 @@ index 3619e9a..783648a 100644
              .think_end = spec.think_end,
              .think_open = spec.think_open orelse (spec.think_budget > 0 or (spec.loop_guard and spec.think_end >= 0)),
 diff --git a/zig/src/cuda/abi.zig b/zig/src/cuda/abi.zig
-index 97e048c..1f13562 100644
+index 97e048c..3a2a185 100644
 --- a/zig/src/cuda/abi.zig
 +++ b/zig/src/cuda/abi.zig
 @@ -3,6 +3,23 @@
@@ -3395,10 +3395,15 @@ index 97e048c..1f13562 100644
      cuStreamCreate: *const fn (*Stream, c_uint) callconv(.c) R,
      cuStreamDestroy_v2: *const fn (Stream) callconv(.c) R,
      cuStreamSynchronize: *const fn (Stream) callconv(.c) R,
-@@ -205,6 +231,9 @@ pub const Api = struct {
+@@ -205,6 +231,14 @@ pub const Api = struct {
      cuGraphExecDestroy: *const fn (GraphExec) callconv(.c) R,
      cuGraphExecUpdate_v2: *const fn (GraphExec, Graph, *ExecUpdateResultInfo) callconv(.c) R,
      cuGraphExecKernelNodeSetParams_v2: *const fn (GraphExec, GraphNode, *const KernelNodeParams) callconv(.c) R,
++    cuGraphNodeGetType: *const fn (GraphNode, *c_int) callconv(.c) R,
++    cuGraphMemcpyNodeGetParams: *const fn (GraphNode, *anyopaque) callconv(.c) R,
++    cuGraphMemsetNodeGetParams: *const fn (GraphNode, *anyopaque) callconv(.c) R,
++    cuFuncGetParamInfo: *const fn (Function, usize, *usize, *usize) callconv(.c) R,
++    cuKernelGetParamInfo: *const fn (Kernel, usize, *usize, *usize) callconv(.c) R,
 +    cuModuleGetFunctionCount: *const fn (*c_uint, Module) callconv(.c) R,
 +    cuModuleEnumerateFunctions: *const fn ([*]Function, c_uint, Module) callconv(.c) R,
 +    cuFuncGetName: *const fn (*?[*:0]const u8, Function) callconv(.c) R,
@@ -3433,6 +3438,49 @@ index cc733b8..cdf3419 100644
          errdefer _ = lt.api.cublasLtMatrixLayoutDestroy(self.b);
          try lt.check(lt.api.cublasLtMatrixLayoutCreate(&self.c, out, n, m, @intCast(n)), "layout D");
          errdefer _ = lt.api.cublasLtMatrixLayoutDestroy(self.c);
+diff --git a/zig/src/cuda/graph.zig b/zig/src/cuda/graph.zig
+index a5ad3e1..a30bf60 100644
+--- a/zig/src/cuda/graph.zig
++++ b/zig/src/cuda/graph.zig
+@@ -93,6 +93,26 @@ pub const Graph = struct {
+         return out[0..@min(n, out.len)];
+     }
+ 
++    /// The node's kind: kernel 0, memcpy 1, memset 2, host 3, child graph 4, empty 5, event wait 6, event record 7, ...
++    pub fn nodeType(self: Graph, node: Node) Error!c_int {
++        var t: c_int = -1;
++        try self.d.check(self.d.api.cuGraphNodeGetType(node, &t), "cuGraphNodeGetType");
++        return t;
++    }
++
++    /// A copy or memset node's parameter block (CUDA_MEMCPY3D or CUDA_MEMSET_NODE_PARAMS) into ``out``.
++    pub fn copyParams(self: Graph, node: Node, kind: c_int, out: *[256]u64) Error!void {
++        out.* = @splat(0);
++        if (kind == 1) try self.d.check(self.d.api.cuGraphMemcpyNodeGetParams(node, out), "cuGraphMemcpyNodeGetParams") else try self.d.check(self.d.api.cuGraphMemsetNodeGetParams(node, out), "cuGraphMemsetNodeGetParams");
++    }
++
++    /// A kernel node's launch, its argument pointers owned by the graph.
++    pub fn kernelParams(self: Graph, node: Node) Error!abi.KernelNodeParams {
++        var p: abi.KernelNodeParams = undefined;
++        try self.d.check(self.d.api.cuGraphKernelNodeGetParams_v2(node, &p), "cuGraphKernelNodeGetParams");
++        return p;
++    }
++
+     pub fn instantiate(self: Graph) Error!Exec {
+         var e: abi.GraphExec = null;
+         try self.d.check(self.d.api.cuGraphInstantiateWithFlags(&e, self.handle, 0), "cuGraphInstantiateWithFlags");
+@@ -124,6 +144,11 @@ pub const Exec = struct {
+         try self.d.check(self.d.api.cuGraphExecKernelNodeSetParams_v2(self.handle, node, &p), "cuGraphExecKernelNodeSetParams");
+     }
+ 
++    /// One kernel node's launch as raw driver parameters (its argument values where ``p.params`` points).
++    pub fn setKernelRaw(self: Exec, node: Node, p: *const abi.KernelNodeParams) Error!void {
++        try self.d.check(self.d.api.cuGraphExecKernelNodeSetParams_v2(self.handle, node, p), "cuGraphExecKernelNodeSetParams");
++    }
++
+     /// Takes every node's parameters from `g`, which must have the same topology; returns the driver's verdict.
+     pub fn update(self: Exec, g: Graph) Error!abi.ExecUpdateResult {
+         var info: abi.ExecUpdateResultInfo = .{ .result = .success, .error_node = null, .error_from_node = null };
 diff --git a/zig/src/cuda/kernels.zig b/zig/src/cuda/kernels.zig
 index a0aeb87..ea33fd9 100644
 --- a/zig/src/cuda/kernels.zig
@@ -83578,10 +83626,10 @@ index 0000000..8856c36
 +}
 diff --git a/zig/src/families/flashnext_cuda/forward.zig b/zig/src/families/flashnext_cuda/forward.zig
 new file mode 100644
-index 0000000..dbca1b4
+index 0000000..6a1e78d
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/forward.zig
-@@ -0,0 +1,1882 @@
+@@ -0,0 +1,1931 @@
 +//! Flash Next (qwen4_exp) on CUDA, one rank of two: the forward the Python engine runs for our recipe (int8 dense
 +//! linears, affine 4-bit routed experts, the int8 shared expert, a 4-bit MTP draft head), as code. Each launch takes
 +//! the grid, constexprs and arguments the Python engine gives it (kern.zig), so every row equals Python's bit for bit.
@@ -83597,6 +83645,7 @@ index 0000000..dbca1b4
 +const ngram_mod = @import("ngram.zig");
 +const grow_mod = @import("grow.zig");
 +const draw_mod = @import("draw.zig");
++const plan = @import("plan.zig");
 +const lanes = @import("lanes");
 +pub const devstore = @import("devstore.zig");
 +pub const api_ = api;
@@ -84064,7 +84113,14 @@ index 0000000..dbca1b4
 +    gpu_ms: f64 = 0, // GPU time of verify windows (events around the step), when ``timing``
 +    timing: bool = false,
 +    split: [3]f64 = .{ 0, 0, 0 }, // staging: ids upload, n-gram ids, table rows
-+    graphs: std.AutoHashMap(GKey, cuda.graph.Exec) = undefined,
++    graphs: std.AutoHashMap(GKey, plan.Plan) = undefined,
++    /// Captured steps end a graph at each cross-rank gather, which runs eager between the segments (TENSORFOLD_FN_SPLIT_GRAPHS).
++    split_gathers: bool = false,
++    rec: ?*plan.Recorder = null, // the capture in progress, which takes the gathers its step issues
++    /// A captured step serves every sequence, its pointers moved to the one it runs (TENSORFOLD_FN_SHARE_GRAPHS=0: not).
++    share_graphs: bool = true,
++    graph_cap: usize = 96, // the graphs kept at most; the least recently launched go first
++    use_tick: u64 = 0,
 +    graph_log: bool = false, // TENSORFOLD_FN_GRAPHLOG: live graphs, captures and launch time logged a request
 +    captures: u64 = 0,
 +    capture_ms: f64 = 0,
@@ -84106,15 +84162,34 @@ index 0000000..dbca1b4
 +    }
 +}
 +
-+fn keyOf(e: *Engine, kind: u8, s: *Seq, R: i64) GKey {
++/// ``seq`` 0 keys a plan every sequence shares; a sequence's address keys one only it runs.
++fn keyOf(e: *Engine, kind: u8, s: *Seq, R: i64, seq: usize) GKey {
 +    const keys = (if (kind == 0) s.pos else s.mtp_len) + R;
-+    return .{ .kind = kind, .rows = R, .par = if (kind == 0) s.cur[0] else 0, .sig = geometry(keys, e.buf.nb), .seq = @intFromPtr(s) };
++    return .{ .kind = kind, .rows = R, .par = if (kind == 0) s.cur[0] else 0, .sig = geometry(keys, e.buf.nb), .seq = seq };
++}
++
++fn basesOf(s: *const Seq) plan.Bases {
++    return .{ .mem = s.mem.ptr, .mem_len = s.mem.len, .grow = s.grow.base, .grow_len = s.grow.size };
++}
++
++/// The least recently launched plans freed until fewer than ``graph_cap`` remain.
++fn trimGraphs(e: *Engine) void {
++    while (e.graphs.count() >= e.graph_cap) {
++        var it = e.graphs.iterator();
++        var oldest: ?GKey = null;
++        var at: u64 = std.math.maxInt(u64);
++        while (it.next()) |en| if (en.value_ptr.last < at) {
++            at = en.value_ptr.last;
++            oldest = en.key_ptr.*;
++        };
++        var p = e.graphs.fetchRemove(oldest orelse return).?.value;
++        p.deinit(e.gpa);
++    }
 +}
 +
 +/// ``body`` captured into this key's graph (a new geometry replaces the width's older graph: the context only grows).
 +fn capture(e: *Engine, kind: u8, s: *Seq, R: i64) !void {
-+    const key = keyOf(e, kind, s, R);
-+    if (e.graphs.contains(key)) return;
++    const key = keyOf(e, kind, s, R, @intFromPtr(s));
 +    var it = e.graphs.iterator();
 +    var stale: ?GKey = null;
 +    while (it.next()) |en| {
@@ -84123,38 +84198,46 @@ index 0000000..dbca1b4
 +    }
 +    if (stale) |o| {
 +        var ex = e.graphs.fetchRemove(o).?.value;
-+        ex.deinit();
++        ex.deinit(e.gpa);
 +    }
 +    const t0 = std.Io.Timestamp.now(e.io, .awake);
 +    defer {
 +        e.captures += 1;
 +        e.capture_ms += @as(f64, @floatFromInt(t0.durationTo(std.Io.Timestamp.now(e.io, .awake)).toNanoseconds())) / 1e6;
 +    }
-+    try cuda.graph.beginCapture(e.k.stream, .thread_local);
++    trimGraphs(e);
++    var rec: plan.Recorder = .{ .gpa = e.gpa, .stream = e.k.stream, .split = e.split_gathers, .seq = if (e.share_graphs) basesOf(s) else .{} };
++    try rec.begin();
++    if (e.split_gathers) e.rec = &rec;
++    defer e.rec = null;
 +    body(e, kind, s, R) catch |err| {
-+        if (cuda.graph.endCapture(e.k.stream)) |g| {
-+            var gg = g;
-+            gg.deinit();
-+        } else |_| {}
++        rec.abandon();
 +        return err;
 +    };
-+    var g = try cuda.graph.endCapture(e.k.stream);
-+    defer g.deinit();
-+    const ex = try g.instantiate();
-+    try ex.upload(e.k.stream);
-+    try e.graphs.put(key, ex);
++    var p = rec.finish() catch |err| {
++        rec.abandon();
++        return err;
++    };
++    errdefer p.deinit(e.gpa);
++    try e.graphs.put(if (p.shareable) keyOf(e, kind, s, R, 0) else key, p);
 +}
 +
 +/// ``body`` from its graph (captured the first time this width, parity and geometry run).
 +fn step(e: *Engine, kind: u8, s: *Seq, R: i64) !void {
 +    if (!e.use_graphs or e.k.sync_each or s.img != null or (kind == 0 and s.sampling != null)) return body(e, kind, s, R); // image and sampled sequences: eager
-+    try capture(e, kind, s, R);
++    const shared = keyOf(e, kind, s, R, 0);
++    const own = keyOf(e, kind, s, R, @intFromPtr(s));
++    if (!e.graphs.contains(shared) and !e.graphs.contains(own)) try capture(e, kind, s, R);
 +    const t0 = std.Io.Timestamp.now(e.io, .awake);
 +    defer {
 +        e.launches += 1;
 +        e.launch_ms += @as(f64, @floatFromInt(t0.durationTo(std.Io.Timestamp.now(e.io, .awake)).toNanoseconds())) / 1e6;
 +    }
-+    return e.graphs.get(keyOf(e, kind, s, R)).?.launchOn(e.k.stream);
++    const p = e.graphs.getPtr(shared) orelse e.graphs.getPtr(own).?;
++    if (p.shareable) try p.bind(basesOf(s));
++    e.use_tick += 1;
++    p.last = e.use_tick;
++    return p.launch(e.ctx.nccl, e.ctx.comm, e.k.stream);
 +}
 +
 +/// TENSORFOLD_FN_GRAPHLOG: the graphs held, and the captures and launches since the last call (one line a request).
@@ -84163,10 +84246,13 @@ index 0000000..dbca1b4
 +    var seqs: std.AutoHashMap(usize, void) = .init(e.gpa);
 +    defer seqs.deinit();
 +    var it = e.graphs.keyIterator();
-+    while (it.next()) |k| seqs.put(k.seq, {}) catch {};
++    var shared: usize = 0;
++    while (it.next()) |k| if (k.seq == 0) {
++        shared += 1;
++    } else seqs.put(k.seq, {}) catch {};
 +    const per = if (e.launches > 0) e.launch_ms / @as(f64, @floatFromInt(e.launches)) else 0;
-+    std.log.info("flash next graphs: {d} held over {d} sequences; {d} captures ({d:.1} ms), {d} launches ({d:.3} ms each)", .{
-+        e.graphs.count(), seqs.count(), e.captures, e.capture_ms, e.launches, per });
++    std.log.info("flash next graphs: {d} held, {d} shared and the rest over {d} sequences; {d} captures ({d:.1} ms), {d} launches ({d:.3} ms each)", .{
++        e.graphs.count(), shared, seqs.count(), e.captures, e.capture_ms, e.launches, per });
 +    e.captures = 0;
 +    e.capture_ms = 0;
 +    e.launches = 0;
@@ -84244,6 +84330,11 @@ index 0000000..dbca1b4
 +    e.split = .{ 0, 0, 0 };
 +    e.timing = false; // the engine is built field by field: a default left out is whatever the allocator held
 +    e.gpu_ms = 0;
++    e.split_gathers = false;
++    e.rec = null;
++    e.share_graphs = if (std.c.getenv("TENSORFOLD_FN_SHARE_GRAPHS")) |v| !std.mem.eql(u8, std.mem.span(v), "0") else true;
++    e.graph_cap = 96;
++    e.use_tick = 0;
 +    e.graphs = .init(gpa);
 +    e.graph_log = std.c.getenv("TENSORFOLD_FN_GRAPHLOG") != null;
 +    e.captures = 0;
@@ -84374,7 +84465,7 @@ index 0000000..dbca1b4
 +    while (it.next()) |en| if (en.key_ptr.seq == @intFromPtr(s)) gone.append(e.gpa, en.key_ptr.*) catch {};
 +    for (gone.items) |key| {
 +        var ex = e.graphs.fetchRemove(key).?.value;
-+        ex.deinit();
++        ex.deinit(e.gpa);
 +    }
 +}
 +
@@ -84396,8 +84487,14 @@ index 0000000..dbca1b4
 +// -- the forward ----------------------------------------------------------------------------------------------------
 +const Pending = struct { g: u64, inj: u64 };
 +
++/// Both ranks' ``count`` values from ``send`` into ``recv`` in rank order; inside a split capture, between its graphs.
++fn gather(e: *Engine, send: u64, recv: u64, count: usize, dt: cuda.nccl.DataType) !void {
++    if (e.rec) |r| return r.gather(.{ .send = send, .recv = recv, .count = count, .dt = dt });
++    try e.ctx.nccl.check(e.ctx.nccl.api.ncclAllGather(send, recv, count, dt, e.ctx.comm, e.k.stream.handle), "ncclAllGather");
++}
++
 +fn allGather(e: *Engine, send: u64, recv: u64, count: usize) !void {
-+    try e.ctx.nccl.check(e.ctx.nccl.api.ncclAllGather(send, recv, count, .f32, e.ctx.comm, e.k.stream.handle), "ncclAllGather");
++    try gather(e, send, recv, count, .f32);
 +}
 +
 +/// forward._readout_b16: norm (unless done), down with SiLU and inject gates, up and the mix -> mixed [R, D].
@@ -84621,7 +84718,7 @@ index 0000000..dbca1b4
 +/// Each row's greedy token across both ranks' shards: our candidate kernel and an all-gather (rows <= 16).
 +fn candidates(e: *Engine, b: *Buffers, logits: u64, cols: i64, id_map: u64, offset: i64, rows: i64) !void {
 +    try kern.rowsTop(&e.k, logits, cols, id_map, offset, b.cand, rows);
-+    try e.ctx.nccl.check(e.ctx.nccl.api.ncclAllGather(b.cand, b.gath, @intCast(4 * rows), .i32, e.ctx.comm, e.k.stream.handle), "candidates");
++    try gather(e, b.cand, b.gath, @intCast(4 * rows), .i32);
 +}
 +
 +const Pick = struct { tok: i64, p: f64 };
@@ -84845,7 +84942,7 @@ index 0000000..dbca1b4
 +    if (segs.len == 1) try candidates(e, b, b.logits, e.dh.n, e.draft_ids.ptr, 0, 1) else {
 +        const rows: i64 = @intCast(segs.len);
 +        try kern.rowsTopStrided(k, b.logits, e.dh.n, headStride(e), e.draft_ids.ptr, 0, b.cand, rows);
-+        try e.ctx.nccl.check(e.ctx.nccl.api.ncclAllGather(b.cand, b.gath, @intCast(4 * rows), .i32, e.ctx.comm, k.stream.handle), "candidates");
++        try gather(e, b.cand, b.gath, @intCast(4 * rows), .i32);
 +    }
 +}
 +
@@ -86334,10 +86431,10 @@ index 0000000..1e725e6
 +}
 diff --git a/zig/src/families/flashnext_cuda/native.zig b/zig/src/families/flashnext_cuda/native.zig
 new file mode 100644
-index 0000000..a8cd7e3
+index 0000000..2f0a033
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/native.zig
-@@ -0,0 +1,1458 @@
+@@ -0,0 +1,1459 @@
 +//! Flash Next (qwen4_exp) on two GB10s behind the native family interface: rank 0's lane core drives the engine
 +//! through a lane backend that first sends each call to rank 1, which replays it on its own half of the model
 +//! (``follow``). Every token is drawn inside the forward from both ranks' vocabulary shards (an NCCL exchange), so
@@ -86860,6 +86957,7 @@ index 0000000..a8cd7e3
 +    own.store = try weights.load(gpa, io, &own.ctx, &own.kernels, dir, o.rank);
 +    errdefer own.store.deinit();
 +    own.e = try forward.init(gpa, io, &own.ctx, &own.kernels, &own.store, .{ .context = o.context, .max_rows = batch_rows, .depth = if (o.drafts) max_depth else 0, .kv_bits = o.kv_bits });
++    own.e.split_gathers = if (std.c.getenv("TENSORFOLD_FN_SPLIT_GRAPHS")) |v| !std.mem.eql(u8, std.mem.span(v), "0") else true;
 +    errdefer forward.deinit(own.e);
 +    try forward.prefetchTables(own.e); // the n-gram tables paged in (and locked) before the first request
 +    { // the sequences' caches grow within what is free now, less the server's reserve and a margin (a GB10 shares
@@ -87985,6 +88083,257 @@ index 0000000..97bbd94
 +            while (i + 1 < self.len) : (i += 1) self.h[i] = self.h[i + 1];
 +            if (self.len > 0) self.h[self.len - 1] = t;
 +        }
++    }
++};
+diff --git a/zig/src/families/flashnext_cuda/plan.zig b/zig/src/families/flashnext_cuda/plan.zig
+new file mode 100644
+index 0000000..fdc589e
+--- /dev/null
++++ b/zig/src/families/flashnext_cuda/plan.zig
+@@ -0,0 +1,245 @@
++//! A captured step as CUDA graph segments split at its cross-rank gathers, which run eager between them: a gather
++//! between the nodes inside a graph costs several times one launched on the stream. The same work in the same order.
++//! A plan captured for one sequence serves any other: every sequence lays out its memory alike, so the kernel
++//! arguments that point into the capturing sequence's ranges are found at capture and moved by the base difference.
++const std = @import("std");
++const cuda = @import("cuda");
++const abi = cuda.abi;
++
++pub const Gather = struct { send: u64, recv: u64, count: usize, dt: cuda.nccl.DataType };
++
++/// A sequence's two address ranges: its own allocation and its growing caches' reserved range.
++pub const Bases = struct {
++    mem: u64 = 0,
++    mem_len: u64 = 0,
++    grow: u64 = 0,
++    grow_len: u64 = 0,
++
++    fn region(b: Bases, v: u64) ?u1 {
++        if (b.mem_len > 0 and v >= b.mem and v < b.mem + b.mem_len) return 0;
++        if (b.grow_len > 0 and v >= b.grow and v < b.grow + b.grow_len) return 1;
++        return null;
++    }
++
++    fn base(b: Bases, r: u1) u64 {
++        return if (r == 0) b.mem else b.grow;
++    }
++
++    pub fn same(a: Bases, b: Bases) bool {
++        return a.mem == b.mem and a.grow == b.grow;
++    }
++};
++
++const Reloc = struct { at: u32, region: u1, off: u64 }; // a pointer at storage[at], ``off`` past its region's base
++
++/// A kernel node whose arguments point into a sequence: its launch, its argument bytes and where the pointers sit.
++const Patch = struct {
++    node: cuda.graph.Node,
++    p: abi.KernelNodeParams,
++    storage: []align(16) u8,
++    offsets: []u32,
++    ptrs: []?*anyopaque,
++    relocs: []Reloc,
++
++    fn deinit(x: *Patch, gpa: std.mem.Allocator) void {
++        gpa.free(x.storage);
++        gpa.free(x.offsets);
++        gpa.free(x.ptrs);
++        gpa.free(x.relocs);
++    }
++};
++
++const Segment = struct {
++    exec: cuda.graph.Exec,
++    tmpl: ?cuda.graph.Graph = null, // kept while ``patches`` name its nodes
++    patches: []Patch = &.{},
++
++    fn deinit(s: *Segment, gpa: std.mem.Allocator) void {
++        s.exec.deinit();
++        for (s.patches) |*x| x.deinit(gpa);
++        if (s.patches.len > 0) gpa.free(s.patches);
++        if (s.tmpl) |*g| g.deinit();
++    }
++};
++
++pub const Item = union(enum) { graph: Segment, gather: Gather };
++
++pub const Plan = struct {
++    items: []Item,
++    /// Every node was read: the plan serves any sequence once ``bind`` moved its pointers.
++    shareable: bool,
++    bound: Bases,
++    last: u64 = 0, // the engine's use counter at its last launch (the least recent goes first)
++
++    pub fn deinit(p: *Plan, gpa: std.mem.Allocator) void {
++        for (p.items) |*it| switch (it.*) {
++            .graph => |*g| g.deinit(gpa),
++            .gather => {},
++        };
++        gpa.free(p.items);
++        p.* = undefined;
++    }
++
++    /// The pointers moved to ``to``'s ranges (nothing to do when bound there already).
++    pub fn bind(p: *Plan, to: Bases) !void {
++        if (p.bound.same(to)) return;
++        for (p.items) |*it| switch (it.*) {
++            .graph => |*g| for (g.patches) |*x| {
++                for (x.relocs) |r| std.mem.writeInt(u64, x.storage[r.at..][0..8], to.base(r.region) + r.off, .little);
++                for (x.offsets, 0..) |o, i| x.ptrs[i] = &x.storage[o];
++                x.p.params = x.ptrs.ptr;
++                try g.exec.setKernelRaw(x.node, &x.p);
++            },
++            .gather => {},
++        };
++        p.bound = to;
++    }
++
++    pub fn launch(p: Plan, nccl: *cuda.nccl.Library, comm: cuda.nccl.Comm, stream: cuda.Stream) !void {
++        for (p.items) |it| switch (it) {
++            .graph => |g| try g.exec.launchOn(stream),
++            .gather => |g| try nccl.check(nccl.api.ncclAllGather(g.send, g.recv, g.count, g.dt, comm, stream.handle), "ncclAllGather"),
++        };
++    }
++};
++
++/// Argument ``i``'s offset and size: true, false past the last argument, null when the driver cannot say.
++fn paramInfo(d: *const cuda.Driver, p: abi.KernelNodeParams, i: usize, off: *usize, size: *usize) ?bool {
++    const r = if (p.func != null) d.api.cuFuncGetParamInfo(p.func, i, off, size) else if (p.kern != null) d.api.cuKernelGetParamInfo(p.kern, i, off, size) else return null;
++    return r == abi.success;
++}
++
++/// What a capture records: each segment's graph, ended and instantiated at a gather (``split``) or at the end.
++pub const Recorder = struct {
++    gpa: std.mem.Allocator,
++    stream: cuda.Stream,
++    split: bool,
++    seq: Bases = .{}, // the capturing sequence's ranges (none: a plan for this sequence only)
++    shareable: bool = true,
++    items: std.ArrayList(Item) = .empty,
++
++    pub fn begin(r: *Recorder) !void {
++        try cuda.graph.beginCapture(r.stream, .thread_local);
++    }
++
++    /// The kernel nodes whose arguments point into the capturing sequence (an unreadable node: the plan unshared).
++    fn patches(r: *Recorder, g: cuda.graph.Graph) ![]Patch {
++        var out: std.ArrayList(Patch) = .empty;
++        errdefer {
++            for (out.items) |*x| x.deinit(r.gpa);
++            out.deinit(r.gpa);
++        }
++        const n = try g.nodeCount();
++        const nodes = try r.gpa.alloc(cuda.graph.Node, n);
++        defer r.gpa.free(nodes);
++        for (try g.nodes(nodes)) |node| {
++            const t = try g.nodeType(node);
++            if (t == 5 or t == 6 or t == 7) continue; // empty and event nodes carry no addresses
++            if (t == 1 or t == 2) { // a copy or memset: fine while it touches none of the sequence's memory
++                var raw: [256]u64 = undefined;
++                try g.copyParams(node, t, &raw);
++                for (raw) |v| if (r.seq.region(v) != null) {
++                    r.shareable = false;
++                };
++                if (!r.shareable) break;
++                continue;
++            }
++            if (t != 0) {
++                r.shareable = false;
++                break;
++            }
++            const p = try g.kernelParams(node);
++            const args = p.params orelse {
++                r.shareable = false;
++                break;
++            };
++            var offs: std.ArrayList(u32) = .empty;
++            defer offs.deinit(r.gpa);
++            var bytes: std.ArrayList(u8) = .empty;
++            defer bytes.deinit(r.gpa);
++            var relocs: std.ArrayList(Reloc) = .empty;
++            defer relocs.deinit(r.gpa);
++            var i: usize = 0;
++            while (true) : (i += 1) {
++                var off: usize = 0;
++                var size: usize = 0;
++                const ok = paramInfo(g.d, p, i, &off, &size) orelse {
++                    r.shareable = false;
++                    break;
++                };
++                if (!ok) break;
++                const at: u32 = @intCast(std.mem.alignForward(usize, bytes.items.len, 8));
++                try bytes.appendNTimes(r.gpa, 0, at - bytes.items.len);
++                const src: [*]const u8 = @ptrCast(args[i].?);
++                try bytes.appendSlice(r.gpa, src[0..size]);
++                try offs.append(r.gpa, at);
++                var w: usize = 0;
++                while (w + 8 <= size) : (w += 8) {
++                    const v = std.mem.readInt(u64, src[w..][0..8], .little);
++                    if (r.seq.region(v)) |reg| try relocs.append(r.gpa, .{ .at = at + @as(u32, @intCast(w)), .region = reg, .off = v - r.seq.base(reg) });
++                }
++            }
++            if (!r.shareable) break;
++            if (relocs.items.len == 0) continue;
++            const storage = try r.gpa.alignedAlloc(u8, .@"16", bytes.items.len);
++            @memcpy(storage, bytes.items);
++            const no = offs.items.len;
++            try out.append(r.gpa, .{
++                .node = node,
++                .p = p,
++                .storage = storage,
++                .offsets = try offs.toOwnedSlice(r.gpa),
++                .ptrs = try r.gpa.alloc(?*anyopaque, no),
++                .relocs = try relocs.toOwnedSlice(r.gpa),
++            });
++        }
++        if (!r.shareable) {
++            for (out.items) |*x| x.deinit(r.gpa);
++            out.deinit(r.gpa);
++            return &.{};
++        }
++        return out.toOwnedSlice(r.gpa);
++    }
++
++    /// The capture so far as one segment (none when it captured nothing).
++    fn cut(r: *Recorder) !void {
++        var g = try cuda.graph.endCapture(r.stream);
++        var keep = false;
++        defer if (!keep) g.deinit();
++        if (try g.nodeCount() == 0) return;
++        const ps: []Patch = if (r.shareable and r.seq.mem_len > 0) try r.patches(g) else &.{};
++        var seg: Segment = .{ .exec = try g.instantiate(), .patches = ps };
++        errdefer seg.deinit(r.gpa);
++        try seg.exec.upload(r.stream);
++        if (ps.len > 0) {
++            seg.tmpl = g;
++            keep = true;
++        }
++        try r.items.append(r.gpa, .{ .graph = seg });
++    }
++
++    /// A gather inside the capture: the segment before it ends, the gather runs eager at replay, a new one begins.
++    pub fn gather(r: *Recorder, g: Gather) !void {
++        try r.cut();
++        try r.items.append(r.gpa, .{ .gather = g });
++        try r.begin();
++    }
++
++    pub fn finish(r: *Recorder) !Plan {
++        try r.cut();
++        return .{ .items = try r.items.toOwnedSlice(r.gpa), .shareable = r.shareable and r.seq.mem_len > 0, .bound = r.seq };
++    }
++
++    /// An abandoned capture: the capture ended and the segments made so far freed.
++    pub fn abandon(r: *Recorder) void {
++        if (cuda.graph.endCapture(r.stream)) |g| {
++            var gg = g;
++            gg.deinit();
++        } else |_| {}
++        for (r.items.items) |*it| switch (it.*) {
++            .graph => |*g| g.deinit(r.gpa),
++            .gather => {},
++        };
++        r.items.deinit(r.gpa);
 +    }
 +};
 diff --git a/zig/src/families/flashnext_cuda/root.zig b/zig/src/families/flashnext_cuda/root.zig
@@ -92529,10 +92878,10 @@ index 0000000..3e7f91c
 +}
 diff --git a/zig/tests/cuda/fn_forward.zig b/zig/tests/cuda/fn_forward.zig
 new file mode 100644
-index 0000000..a1f1fa3
+index 0000000..0559a9a
 --- /dev/null
 +++ b/zig/tests/cuda/fn_forward.zig
-@@ -0,0 +1,788 @@
+@@ -0,0 +1,791 @@
 +//! Flash Next on CUDA, M1: the native forward (src/families/flashnext_cuda/forward.zig) through its engine API only,
 +//! on two ranks: the reference prompt and Python's MTP reply, token for token, with the same rounds and drafts.
 +
@@ -92596,6 +92945,9 @@ index 0000000..a1f1fa3
 +    for (args[@min(9, args.len)..]) |a| {
 +        if (std.mem.eql(u8, a, "nomultigdn")) e.multi_gdn = false;
 +        if (std.mem.eql(u8, a, "nomultiattn")) e.multi_attn = false;
++        if (std.mem.eql(u8, a, "split")) e.split_gathers = true; // graphs split at the gathers (eager between)
++        if (std.mem.eql(u8, a, "nosplit")) e.split_gathers = false;
++        if (std.mem.eql(u8, a, "noshare")) e.share_graphs = false; // each sequence captures its own graphs
 +    }
 +    // "multi=on|off" between benches below: both on or both off from there
 +    std.debug.print("rank {d}: shared rounds: DeltaNet {s}, attention {s}\n", .{ rank, if (e.multi_gdn) "one launch" else "per stream", if (e.multi_attn) "one launch" else "per stream" });

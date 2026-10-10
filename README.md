@@ -19,22 +19,28 @@ dependencies.
 
 ## Measured on this pair
 
-The defaults: TensorFold v1.0.4's native engine with this recipe's patch (pin `fcf3092a`), sixteen concurrent
+The defaults: TensorFold v1.0.4's native engine with this recipe's patch (pin `ce40418a`), sixteen concurrent
 streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link.
-`bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per stream, median of 3 runs, on a freshly
-started server. Receipts: [`evidence/2026-10-10-native-v1.0.4/`](evidence/2026-10-10-native-v1.0.4/).
+`bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per stream, median of 3 runs. Receipts:
+[`evidence/2026-10-10-native-v1.0.4-split-shared/`](evidence/2026-10-10-native-v1.0.4-split-shared/).
 
 | Users | prose | code | structured | list | first token |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 69.1 | 110.0 | 88.7 | 112.5 | 0.07-0.09 s |
-| 4 | 157.1 | 252.3 | 197.4 | 288.6 | 0.15-0.21 s |
-| 8 | 221.9 | 382.2 | 279.7 | 412.3 | 0.23-0.32 s |
-| 16 | 297.3 | 511.8 | 383.5 | 519.8 | 0.41-0.55 s |
+| 1 | 77.1 | 125.7 | 99.1 | 125.7 | 0.08-0.09 s |
+| 4 | 157.5 | 247.6 | 194.4 | 281.3 | 0.13-0.19 s |
+| 8 | 223.2 | 380.3 | 279.8 | 410.4 | 0.23-0.32 s |
+| 16 | 297.8 | 506.7 | 383.7 | 517.3 | 0.42-0.49 s |
 
-Aggregate tokens a second. Since pin `bc0402c1` a released sequence's CUDA graphs are freed, so one stream holds its speed
-on a long-running server (66.8 / 106.1 / 85.1 / 106.9 fresh, 67.1 / 103.4 / 84.1 / 107.5 after other traffic; it had
-fallen to 62-63 / 99-101 / 81-82 / 99-103), at a few percent below the fresh-server figures above, which reused graphs
-kept from earlier requests ([`evidence/2026-10-10-native-v1.0.4-graphs/`](evidence/2026-10-10-native-v1.0.4-graphs/)).
+Aggregate tokens a second, on a fresh server; one stream after other traffic holds 77.1 / 124.7 / 97.0 / 125.3. One
+stream gained 15-21% from two changes to how decode steps run as CUDA graphs, neither touching the arithmetic: each
+graph ends at the cross-rank gathers (which run between graphs, 15 us instead of 25), and one captured step serves
+every sequence (its sequence-specific kernel arguments rewritten at launch) instead of each request capturing its own
+40-odd graphs. Before them (pin `bc0402c1`): 66.8 / 106.1 / 85.1 / 106.9 fresh and 67.1 / 103.4 / 84.1 / 107.5 after
+traffic, and before freeing a released sequence's graphs one stream fell to 62-63 / 99-101 / 81-82 / 99-103 on a
+long-running server ([`evidence/2026-10-10-native-v1.0.4-graphs/`](evidence/2026-10-10-native-v1.0.4-graphs/)).
+The release image before both (pin `fcf3092a`, [`evidence/2026-10-10-native-v1.0.4/`](evidence/2026-10-10-native-v1.0.4/))
+measured 69.1 / 110.0 / 88.7 / 112.5 at one user and 297.3 / 511.8 / 383.5 / 519.8 at 16.
+
 The Python engine (`ENGINE=python`, pin `e286b134`) on the same pair:
 
 | Users | prose | code | structured | list | first token |
@@ -44,7 +50,7 @@ The Python engine (`ENGINE=python`, pin `e286b134`) on the same pair:
 | 8 | 214.1 | 366.0 | 273.2 | 403.7 | 0.24-0.30 s |
 | 16 | 299.5 | 475.2 | 372.0 | 542.0 | 0.51-0.72 s |
 
-One stream undrafted: 40 tok/s (native), 35 (Python).
+One stream undrafted: 42 tok/s (native), 35 (Python).
 
 Prompt passes on the Python engine (time to the first token, one prompt, needle found in each); the native engine's
 long-context check runs its slowest, 225k, at 2,012 tok/s:

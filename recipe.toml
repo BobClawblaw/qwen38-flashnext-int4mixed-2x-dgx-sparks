@@ -27,7 +27,7 @@ container = "tf-qwen38-int4mixed"
 engine = "native"
 native_tensorfold_sha = "d4fc1964d0637c33e09ddac18aec936f962bb646"     # v1.0.4
 native_patch = "tensorfold-native-v1.0.4.patch"
-native_patch_sha256 = "bc0402c1b6f31946984c0c469bb85d77eb926f4dc31ff9b8fcdb876ee4dbe8b5"
+native_patch_sha256 = "ce40418ae58ec402b9598ab2ae415003b4d8995c204121dea5eb3376b4cc423e"
 native_image = "tf-qwen38-int4mixed:native-v1.0.4"
 
 [cluster]

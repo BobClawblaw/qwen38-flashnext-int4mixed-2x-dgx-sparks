@@ -1,0 +1,32 @@
+{
+ "turn1": {
+  "text": "Three major rivers in Europe are:\n\n1. **The Danube** \u2013 It flows through Central and Eastern Europe, passing through ten countries, including Germany, Austria, Hungary, and Romania, before emptying into the Black Sea.\n",
+  "ttft": 2.073,
+  "prompt": 5509,
+  "cached": 0
+ },
+ "turn2_resumed": {
+  "text": "The **Danube** is the longest of the three rivers mentioned.\n\nIt is approximately **2,850 kilometers (1,770 miles)** long, making it the second-longest river in Europe after the Volga",
+  "ttft": 0.12,
+  "prompt": 5576,
+  "cached": 5508
+ },
+ "turn3_resumed": {
+  "text": "The **Rhine**",
+  "ttft": 0.121,
+  "prompt": 5642,
+  "cached": 5575
+ },
+ "turn3_again": {
+  "text": "The **Rhine**",
+  "ttft": 0.047,
+  "prompt": 5642,
+  "cached": 5641
+ },
+ "turn3_cold_variant": {
+  "text": "The **Rhine**",
+  "ttft": 2.121,
+  "prompt": 5642,
+  "cached": 0
+ }
+}

@@ -118,7 +118,7 @@ file, pin its sha256 in `recipe.toml`, rebuild the image, rerun the suite. Never
 It adds:
 
 - `zig/src/families/flashnext_cuda/`: the weight loader for the converted checkpoint, the forward, CUDA graphs for
-  single streams, shared rounds for up to 16 streams (DeltaNet, keeps and attention batched across streams, up to 128
+  single streams (split at the cross-rank gathers, one captured step shared by every sequence), shared rounds for up to 16 streams (DeltaNet, keeps and attention batched across streams, up to 128
   rows a round), prompts admitted together, MTP drafts batched across streams, caches that grow as they are used
   (int8 or int4, `--kv-dtype`), growth agreed by both ranks before a round so a refusal ends one stream cleanly,
   kept prompt states (a next turn resumes one token before the last prompt's end), sampling (each rank's top-64
