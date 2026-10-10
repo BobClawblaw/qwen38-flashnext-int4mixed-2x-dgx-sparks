@@ -1,0 +1,11 @@
+{
+ "name": "snapshot",
+ "score": 1.0,
+ "cases": 12,
+ "passed": 12,
+ "seconds": 21.34581208229065,
+ "notes": [
+  "replies written to <scratch>/native-int4/suite/replies.json"
+ ],
+ "details": {}
+}

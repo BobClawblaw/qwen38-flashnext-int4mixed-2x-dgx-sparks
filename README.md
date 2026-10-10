@@ -1,4 +1,3 @@
-### ACTIVELY BEING WORKED ON! DO NOT USE
 # Qwen3.8-Flash-Next INT4-Mixed on two DGX Sparks
 
 Serve [Minachist/Qwen3.8-Flash-Next-INT4-Mixed-AutoRound](https://huggingface.co/Minachist/Qwen3.8-Flash-Next-INT4-Mixed-AutoRound),
@@ -20,10 +19,19 @@ dependencies.
 
 ## Measured on this pair
 
-The shipped image (patch pin `e286b134`) with the defaults: sixteen concurrent streams, a 1,048,576-token window
-(static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link. `bench/ruler.py`, greedy,
-thinking off, 256-token replies, a distinct prompt per stream, median of 2 runs. Receipts:
-[`evidence/`](evidence/).
+The defaults: TensorFold v1.0.4's native engine with this recipe's patch (pin `fcf3092a`), sixteen concurrent
+streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link.
+`bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per stream, median of 3 runs, on a freshly
+started server. Receipts: [`evidence/2026-10-10-native-v1.0.4/`](evidence/2026-10-10-native-v1.0.4/).
+
+| Users | prose | code | structured | list | first token |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 69.1 | 110.0 | 88.7 | 112.5 | 0.07-0.09 s |
+| 4 | 157.1 | 252.3 | 197.4 | 288.6 | 0.15-0.21 s |
+| 8 | 221.9 | 382.2 | 279.7 | 412.3 | 0.23-0.32 s |
+| 16 | 297.3 | 511.8 | 383.5 | 519.8 | 0.41-0.55 s |
+
+Aggregate tokens a second. The Python engine (`ENGINE=python`, pin `e286b134`) on the same pair:
 
 | Users | prose | code | structured | list | first token |
 |---:|---:|---:|---:|---:|---:|
@@ -32,10 +40,10 @@ thinking off, 256-token replies, a distinct prompt per stream, median of 2 runs.
 | 8 | 214.1 | 366.0 | 273.2 | 403.7 | 0.24-0.30 s |
 | 16 | 299.5 | 475.2 | 372.0 | 542.0 | 0.51-0.72 s |
 
-Aggregate tokens a second. One stream undrafted: 35 tok/s. `PROFILE=serial` (CUDA graphs, one user, no YaRN):
-prose 68.9, code 121.5, structured 88.6, list 117.4.
+One stream undrafted: 40 tok/s (native), 35 (Python).
 
-Prompt passes (time to the first token, one prompt, needle found in each):
+Prompt passes on the Python engine (time to the first token, one prompt, needle found in each); the native engine's
+long-context check runs its slowest, 225k, at 2,012 tok/s:
 
 | Prompt | Time | Rate |
 |---:|---:|---:|
@@ -45,13 +53,14 @@ Prompt passes (time to the first token, one prompt, needle found in each):
 | 224,822 | 110.2 s | 2,040 tok/s |
 
 With both halves of the QSFP port as NCCL rails. On one rail: 2,342 / 2,351 / 2,091 / 1,871 tok/s; before the
-prompt-pass fusions (pin `f188bd45`, one rail): 2,124 / 2,096 / 1,888 / 1,741, so 17-26% faster in all.
-The decode table above is from pin `f188bd45`; pin `e286b134` measured the same within run-to-run noise
+prompt-pass fusions (pin `f188bd45`, one rail): 2,124 / 2,096 / 1,888 / 1,741, so 17-26% faster in all
 ([`evidence/2026-10-08-prefill-fusions/`](evidence/2026-10-08-prefill-fusions/)).
 
 ## Quality
 
-The recipe's suite on the defaults (`quality/`, datasets pinned):
+The recipe's suite on the defaults (`quality/`, datasets pinned), greedy with thinking off (`enable_thinking: false`;
+scores with thinking on will differ, mostly upward on maths and code). The native v1.0.4 image and the Python engine
+score the same on every check ([`suite/report.md`](evidence/2026-10-10-native-v1.0.4/suite/report.md)):
 
 | Check | Result |
 |---|---|
@@ -79,35 +88,32 @@ How the speed got here, one user:
 
 The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays.
 
-## On TensorFold 1.0.2 (the native engine)
+## The native engine (TensorFold 1.0.4)
 
-`ENGINE=native python3 -m spark up` serves the same converted checkpoint on TensorFold's latest release, the Zig
-engine (v1.0.2), with [`docker/patches/tensorfold-native-v1.0.2.patch`](docker/patches/tensorfold-native-v1.0.2.patch):
-a Flash Next family for two CUDA ranks (our port; the release serves Flash Next on Metal only), shared rounds for up to
-16 streams, MTP drafts batched across them, images and video, and `--tool-system`. Same defaults otherwise (1M window,
-YaRN, int8 KV). Receipts: [`evidence/2026-10-09-native-v1.0.2/`](evidence/2026-10-09-native-v1.0.2/).
+`engine = "native"` (the default) serves the converted checkpoint on TensorFold v1.0.4, the Zig engine, with
+[`docker/patches/tensorfold-native-v1.0.4.patch`](docker/patches/tensorfold-native-v1.0.4.patch): this project's
+Flash Next family for two CUDA ranks (the release serves Flash Next on Metal only; the port is on
+[BobClawblaw/TensorFold `native-v1.0.4`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.4)).
+`ENGINE=python` keeps the Python engine.
 
-Greedy tokens equal the Python engine's (the reference reply token for token with the same drafts and acceptances,
-one stream and shared rounds; image prompts with the same tower features likewise). Decode, aggregate tok/s (Python
-engine in brackets, the table above):
+- Up to 16 streams in shared rounds (DeltaNet, keeps and attention batched across streams, up to 128 rows a round),
+  prompts admitted together, MTP drafts batched across streams; CUDA graphs for a single stream.
+- Sampling (each rank's top-64 candidates drawn on the host; the full row when top-p or min-p reach past them),
+  structured output (`response_format`, `guided_json`/`regex`/`choice`/`grammar`, through xgrammar 0.2.8), kept
+  prompt states (a next turn resumes one token before the last prompt's end: 0.12 s to the first token instead of
+  2.1 s at 5.5k tokens), images and video, public HTTPS media URLs, `--tool-system`.
+- int8 or int4 KV (`kv_dtype`). int4 holds 30% more context (about 1.2M tokens across streams against 0.85M per rank)
+  at 0-10% lower throughput at 16 streams and scores within an item or two
+  ([`evidence/2026-10-09-kv-int4-ab/`](evidence/2026-10-09-kv-int4-ab/)); int8 stays the default.
+- Caches grow as they are used; both ranks agree on each growth before a round, so running out refuses one request
+  cleanly and the server serves on (six ~192k-token prompts at once: four answered, two refused, then a short request
+  served).
 
-| Users | prose | code | structured | list |
-|---:|---:|---:|---:|---:|
-| 1 | 68.7 (68.7) | 105.2 (109.0) | 86.2 (89.0) | 107.5 (109.9) |
-| 4 | 144.0 (147.4) | 221.2 (230.0) | 180.6 (197.3) | 249.7 (279.9) |
-| 8 | 194.2 (214.1) | 331.0 (366.0) | 238.9 (273.2) | 354.4 (403.7) |
-| 16 | 259.7 (299.5) | 412.2 (475.2) | 311.2 (372.0) | 428.8 (542.0) |
-
-Quality suite, same datasets: drafts 12/12, concurrent 12/12, behaviour all pass, tools 60/60, JSON 30/30, IFEval
-130/125, GSM8K 241, MGSM 219, MMLU 283, HumanEval 157, repetition 8/8, long context 55/55 (slowest prefill 1,998
-tok/s at 225k), vision 12/12 -- each equal to the Python engine's. (The blank probe's rule now accepts a reply that
-calls the canvas a white square, which it is; it still fails any other shape, a border or a drawing. Torch's own bf16
-tower reads that image either way from run to run:
-[`vision/README.md`](evidence/2026-10-09-native-v1.0.2/vision/README.md).)
-
-Not yet on the native engine: sampling (it draws greedily; requests without a temperature get greedy), grammars
-(`response_format`), logprobs, prompt caching. `TENSORFOLD_VISION_FP32=1` runs the vision tower in fp32 (within 0.02%
-of torch's fp32 tower, about 2.5x its time).
+Exactness: greedy tokens equal the Python engine's (the reference reply token for token with the same drafts and
+acceptances, at int8 and int4), shared rounds equal each stream alone, batched prompts equal prompts alone, a resumed
+turn equals a fresh one, and 20 of 20 sampled replies equal the Python engine's (checked on the v1.0.2 port; the
+sampler is unchanged since). Quality suite above.
+`TENSORFOLD_VISION_FP32=1` runs the vision tower in fp32 (within 0.02% of torch's fp32 tower, about 2.5x its time).
 
 ## Where a prompt pass goes
 
@@ -132,7 +138,8 @@ attention, shared expert, hyper-connection mixers replicated on both ranks, its 
 The int8 kernel streams those at 190-240 GB/s on an idle GB10 (DRAM-cycled measurement in
 `evidence/.../tuning`), against 75-100 GB/s for TensorFold's bf16 kernel at these shapes under load, which is what
 the v1 to v2 step bought. The two ranks exchange partial sums twice a layer (96 gathers a forward); measured
-between the nodes they cost 15 us eager and 44-71 us inside a CUDA graph.
+between the nodes on the native engine they cost 16 us eager and 25 us inside a CUDA graph for one row (37 and 44 us
+for six rows).
 
 ## Requirements
 
@@ -194,13 +201,14 @@ environment variable of the same name in upper case (`PORT=8001 python3 -m spark
 
 | Setting | Default | Notes |
 |---|---|---|
-| `engine` | `python` | `native`: TensorFold v1.0.2 (the Zig engine) with this recipe's patch; see the section above |
+| `engine` | `native` | TensorFold v1.0.4 (the Zig engine) with this recipe's patch; `python`: TensorFold's Python engine (`python-0.6`), the only one with logprobs (at `tp=1`) |
 | `profile` | `concurrent` | `concurrent`: sixteen streams (`parallel=16`); `serial`: one stream on CUDA graphs |
 | `yarn` | true | static YaRN x4 over the trained 262,144 (a profile folder's `config.json`; the weights untouched). Every prompt sees the scaled rotary, short ones too (Qwen's card notes a possible cost on short texts); `yarn = false` keeps the plain rotary |
 | `context` | 1048576 | up to 1,048,576 with `yarn`, up to 262,144 without |
-| `kv_dtype` | `int8` | `bf16`, `int8`, `int4` |
+| `kv_dtype` | `int8` | `int8` or `int4` on native (int4: 30% less cache a position, 0-10% slower at 16 streams, scores within an item or two); `python` also serves `bf16` |
 | `mtp_drafts`, `mtp_confidence` | 15, 0.70 | `mtp_drafts=0` serves without drafts |
 | `vision` | true | images and video on both ranks: the tower on rank 0, rank 1 receives each request's features |
+| `vision_urls` | true | public HTTPS image and video URLs as well as data URLs, fetched by rank 0 as the Python server does: HTTPS on 443, every resolved address public, redirects checked again, declared media types, 10 MB an image and 20 MB a request, 10 s a download. The server then makes outbound requests for whoever can reach its port: keep the port on a trusted network, or `false` for data URLs only |
 | `tool_system` | an instruction | added to tool requests without a system message; empty serves none |
 | `max_tokens` | 32768 | the reply cap when a request sets none |
 | `hca`, `iface`, `master_port` | | NCCL: the RoCE devices to use, comma-separated (both halves of the cabled port); GB10 also exposes dead ones |
@@ -239,10 +247,20 @@ Checks, all written for this recipe (datasets pinned by commit or sha256, downlo
 
 Both run against any OpenAI-compatible server, which is how the comparison table above was made.
 
-## Not supported
+## Known issues and limits
 
-- With `parallel` above 1: no logprobs on two ranks. Grammars (`response_format`, `guided_*`) are served in both
-  profiles.
+- Single-stream speed drops 7-10% on a server that has run for a while (cached CUDA graphs pile up across pooled
+  sequences, and new requests recapture them). Restarting (`spark down && spark up`) restores it; several streams at
+  once are not affected. The fix is verified on a branch and comes in the next update.
+- A start can fail when the worker refuses NCCL's first memory registration (rank 0 exits during its warm-up
+  gather); `spark up` again after a minute. It happens most right after a stop, which is what `settle_seconds` is for.
+- Scores above are with thinking off; the suite does not yet run every check with thinking on.
+- No logprobs on two ranks (either engine). Grammars (`response_format`, `guided_*`) and sampling are served on both
+  engines and in both profiles.
+- When the streams' caches outgrow the GPU memory left for them (about 0.85M tokens across streams at int8, 1.2M at
+  int4, per rank), the request that asks for more is refused with "the GPU had no memory left for this request's
+  caches: retry once another request ends"; the others carry on and the server keeps serving. Prompts that grow
+  together are refused together, so six ~192k-token prompts at once may finish two to four of them.
 - Each request decodes to `max_tokens` or EOS on both ranks; a client disconnect stops what is sent, not the work.
 - A rank that dies mid-request leaves the other in NCCL without a timeout: `python3 -m spark down && up`.
 - No `n > 1`, no presence or frequency penalties, the reasoning field is `reasoning_content`.

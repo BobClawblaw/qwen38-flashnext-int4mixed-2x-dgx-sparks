@@ -1,0 +1,12 @@
+{
+ "name": "tools",
+ "score": 0.9666666666666667,
+ "cases": 60,
+ "passed": 58,
+ "seconds": 25.03600525856018,
+ "notes": [
+  "'Give me the prices of MSFT and TSLA.': got [('stock_price', {'ticker': 'msft'})]",
+  "'Weather in Reykjavik and the price of BT': got [('get_weather', {'city': 'reykjavik'})]"
+ ],
+ "details": {}
+}

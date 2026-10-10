@@ -1,0 +1,11 @@
+{
+ "name": "json",
+ "score": 0.9666666666666667,
+ "cases": 30,
+ "passed": 29,
+ "seconds": 7.144047260284424,
+ "notes": [
+  "#29: HTTP Error 500: Internal Server Error"
+ ],
+ "details": {}
+}

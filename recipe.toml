@@ -22,12 +22,13 @@ image = "tf-qwen38-int4mixed:py0.6-ed78d6f"
 base_image = "nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c"
 container = "tf-qwen38-int4mixed"
 # engine = "native": TensorFold's latest release (the Zig engine) with this recipe's patch, docker/Dockerfile.native.
-# Up to 16 streams, images and video, greedy; "python" also serves sampling, grammars and logprobs.
-engine = "python"
-native_tensorfold_sha = "f8fe17d24629aedabf90bbf78279dd776e6d62e7"     # v1.0.2
-native_patch = "tensorfold-native-v1.0.2.patch"
-native_patch_sha256 = "4f15fe17f68f55f7adbdb5bbb15aa0ea4de34bb2bcafa40ba04fab3fcce7355a"
-native_image = "tf-qwen38-int4mixed:native-v1.0.2"
+# Up to 16 streams, images and video (data and HTTPS URLs), sampling, structured output, kept prompt states,
+# kv_dtype int8 or int4. "python" also serves logprobs, at tp=1 only.
+engine = "native"
+native_tensorfold_sha = "d4fc1964d0637c33e09ddac18aec936f962bb646"     # v1.0.4
+native_patch = "tensorfold-native-v1.0.4.patch"
+native_patch_sha256 = "fcf3092ae5e43d0736a6678a4a8fe1429c40d28bd9f758381952f51ab4f364e7"
+native_image = "tf-qwen38-int4mixed:native-v1.0.4"
 
 [cluster]
 head_ip = "10.100.8.1"           # the head's address on the RoCE link (rank 1 rendezvous)
@@ -53,7 +54,7 @@ parallel = 1
 thinking = false
 max_tokens = 32768
 vision = true
-vision_urls = false
+vision_urls = true             # public HTTPS image and video URLs, fetched by rank 0 (data URLs always work)
 vision_max_images = 0            # 0: the engine's default (4)
 tool_system = "Tool calls: include only the arguments the user explicitly provided or clearly implied. Never fill in optional arguments with default or guessed values. When a request asks for several things, make one call for each of them."
 memory_reserve_gib = 0           # 0: the engine's default

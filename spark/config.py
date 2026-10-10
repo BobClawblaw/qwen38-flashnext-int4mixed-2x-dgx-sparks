@@ -161,16 +161,20 @@ class Settings:
         """``tensorfold-native serve <model>`` arguments: the flags the native server reads (it refuses the rest)."""
         args = ["--context", str(self.context), "--no-update-check", "--tp", "2", "--rank", str(rank),
                 "--master", self.head_ip, "--master-port", str(self.master_port)]
+        if self.kv_dtype != "int8":
+            args += ["--kv-dtype", self.kv_dtype]   # both ranks; int8 is the native default
         if self.mtp_drafts == 0:
             args.append("--no-drafts")
         if rank == 0:
             args += ["--name", self.served_name, "--host", "0.0.0.0", "--port", str(self.port),
                      "--max-tokens", str(self.max_tokens), "--thinking" if self.thinking else "--no-thinking",
-                     "--parallel", str(self.parallel),
-                     # the native engine draws greedily only: requests that leave sampling out get greedy, not a refusal
-                     "--temperature", "0"]
+                     "--parallel", str(self.parallel)]
             if self.tool_system:
                 args += ["--tool-system", self.tool_system]
+            if self.vision and self.vision_urls:
+                args.append("--vision-urls")
+            if self.vision and self.vision_max_images:
+                args += ["--vision-max-images", str(self.vision_max_images)]
         if self.vision:
             args.append("--vision")                 # both ranks: the tower on rank 0, rank 1 receives the features
         return args + self.extra_args.split()
@@ -329,6 +333,8 @@ def validate(s: Settings) -> None:
     if s.native:
         if s.tp != 2 or not 1 <= s.parallel <= 16:
             raise ConfigError("engine=native serves two ranks and up to 16 streams: tp=2, parallel=1..16")
+        if s.kv_dtype not in ("int8", "int4"):
+            raise ConfigError(f"kv_dtype={s.kv_dtype}: the native engine keeps an int8 or int4 cache (engine=python serves bf16)")
         if not re.fullmatch(r"[0-9a-f]{40}", s.native_tensorfold_sha):
             raise ConfigError(f"native_tensorfold_sha={s.native_tensorfold_sha} is not a 40-hex commit")
         npath = ROOT / "docker" / "patches" / s.native_patch

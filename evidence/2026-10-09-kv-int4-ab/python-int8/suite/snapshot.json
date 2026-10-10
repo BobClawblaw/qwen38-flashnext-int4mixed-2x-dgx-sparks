@@ -1,0 +1,11 @@
+{
+ "name": "snapshot",
+ "score": 1.0,
+ "cases": 12,
+ "passed": 12,
+ "seconds": 30.755401849746704,
+ "notes": [
+  "replies written to <scratch>/python-int8/suite/replies.json"
+ ],
+ "details": {}
+}

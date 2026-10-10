@@ -1,0 +1,17 @@
+ruler: http://127.0.0.1:8888, max_tokens 256, 2 runs, median per stream / aggregate tok/s, ttft median
+  c=1   prose         68.7 /    68.7 tok/s   ttft 0.10s   256 tokens a reply
+  c=1   code         109.1 /   109.1 tok/s   ttft 0.07s   218 tokens a reply
+  c=1   structured    91.9 /    91.9 tok/s   ttft 0.09s   178 tokens a reply
+  c=1   list         113.2 /   113.2 tok/s   ttft 0.06s   217 tokens a reply
+  c=4   prose         37.0 /   146.6 tok/s   ttft 0.12s   245 tokens a reply
+  c=4   code          60.5 /   232.3 tok/s   ttft 0.17s   232 tokens a reply
+  c=4   structured    48.0 /   193.1 tok/s   ttft 0.22s   156 tokens a reply
+  c=4   list          66.8 /   278.4 tok/s   ttft 0.14s   216 tokens a reply
+  c=8   prose         27.2 /   216.3 tok/s   ttft 0.22s   246 tokens a reply
+  c=8   code          42.7 /   371.1 tok/s   ttft 0.22s   220 tokens a reply
+  c=8   structured    35.1 /   275.2 tok/s   ttft 0.27s   150 tokens a reply
+  c=8   list          50.5 /   408.2 tok/s   ttft 0.21s   228 tokens a reply
+  c=16  prose         19.0 /   302.0 tok/s   ttft 0.44s   249 tokens a reply
+  c=16  code          29.2 /   509.4 tok/s   ttft 0.49s   210 tokens a reply
+  c=16  structured    23.6 /   382.9 tok/s   ttft 0.55s   155 tokens a reply
+  c=16  list          34.2 /   544.5 tok/s   ttft 0.44s   238 tokens a reply

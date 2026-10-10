@@ -1,0 +1,32 @@
+[
+ {
+  "target": 32000,
+  "prompt_tokens": 25749,
+  "ttft_s": 9.428142070770264,
+  "prefill_tok_s": 2731.0789131857396,
+  "decode_tok_s": 39.084775002291266,
+  "completion_tokens": 256,
+  "needle_found": true,
+  "reply_head": "The secret code mentioned in the text is **920007**.\n\n***\n\n### The Keeper of the Iron Eye\n\nThe wind did not blow on the "
+ },
+ {
+  "target": 128000,
+  "prompt_tokens": 102730,
+  "ttft_s": 42.12296772003174,
+  "prefill_tok_s": 2438.8120201499087,
+  "decode_tok_s": 35.91964271501073,
+  "completion_tokens": 256,
+  "needle_found": true,
+  "reply_head": "The secret code mentioned in the text is **230603**.\n\n***\n\n### The Keeper of the Iron Light\n\nThe wind did not blow on th"
+ },
+ {
+  "target": 225000,
+  "prompt_tokens": 180580,
+  "ttft_s": 81.38004755973816,
+  "prefill_tok_s": 2218.9714237687404,
+  "decode_tok_s": 34.11833883386689,
+  "completion_tokens": 256,
+  "needle_found": true,
+  "reply_head": "The secret code mentioned in the text is **140927**.\n\n***\n\n### The Keeper of the Iron Eye\n\nThe wind did not blow on the "
+ }
+]

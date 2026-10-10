@@ -1,0 +1,1 @@
+up to 16 streams, each growing to 1048576 prompt/reply tokens while memory lasts (52.7 GiB free for their caches, 10.97 GiB for one at the full window), eager; int8 KV cache (fp16 scale per 32 values)

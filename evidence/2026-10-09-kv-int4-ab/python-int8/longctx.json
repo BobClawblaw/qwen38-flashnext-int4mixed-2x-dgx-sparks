@@ -1,0 +1,32 @@
+[
+ {
+  "target": 32000,
+  "prompt_tokens": 25749,
+  "ttft_s": 9.409312009811401,
+  "prefill_tok_s": 2736.5443906154524,
+  "decode_tok_s": 38.275818791464744,
+  "completion_tokens": 256,
+  "needle_found": true,
+  "reply_head": "The secret code mentioned in the text is **920007**.\n\n***\n\n### The Keeper of the Iron Eye\n\nThe wind at Cape Vane did not"
+ },
+ {
+  "target": 128000,
+  "prompt_tokens": 102730,
+  "ttft_s": 41.94267559051514,
+  "prefill_tok_s": 2449.2953430760917,
+  "decode_tok_s": 32.81447510892572,
+  "completion_tokens": 256,
+  "needle_found": true,
+  "reply_head": "The secret code mentioned in the text is **230603**.\n\n***\n\n### The Keeper of the Iron Light\n\nThe wind did not blow on th"
+ },
+ {
+  "target": 225000,
+  "prompt_tokens": 180580,
+  "ttft_s": 81.3851842880249,
+  "prefill_tok_s": 2218.831370595922,
+  "decode_tok_s": 33.01865651805628,
+  "completion_tokens": 256,
+  "needle_found": true,
+  "reply_head": "The secret code mentioned in the text is **140927**.\n\n***\n\n### The Keeper of the Iron Eye\n\nThe wind on the Isle of Solit"
+ }
+]

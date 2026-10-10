@@ -1,0 +1,40 @@
+[
+ {
+  "i": 0,
+  "ok": false,
+  "s": 175.4684362411499,
+  "error": "HTTP 500: b'{\"error\": {\"message\": \"the GPU had no memory left for this request\\'s caches: retry once another request ends\"}}'"
+ },
+ {
+  "i": 1,
+  "ok": false,
+  "s": 175.42532181739807,
+  "error": "HTTP 500: b'{\"error\": {\"message\": \"the GPU had no memory left for this request\\'s caches: retry once another request ends\"}}'"
+ },
+ {
+  "i": 2,
+  "ok": false,
+  "s": 175.32332563400269,
+  "error": "HTTP 500: b'{\"error\": {\"message\": \"the GPU had no memory left for this request\\'s caches: retry once another request ends\"}}'"
+ },
+ {
+  "i": 3,
+  "ok": true,
+  "s": 176.08294868469238,
+  "prompt_tokens": 192531,
+  "finish": "stop"
+ },
+ {
+  "i": 4,
+  "ok": false,
+  "s": 175.30910086631775,
+  "error": "HTTP 500: b'{\"error\": {\"message\": \"the GPU had no memory left for this request\\'s caches: retry once another request ends\"}}'"
+ },
+ {
+  "i": 5,
+  "ok": true,
+  "s": 176.01560020446777,
+  "prompt_tokens": 192507,
+  "finish": "stop"
+ }
+]

@@ -1,0 +1,4 @@
+quality suite: http://127.0.0.1:8888 as Qwen3.8-Flash-Next-INT4-Mixed; checks: concurrent, ifeval
+concurrent        12/12     100.0%  (37s)  4 streams together vs alone
+ifeval           130/150     86.7%  (562s)  loose 130/150, strict 125/150, 150 covered prompts
+report: <scratch>/python-int8/suite-after-long/report.md

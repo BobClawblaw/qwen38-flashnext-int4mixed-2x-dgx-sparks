@@ -12,6 +12,9 @@ ARG ZIG_SHA256=9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
 ARG FFMPEG_URL=https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
 ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 ARG PYAV=av==19.0.1
+# structured output: libtfgrammar (in the patch) over xgrammar 0.2.8's C++ library, the version the Python image installs
+ARG XGRAMMAR_TAG=v0.2.8
+ARG XGRAMMAR_SHA=97787376faee5ed8466cfad57c99855e4ce2f6aa
 COPY patches/${TF_PATCH} /opt/patches/${TF_PATCH}
 RUN set -eu \
  && curl -fsSL "${ZIG_URL}" -o /tmp/zig.tar.xz \
@@ -33,7 +36,17 @@ RUN set -eu \
  && A=/opt/tensorfold/native/lib/av.libs \
  && /opt/zig/zig cc -shared -O2 -fPIC zig/src/vision/tf_video.c -o /opt/tensorfold/native/lib/libtfvideo.so -I/tmp/ffmpeg \
       $(ls $A/libavformat-*.so* $A/libavcodec-*.so* $A/libswscale-*.so* $A/libavutil-*.so*) -Wl,-rpath,'$ORIGIN/av.libs' -lm \
- && rm -rf /tmp/ffmpeg /tmp/ffmpeg.tar.xz
+ && rm -rf /tmp/ffmpeg /tmp/ffmpeg.tar.xz \
+ && git clone --quiet --depth 1 --branch "${XGRAMMAR_TAG}" https://github.com/mlc-ai/xgrammar.git /tmp/xgrammar \
+ && test "$(git -C /tmp/xgrammar rev-parse HEAD)" = "${XGRAMMAR_SHA}" \
+ && git -C /tmp/xgrammar submodule update --quiet --init --depth 1 3rdparty/dlpack \
+ && cmake -S /tmp/xgrammar -B /tmp/xgrammar/build -DCMAKE_BUILD_TYPE=Release -DXGRAMMAR_BUILD_PYTHON_BINDINGS=OFF \
+      -DXGRAMMAR_BUILD_CXX_TESTS=OFF -DXGRAMMAR_ENABLE_CPPTRACE=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON >/dev/null \
+ && cmake --build /tmp/xgrammar/build --target xgrammar -j8 >/dev/null \
+ && g++ -O2 -std=c++17 -shared -fPIC zig/src/grammar/tf_grammar.cc -o /opt/tensorfold/native/lib/libtfgrammar.so \
+      -I/tmp/xgrammar/include -I/tmp/xgrammar/3rdparty/picojson -I/tmp/xgrammar/3rdparty/dlpack/include \
+      -Wl,--whole-archive /tmp/xgrammar/build/libxgrammar.a -Wl,--no-whole-archive \
+ && rm -rf /tmp/xgrammar
 
 FROM ${BASE_IMAGE}
 ARG TF_SHA
@@ -43,6 +56,6 @@ COPY --from=build /opt/tensorfold /opt/tensorfold
 # the Triton kernels Flash Next launches, captured from the Python engine and packed (aot.json + cubins)
 COPY kernels/sm121 /opt/tensorfold/share/tensorfold/cuda/sm121
 ENV TENSORFOLD_CUDA_KERNELS=/opt/tensorfold/share/tensorfold/cuda/sm121
-# libtfvideo, loaded when a request carries a video
+# libtfvideo, loaded when a request carries a video; libtfgrammar, when one asks for structured output
 ENV LD_LIBRARY_PATH=/opt/tensorfold/native/lib:${LD_LIBRARY_PATH}
 ENTRYPOINT ["/opt/tensorfold/native/bin/tensorfold-native"]

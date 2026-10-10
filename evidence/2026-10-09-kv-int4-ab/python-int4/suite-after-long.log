@@ -1,0 +1,4 @@
+quality suite: http://127.0.0.1:8888 as Qwen3.8-Flash-Next-INT4-Mixed; checks: concurrent, ifeval
+concurrent         0/0        0.0%  (0s)  failed: HTTP Error 500: Internal Server Error
+ifeval             0/0        0.0%  (122s)  failed: HTTP Error 500: Internal Server Error
+report: <scratch>/python-int4/suite-after-long/report.md

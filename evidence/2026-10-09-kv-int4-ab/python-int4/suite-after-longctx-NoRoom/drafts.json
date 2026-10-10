@@ -1,0 +1,11 @@
+{
+ "name": "drafts",
+ "score": 0.0,
+ "cases": 0,
+ "passed": 0,
+ "seconds": 14.05662751197815,
+ "notes": [
+  "failed: HTTP Error 500: Internal Server Error"
+ ],
+ "details": {}
+}

@@ -1,0 +1,3 @@
+OK  https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_tran -> ' This image features three colorful, glossy dice—blue, green, and red—arranged dynamically against a'
+400 https://127.0.0.1/x.png -> b'{"error": {"message": "image URLs must resolve only to public internet addresses", "type": "invalid_request_error"}}'
+400 http://example.com/x.png -> b'{"error": {"message": "images require data URLs or public HTTPS URLs", "type": "invalid_request_error"}}'

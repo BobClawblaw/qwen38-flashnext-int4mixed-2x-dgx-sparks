@@ -1,0 +1,12 @@
+[
+ {
+  "target": 225000,
+  "prompt_tokens": 180490,
+  "ttft_s": 81.84448671340942,
+  "prefill_tok_s": 2205.279881979252,
+  "decode_tok_s": 33.29044685062242,
+  "completion_tokens": 256,
+  "needle_found": true,
+  "reply_head": "The secret code mentioned in the text is **908475**.\n\n***\n\n### The Keeper of the Iron Eye\n\nThe wind on the Isle of Solit"
+ }
+]

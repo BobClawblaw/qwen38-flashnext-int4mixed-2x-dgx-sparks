@@ -84,7 +84,9 @@ class ServeArgsTests(unittest.TestCase):
             self.assertNotIn(flag, r1)
         self.assertIn("--vision", r0)
         self.assertIn("--vision", r1)                    # both ranks admit the same geometry; the tower on rank 0
-        self.assertNotIn("--vision-urls", r0)
+        self.assertIn("--vision-urls", r0)               # on by default; rank 0 fetches
+        self.assertNotIn("--vision-urls", r1)
+        self.assertNotIn("--vision-urls", load(VISION_URLS="0").serve_args(0))
 
     def test_switches(self) -> None:
         r = load(MTP_DRAFTS="0").serve_args(0)
@@ -97,9 +99,25 @@ class ServeArgsTests(unittest.TestCase):
         self.assertIn("--vision-urls", r0)
         self.assertEqual(r0[r0.index("--vision-max-images") + 1], "8")
         self.assertNotIn("--vision", load(VISION="0").serve_args(0))
-        r = load(TP="1").serve_args(0)
+        r = load(TP="1", ENGINE="python").serve_args(0)   # one rank: the Python engine (native serves two)
         for flag in ("--tp", "--rank", "--master"):
             self.assertNotIn(flag, r)
+
+    def test_native_switches(self) -> None:
+        self.assertEqual(load().engine, "native")              # the default
+        r0 = load().native_args(0)
+        self.assertEqual(r0[r0.index("--parallel") + 1], "16")
+        self.assertIn("--vision", r0)
+        self.assertIn("--tool-system", r0)
+        self.assertNotIn("--vision", load(VISION="0").native_args(0))
+        self.assertNotIn("--parallel", load().native_args(1))   # rank 1 serves no HTTP
+        for rank in (0, 1):                                     # both ranks keep the same cache
+            r = load(KV_DTYPE="int4").native_args(rank)
+            self.assertEqual(r[r.index("--kv-dtype") + 1], "int4")
+        with self.assertRaises(config.ConfigError):
+            load(TP="1")                                        # native serves two ranks
+        with self.assertRaises(config.ConfigError):
+            load(KV_DTYPE="bf16")                               # native keeps int8 or int4
 
     def test_model_folder_follows_the_profile(self) -> None:
         self.assertTrue(load(YARN="0", CONTEXT="262144").model_in_container.endswith("/affine-experts-v2"))

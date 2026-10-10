@@ -1,0 +1,151 @@
+{
+ "url": "http://127.0.0.1:8888",
+ "max_tokens": 256,
+ "runs": 3,
+ "cells": [
+  {
+   "concurrency": 1,
+   "phase": "prose",
+   "per_stream": 68.55254373992247,
+   "aggregate": 68.55254373992247,
+   "ttft": 0.08021224098047242,
+   "tokens_mean": 256.0,
+   "runs": 3
+  },
+  {
+   "concurrency": 1,
+   "phase": "code",
+   "per_stream": 105.82004792129347,
+   "aggregate": 105.82004792129347,
+   "ttft": 0.0892494770232588,
+   "tokens_mean": 218.0,
+   "runs": 3
+  },
+  {
+   "concurrency": 1,
+   "phase": "structured",
+   "per_stream": 85.03240476534391,
+   "aggregate": 85.03240476534391,
+   "ttft": 0.0977134769782424,
+   "tokens_mean": 178.0,
+   "runs": 3
+  },
+  {
+   "concurrency": 1,
+   "phase": "list",
+   "per_stream": 108.2752130700461,
+   "aggregate": 108.2752130700461,
+   "ttft": 0.07218593900324777,
+   "tokens_mean": 217.0,
+   "runs": 3
+  },
+  {
+   "concurrency": 4,
+   "phase": "prose",
+   "per_stream": 38.14716471001925,
+   "aggregate": 152.76958924242481,
+   "ttft": 0.15264872353873216,
+   "tokens_mean": 244.75,
+   "runs": 3
+  },
+  {
+   "concurrency": 4,
+   "phase": "code",
+   "per_stream": 64.42012145539978,
+   "aggregate": 245.18052071635123,
+   "ttft": 0.17299322100006975,
+   "tokens_mean": 231.75,
+   "runs": 3
+  },
+  {
+   "concurrency": 4,
+   "phase": "structured",
+   "per_stream": 46.924028648025114,
+   "aggregate": 189.72429535861858,
+   "ttft": 0.21533518051728606,
+   "tokens_mean": 156.0,
+   "runs": 3
+  },
+  {
+   "concurrency": 4,
+   "phase": "list",
+   "per_stream": 62.184404740751035,
+   "aggregate": 269.2069505834912,
+   "ttft": 0.18641316099092364,
+   "tokens_mean": 216.0,
+   "runs": 3
+  },
+  {
+   "concurrency": 8,
+   "phase": "prose",
+   "per_stream": 27.848681839166773,
+   "aggregate": 219.36165912904033,
+   "ttft": 0.2699290535238106,
+   "tokens_mean": 246.125,
+   "runs": 3
+  },
+  {
+   "concurrency": 8,
+   "phase": "code",
+   "per_stream": 45.15776174086719,
+   "aggregate": 378.11147601942315,
+   "ttft": 0.2796514200163074,
+   "tokens_mean": 219.875,
+   "runs": 3
+  },
+  {
+   "concurrency": 8,
+   "phase": "structured",
+   "per_stream": 34.676125123912385,
+   "aggregate": 276.3184806760333,
+   "ttft": 0.31566838652361184,
+   "tokens_mean": 149.5,
+   "runs": 3
+  },
+  {
+   "concurrency": 8,
+   "phase": "list",
+   "per_stream": 48.91862536611467,
+   "aggregate": 402.2560898961548,
+   "ttft": 0.2446040820213966,
+   "tokens_mean": 228.0,
+   "runs": 3
+  },
+  {
+   "concurrency": 16,
+   "phase": "prose",
+   "per_stream": 18.356787333411567,
+   "aggregate": 294.7004323251171,
+   "ttft": 0.4265483924828004,
+   "tokens_mean": 249.375,
+   "runs": 3
+  },
+  {
+   "concurrency": 16,
+   "phase": "code",
+   "per_stream": 29.894889498496976,
+   "aggregate": 505.4668201617581,
+   "ttft": 0.46029933547833934,
+   "tokens_mean": 210.25,
+   "runs": 3
+  },
+  {
+   "concurrency": 16,
+   "phase": "structured",
+   "per_stream": 23.37309811700176,
+   "aggregate": 379.5201997621449,
+   "ttft": 0.4524558350094594,
+   "tokens_mean": 154.8125,
+   "runs": 3
+  },
+  {
+   "concurrency": 16,
+   "phase": "list",
+   "per_stream": 31.315856780457374,
+   "aggregate": 513.2721356893953,
+   "ttft": 0.4103788364736829,
+   "tokens_mean": 237.5,
+   "runs": 3
+  }
+ ]
+}
