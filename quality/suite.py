@@ -6,7 +6,8 @@
     python3 -m quality.suite --compare a/replies.json b/replies.json   # two servers' reply sets (ranks, quantizations)
 
 Checks: drafts, concurrent, behaviour (streaming, multiturn, stop, thinking, copy, max-tokens), tools, json,
-ifeval, gsm8k, mgsm, mmlu, humaneval (sandboxed), repetition, long-context (needles to 250k at the edges, spread facts), vision, snapshot (the reply set
+ifeval, gsm8k, mgsm, mmlu, humaneval (sandboxed), repetition, long-context (needles to 250k at the edges, spread facts), vision,
+soak (concurrent resumes of long kept states beside a decoding stream, 20 rounds), snapshot (the reply set
 for comparisons). Each writes its details to <out>/<check>.json; <out>/report.md and report.json hold the table.
 """
 
@@ -18,11 +19,11 @@ import sys
 import time
 from pathlib import Path
 
-from . import behaviour, exactness, gsm8k, humaneval, ifeval, json_schema, mgsm, mmlu, needles, repetition, tools, vision
+from . import behaviour, exactness, gsm8k, humaneval, ifeval, json_schema, mgsm, mmlu, needles, repetition, soak, tools, vision
 from .common import Client, Result
 
 CHECKS = ("drafts", "concurrent", "behaviour", "tools", "json", "ifeval", "gsm8k", "mgsm", "mmlu", "humaneval",
-          "repetition", "long-context", "vision", "snapshot")
+          "repetition", "long-context", "vision", "soak", "snapshot")
 
 
 def run_check(name: str, client: Client, out: Path, a) -> Result:
@@ -44,6 +45,8 @@ def run_check(name: str, client: Client, out: Path, a) -> Result:
         return needles.run(client, max_tokens=a.long_max)
     if name == "vision":
         return vision.run(client)
+    if name == "soak":
+        return soak.run(client, chats=a.soak_chats, rounds=a.soak_rounds)
     if name == "snapshot":
         return exactness.snapshot(client, out / "replies.json")
     if name == "mgsm":
@@ -71,7 +74,9 @@ def main(argv=None) -> int:
     ap.add_argument("--mgsm-n", type=int, default=30, help="problems per MGSM language")
     ap.add_argument("--long-max", type=int, default=0, help="skip long-context documents above this many tokens (0: all, to 250k)")
     ap.add_argument("--mmlu-per-subject", type=int, default=6)
-    ap.add_argument("--sandbox-image", default="tf-qwen38-int4mixed:py0.6-ed78d6f", help="image HumanEval code runs in (no network)")
+    ap.add_argument("--sandbox-image", default=None, help="image HumanEval code runs in (no network); default: recipe.toml's image")
+    ap.add_argument("--soak-chats", type=int, default=3, help="chats resuming long kept states at once")
+    ap.add_argument("--soak-rounds", type=int, default=20)
     ap.add_argument("--thinking", action="store_true", help="GSM8K with thinking on")
     ap.add_argument("--guided-json", action="store_true", help="json through response_format (serial profile)")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A", "B"))

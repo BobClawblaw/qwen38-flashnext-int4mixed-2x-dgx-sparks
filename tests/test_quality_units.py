@@ -1,5 +1,5 @@
 """The quality suite's own checkers, offline: IFEval instruction checks, the JSON validator, tool-call matching,
-the repetition metric, the long-context document generator and the PNG writer."""
+the repetition metric, the long-context and soak document generators, the sandbox image and the PNG writer."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from quality import exactness, humaneval, ifeval, json_schema, mgsm, mmlu, needles, repetition, tools, vision  # noqa: E402
+from quality import exactness, humaneval, ifeval, json_schema, mgsm, mmlu, needles, repetition, soak, tools, vision  # noqa: E402
 
 
 class IfevalChecks(unittest.TestCase):
@@ -118,6 +118,24 @@ class Metrics(unittest.TestCase):
         self.assertEqual(len(exactness.PROMPTS), 12)
         self.assertEqual(len(set(exactness.PROMPTS)), 12)
 
+
+class SoakAndSandbox(unittest.TestCase):
+    def test_soak_chats_are_repeatable_distinct_and_long(self) -> None:
+        a, b = soak.history(0, 4600), soak.history(0, 4600)
+        self.assertEqual(a, b)
+        self.assertNotEqual(soak.history(0, 4600)[1]["content"], soak.history(1, 4600)[1]["content"])
+        doc, fact = soak.document(2, 4600)
+        self.assertIn(fact, doc)
+        self.assertGreater(len(doc.split()), 4600)
+        self.assertEqual([m["role"] for m in a], ["system", "user", "assistant", "user"])
+        later = soak.history(0, 4600, turn=3)
+        self.assertEqual(later[:len(a) - 1], a[:-1])            # a later turn extends the earlier ones
+        self.assertEqual(len(later), len(a) + 6)
+
+    def test_sandbox_defaults_to_the_recipe_image(self) -> None:
+        import tomllib
+        with open(Path(__file__).resolve().parents[1] / "recipe.toml", "rb") as f:
+            self.assertEqual(humaneval.recipe_image(), tomllib.load(f)["engine"]["image"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -259,6 +259,7 @@ Checks, all written for this recipe (datasets pinned by commit or sha256, downlo
 | `repetition` | repeated 4-grams and early stops in eight 600-word replies |
 | `long-context` | needles at 10/50/90% depth of 8k, 32k and 64k documents and at the extreme edges (2% and 98%) and middle of 128k and 250k ones; ten spread facts recalled together at 32k, 64k, 128k and 250k (`--long-max` caps the length) |
 | `vision` | 12 generated images: shapes, colours, counts, left/right, above/below, a blank |
+| `soak` | three chats grow a turn a round on 5-6k-token histories, all at once beside a stream decoding a long reply, 20 rounds, each turn resuming the last one's kept state; then every chat replayed alone as the reference: every reply equal, no errors, at least half the turns resumed, the server answering after (required before an engine change ships, AGENTS.md) |
 | `snapshot` | the reply set; `--compare a.json b.json` diffs two servers (two ranks vs one GPU, one quantization vs another) |
 
 Both run against any OpenAI-compatible server, which is how the comparison table above was made.
@@ -267,6 +268,8 @@ Both run against any OpenAI-compatible server, which is how the comparison table
 
 - A start can fail when the worker refuses NCCL's first memory registration (rank 0 exits during its warm-up
   gather); `spark up` again after a minute. It happens most right after a stop, which is what `settle_seconds` is for.
+- Sending the same request twice in a row (a regenerate) resumes the kept state but does not keep a new one, so the
+  turn after it reads its whole history again (about 2 s at 5k tokens). Replies are unaffected; a fix is under way.
 - Scores above are with thinking off; the suite does not yet run every check with thinking on.
 - No logprobs (the Python engine served them at one rank only; it is gone). Grammars (`response_format`, `guided_*`) and
   sampling are served in both profiles.

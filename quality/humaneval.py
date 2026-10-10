@@ -74,7 +74,14 @@ def execute(programs: dict[str, str], image: str) -> dict[str, str]:
         return json.loads(p.stdout.decode().strip().splitlines()[-1])
 
 
-def run(client: Client, *, image: str = "tf-qwen38-int4mixed:py0.6-ed78d6f", workers: int = 4, max_tokens: int = 1024,
+def recipe_image() -> str:
+    """The image recipe.toml serves (it has python3), for the sandbox when none is named."""
+    import tomllib
+    with open(Path(__file__).resolve().parent.parent / "recipe.toml", "rb") as f:
+        return tomllib.load(f)["engine"]["image"]
+
+
+def run(client: Client, *, image: str | None = None, workers: int = 4, max_tokens: int = 1024,
         n: int | None = None) -> Result:
     probs = problems()[:n] if n else problems()
     t0 = time.time()
@@ -85,7 +92,7 @@ def run(client: Client, *, image: str = "tf-qwen38-int4mixed:py0.6-ed78d6f", wor
     with ThreadPoolExecutor(workers) as pool:
         codes = list(pool.map(one, probs))
     progs = {pr["task_id"].replace("/", "_"): program(pr, c) for pr, c in zip(probs, codes)}
-    verdicts = execute(progs, image)
+    verdicts = execute(progs, image or recipe_image())
     ok = sum(1 for v in verdicts.values() if v == "pass")
     failed = [k for k, v in sorted(verdicts.items()) if v != "pass"]
     return Result("humaneval", ok / len(probs), len(probs), ok, time.time() - t0,

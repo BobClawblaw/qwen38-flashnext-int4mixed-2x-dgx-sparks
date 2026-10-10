@@ -16,6 +16,12 @@ no harness dependencies, stdlib Python only.
   changed converter is a new `.source` marker and a reconversion on both nodes (`up` does it).
 - **Measure before you claim.** The suite (`python3 -m quality.suite`) and the ruler (`bench/ruler.py`) write JSON
   under the folder you name; commit those under `evidence/` and point the README row at the file.
+- **Soak before you ship an engine change.** A patch that changes how the engine schedules, caches or launches
+  work (graphs, kept prompt states, shared rounds, cache growth) ships only after `python3 -m quality.suite --only
+  soak drafts concurrent behaviour` passes on its image: concurrent resumes of ~6k-token kept states beside a
+  decoding stream, 20 rounds, every reply equal to the same request alone and the server answering afterwards. For
+  an option that can be switched off, compare reply hashes with it off too. Single-stream exactness, a lone resume
+  and fresh-prompt concurrency missed a graph-relocation fault upstream (TensorFold #615) that this pattern hits.
 - **Restarts:** `down` stamps the stop; `up` waits out `settle_seconds` before rank 1 starts. Do not shorten it on
   a GB10 pair: the worker refuses NCCL's first memory registration right after a rank frees its pages.
 - **Memory is unified:** read it with `free -h`, not `nvidia-smi`. The n-gram table (51 GB e4m3) is locked in host
