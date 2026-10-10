@@ -1,0 +1,158 @@
+{
+ "waves": [
+  {
+   "requests": [
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 38.3
+    },
+    {
+     "status": 500,
+     "error": "{\"error\": {\"message\": \"the GPU had no memory left for this request's caches: retry once another request ends\"}}",
+     "s": 33.1
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 38.8
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 39.3
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 38.6
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 38.3
+    },
+    {
+     "status": 500,
+     "error": "{\"error\": {\"message\": \"the GPU had no memory left for this request's caches: retry once another request ends\"}}",
+     "s": 19.0
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 38.9
+    }
+   ],
+   "replies": 6,
+   "refused": 2,
+   "other": 0,
+   "s": 39.5,
+   "after": {
+    "status": 200,
+    "finish": "stop",
+    "tokens": 8,
+    "prompt": 18,
+    "sha": "6c5382c70e81",
+    "s": 0.2
+   },
+   "health": "ok",
+   "ok": true
+  },
+  {
+   "requests": [
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 38.1
+    },
+    {
+     "status": 500,
+     "error": "{\"error\": {\"message\": \"the GPU had no memory left for this request's caches: retry once another request ends\"}}",
+     "s": 33.0
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 39.2
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 38.5
+    },
+    {
+     "status": 500,
+     "error": "{\"error\": {\"message\": \"the GPU had no memory left for this request's caches: retry once another request ends\"}}",
+     "s": 19.0
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 38.8
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 38.7
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 38.5
+    }
+   ],
+   "replies": 6,
+   "refused": 2,
+   "other": 0,
+   "s": 39.5,
+   "after": {
+    "status": 200,
+    "finish": "stop",
+    "tokens": 8,
+    "prompt": 18,
+    "sha": "6c5382c70e81",
+    "s": 0.3
+   },
+   "health": "ok",
+   "ok": true
+  }
+ ],
+ "after": [],
+ "ok": true
+}

@@ -17,11 +17,11 @@ converted_revision = "00a844f4a5453ec8f34e75bce7d43a004731ebfa"
 # for two CUDA ranks. Up to 16 streams, images and video (data and HTTPS URLs), sampling, structured output, kept
 # prompt states, kv_dtype int8 or int4.
 tensorfold_repo = "https://github.com/ashhart/TensorFold.git"
-tensorfold_sha = "d4fc1964d0637c33e09ddac18aec936f962bb646"     # v1.0.4
-patch = "tensorfold-native-v1.0.4.patch"
+tensorfold_sha = "bec00ae6961a43a9ab73c4fa9338c167b3f82851"     # v1.0.5
+patch = "tensorfold-native-v1.0.5.patch"
 # sha256 of docker/patches/<patch>; the image carries it as a label and `up` refuses a mismatch
-patch_sha256 = "ce40418ae58ec402b9598ab2ae415003b4d8995c204121dea5eb3376b4cc423e"
-image = "tf-qwen38-int4mixed:native-v1.0.4"
+patch_sha256 = "8bea040612fef5f473b374c92a743c7872f7b12a26469669d3b4781f3910cf8e"
+image = "tf-qwen38-int4mixed:native-v1.0.5"
 base_image = "nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c"
 container = "tf-qwen38-int4mixed"
 

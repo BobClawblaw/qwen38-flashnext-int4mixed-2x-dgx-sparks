@@ -7,7 +7,7 @@ no harness dependencies, stdlib Python only.
 - **Entry point:** `python3 -m spark up|down|status|logs|convert|image|validate`. Settings: `recipe.toml` defaults,
   `cluster.toml` per cluster (git-ignored), environment variables in upper case. `python3 -m spark validate` is the
   dry run; CI runs it on every profile and the refusals.
-- **The patch** (`docker/patches/tensorfold-native-v1.0.4.patch`, `git diff v1.0.4 native-v1.0.4` of the port on
+- **The patch** (`docker/patches/tensorfold-native-v1.0.5.patch`, `git diff v1.0.5 native-v1.0.5` of the port on
   github.com/BobClawblaw/TensorFold) is pinned by sha256 in `recipe.toml`. Never edit it in place: change the port's
   branch, run its host tests and the two-rank GPU exactness checks, regenerate, re-pin, `spark image --rebuild`,
   rerun the suite. The captured kernel set beside it (`docker/kernels/sm121`) changes the same way: recaptured, never

@@ -1,0 +1,26 @@
+--- rank 0
+warmed graphs in 111 ms
+tokens: { 760, 3766, 1414, 16661, 314, 34227, 12103, 13753, 11, 1754, 42724, 264 }
+MTP decode (native forward, graphs): 47 tokens in 0.735 s = 64.0 tok/s; 23 rounds, 38 drafted, 24 accepted (Python: 23, 38, 24)
+time: verify 655.2 ms (28.49 a round, staging 0.7 ms, GPU 654.2 ms), keep 1.1 ms, draft 68.9 ms
+staging split: ids upload 0.0 ms, n-gram ids 0.0 ms, table rows 0.6 ms
+PASS EXACT rank 0: native forward, prefill + 48 tokens with MTP drafts equal the Python engine's
+rank 0: shared rounds of 1-row windows over 3 streams: 51 of 51 tokens equal the lone runs
+rank 0: shared rounds of 4-row windows over 3 streams: 51 of 51 tokens equal the lone runs
+PASS EXACT rank 0: shared rounds over 3 streams equal each stream alone
+rank 0: batched drafts over 3 streams: 6 of 6 draft runs equal the lone runs
+PASS EXACT rank 0: batched drafts over 3 streams equal each stream's own
+rank 0: MTP decoding over 5 streams together: 5 of 5 streams equal alone (23 rounds, 37 windows cut short)
+PASS EXACT rank 0: MTP decoding over 5 streams together equals each stream alone
+rank 0: 8 prompts in one pass: 370.7 ms, one by one 1052.4 ms; 8 of 8 decode as alone; 8 kept points resume as fresh
+PASS rank 0: 8 prompts in one pass decode as each alone
+NCCL version 2.30.7+cuda13.3
+--- rank 1
+rank 1: shared rounds of 4-row windows over 3 streams: 51 of 51 tokens equal the lone runs
+PASS EXACT rank 1: shared rounds over 3 streams equal each stream alone
+rank 1: batched drafts over 3 streams: 6 of 6 draft runs equal the lone runs
+PASS EXACT rank 1: batched drafts over 3 streams equal each stream's own
+rank 1: MTP decoding over 5 streams together: 5 of 5 streams equal alone (23 rounds, 37 windows cut short)
+PASS EXACT rank 1: MTP decoding over 5 streams together equals each stream alone
+rank 1: 8 prompts in one pass: 370.7 ms, one by one 1051.0 ms; 8 of 8 decode as alone; 8 kept points resume as fresh
+PASS rank 1: 8 prompts in one pass decode as each alone

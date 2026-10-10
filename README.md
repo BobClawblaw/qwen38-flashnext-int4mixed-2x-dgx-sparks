@@ -19,19 +19,21 @@ dependencies.
 
 ## Measured on this pair
 
-The defaults: TensorFold v1.0.4's native engine with this recipe's patch (pin `ce40418a`), sixteen concurrent
+The defaults: TensorFold v1.0.5's native engine with this recipe's patch (pin `8bea0406`), sixteen concurrent
 streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link.
 `bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per stream, median of 3 runs. Receipts:
-[`evidence/2026-10-10-native-v1.0.4-split-shared/`](evidence/2026-10-10-native-v1.0.4-split-shared/).
+[`evidence/2026-10-10-native-v1.0.5/`](evidence/2026-10-10-native-v1.0.5/).
 
 | Users | prose | code | structured | list | first token |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 77.1 | 125.7 | 99.1 | 125.7 | 0.08-0.09 s |
-| 4 | 157.5 | 247.6 | 194.4 | 281.3 | 0.13-0.19 s |
-| 8 | 223.2 | 380.3 | 279.8 | 410.4 | 0.23-0.32 s |
-| 16 | 297.8 | 506.7 | 383.7 | 517.3 | 0.42-0.49 s |
+| 1 | 76.9 | 125.9 | 99.3 | 128.0 | 0.07-0.09 s |
+| 4 | 158.5 | 250.3 | 199.6 | 273.7 | 0.14-0.21 s |
+| 8 | 221.5 | 384.6 | 273.2 | 411.0 | 0.24-0.30 s |
+| 16 | 297.2 | 510.9 | 387.7 | 518.4 | 0.44-0.49 s |
 
-Aggregate tokens a second, on a fresh server; one stream after other traffic holds 77.1 / 124.7 / 97.0 / 125.3. One
+Aggregate tokens a second, on a fresh server; one stream after other traffic holds 76.5 / 124.6-126.4 / 97.8 / 125.1-126.9.
+On v1.0.4 (pin `ce40418a`, [`evidence/2026-10-10-native-v1.0.4-split-shared/`](evidence/2026-10-10-native-v1.0.4-split-shared/))
+the same: 77.1 / 125.7 / 99.1 / 125.7 at one user, 297.8 / 506.7 / 383.7 / 517.3 at 16. One
 stream gained 15-21% from two changes to how decode steps run as CUDA graphs, neither touching the arithmetic: each
 graph ends at the cross-rank gathers (which run between graphs, 15 us instead of 25), and one captured step serves
 every sequence (its sequence-specific kernel arguments rewritten at launch) instead of each request capturing its own
@@ -71,8 +73,9 @@ prompt-pass fusions (pin `f188bd45`, one rail): 2,124 / 2,096 / 1,888 / 1,741, s
 ## Quality
 
 The recipe's suite on the defaults (`quality/`, datasets pinned), greedy with thinking off (`enable_thinking: false`;
-scores with thinking on will differ, mostly upward on maths and code). The native v1.0.4 image and the Python engine
-score the same on every check ([`suite/report.md`](evidence/2026-10-10-native-v1.0.4/suite/report.md)):
+scores with thinking on will differ, mostly upward on maths and code). The native v1.0.5 build, the v1.0.4 image and the Python engine
+score the same on every check ([v1.0.5](evidence/2026-10-10-native-v1.0.5/port-checks/suite/report.md),
+[v1.0.4](evidence/2026-10-10-native-v1.0.4/suite/report.md)):
 
 | Check | Result |
 |---|---|
@@ -101,12 +104,12 @@ How the speed got here, one user:
 The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays. The table above is the
 Python engine's history; on the native engine the same sweep around 0.70 found nothing faster.
 
-## The engine (TensorFold 1.0.4, native)
+## The engine (TensorFold 1.0.5, native)
 
-The recipe serves the converted checkpoint on TensorFold v1.0.4, the Zig engine, with
-[`docker/patches/tensorfold-native-v1.0.4.patch`](docker/patches/tensorfold-native-v1.0.4.patch): this project's
+The recipe serves the converted checkpoint on TensorFold v1.0.5, the Zig engine, with
+[`docker/patches/tensorfold-native-v1.0.5.patch`](docker/patches/tensorfold-native-v1.0.5.patch): this project's
 Flash Next family for two CUDA ranks (the release serves Flash Next on Metal only; the port is on
-[BobClawblaw/TensorFold `native-v1.0.4`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.4)).
+[BobClawblaw/TensorFold `native-v1.0.5`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.5)).
 TensorFold's Python engine, which the recipe served first, is frozen upstream and was removed here on 2026-10-10.
 
 - Up to 16 streams in shared rounds (DeltaNet, keeps and attention batched across streams, up to 128 rows a round),

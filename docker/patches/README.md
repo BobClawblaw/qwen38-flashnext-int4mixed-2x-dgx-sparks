@@ -1,7 +1,7 @@
 # docker/patches/
 
-The image build (docker/Dockerfile.native) applies `tensorfold-native-v1.0.4.patch` to TensorFold at the release
-`recipe.toml` pins (`[engine] tensorfold_sha`, v1.0.4). The patch's sha256 is pinned too (`patch_sha256`); the build
+The image build (docker/Dockerfile.native) applies `tensorfold-native-v1.0.5.patch` to TensorFold at the release
+`recipe.toml` pins (`[engine] tensorfold_sha`, v1.0.5). The patch's sha256 is pinned too (`patch_sha256`); the build
 refuses a file that differs, the image carries the hash as a label, and `spark up` refuses an image whose label
 differs. A changed patch is a new pin and new evidence.
 
@@ -9,10 +9,10 @@ Until 2026-10-10 the recipe also built TensorFold's Python engine (`python-0.6` 
 (the `affine-experts` loader, int8 dense linears, prompt-pass fusions, structured output on two ranks). Upstream froze
 that engine and the recipe dropped it; its receipts stay under `evidence/` (2026-10-07 to 2026-10-09).
 
-## What the patch adds (`tensorfold-native-v1.0.4.patch`)
+## What the patch adds (`tensorfold-native-v1.0.5.patch`)
 
-The image builds TensorFold v1.0.4 (`d4fc196`) with this patch, docker/Dockerfile.native:
-`git diff v1.0.4 native-v1.0.4` of this project's port (branch `native-v1.0.4` of github.com/BobClawblaw/TensorFold).
+The image builds TensorFold v1.0.5 (`bec00ae`) with this patch, docker/Dockerfile.native:
+`git diff v1.0.5 native-v1.0.5` of this project's port (branch `native-v1.0.5` of github.com/BobClawblaw/TensorFold).
 It adds:
 
 - `zig/src/families/flashnext_cuda/`: the weight loader for the converted checkpoint, the forward, CUDA graphs for
@@ -33,4 +33,4 @@ It adds:
 The Triton kernels it launches are captured from the Python engine and shipped beside it (`docker/kernels/sm121`,
 217 variants, the int4 and multi-stream attention variants included). Pinned by sha256 in `recipe.toml`
 (`native_patch_sha256`). To change it: change the branch, run its tests and the GPU exactness checks, regenerate with
-`git diff v1.0.4 <head>`, re-pin, rebuild, rerun the suite.
+`git diff v1.0.5 <head>`, re-pin, rebuild, rerun the suite.

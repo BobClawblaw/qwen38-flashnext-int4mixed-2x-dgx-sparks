@@ -1,0 +1,138 @@
+{
+ "waves": [
+  {
+   "requests": [
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 34.9
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 34.8
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 34.6
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 35.7
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 34.5
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7297,
+     "sha": "fb7891d8f1d8",
+     "s": 33.9
+    }
+   ],
+   "replies": 6,
+   "refused": 0,
+   "other": 0,
+   "s": 36.0,
+   "after": {
+    "status": 200,
+    "finish": "stop",
+    "tokens": 8,
+    "prompt": 18,
+    "sha": "6c5382c70e81",
+    "s": 0.3
+   },
+   "health": "ok",
+   "ok": true
+  },
+  {
+   "requests": [
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 34.3
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 34.6
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 35.3
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 34.6
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 34.9
+    },
+    {
+     "status": 200,
+     "finish": "length",
+     "tokens": 1200,
+     "prompt": 7299,
+     "sha": "fb7891d8f1d8",
+     "s": 34.6
+    }
+   ],
+   "replies": 6,
+   "refused": 0,
+   "other": 0,
+   "s": 35.5,
+   "after": {
+    "status": 200,
+    "finish": "stop",
+    "tokens": 8,
+    "prompt": 18,
+    "sha": "6c5382c70e81",
+    "s": 0.2
+   },
+   "health": "ok",
+   "ok": true
+  }
+ ],
+ "after": [],
+ "ok": true
+}

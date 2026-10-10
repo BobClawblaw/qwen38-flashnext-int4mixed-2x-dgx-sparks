@@ -1,16 +1,16 @@
 diff --git a/build.zig b/build.zig
-index 9f8e9a2..5143ee8 100644
+index 9515dc36..c7f71bcb 100644
 --- a/build.zig
 +++ b/build.zig
-@@ -3,6 +3,7 @@ const builtin = @import("builtin");
- const cuda_build = @import("zig/build/cuda.zig");
+@@ -4,6 +4,7 @@ const cuda_build = @import("zig/build/cuda.zig");
  const dist_build = @import("zig/build/dist.zig");
  const qwen27_build = @import("zig/build/qwen27.zig");
+ const hip_build = @import("zig/build/hip.zig");
 +const vision_build = @import("zig/build/vision.zig");
  
  comptime {
      const required = std.mem.trim(u8, @embedFile(".zig-version"), "\r\n");
-@@ -237,7 +238,7 @@ fn metalTargets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
+@@ -264,7 +265,7 @@ fn metalTargets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
      const kernels_mod = embedded(b, lib, "tensorfold.metallib");
  
      // The engines registry: the families this platform's binaries serve; the CLI reads it for models/info/pull.
@@ -19,7 +19,7 @@ index 9f8e9a2..5143ee8 100644
      const engines = b.createModule(.{
          .root_source_file = b.path("zig/src/native/metal.zig"),
          .target = target,
-@@ -520,7 +521,7 @@ pub fn distMetalServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_id
+@@ -558,7 +559,7 @@ pub fn distMetalServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_id
      m.metal.addSystemFrameworkPath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "System/Library/Frameworks" })));
      m.metal.addLibraryPath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/lib" })));
      m.metal.addSystemIncludePath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/include" })));
@@ -30,7 +30,7 @@ index 9f8e9a2..5143ee8 100644
  }
 diff --git a/tools/zig/flashnext_aot_pack_dtypes.py b/tools/zig/flashnext_aot_pack_dtypes.py
 new file mode 100644
-index 0000000..27ded89
+index 00000000..27ded897
 --- /dev/null
 +++ b/tools/zig/flashnext_aot_pack_dtypes.py
 @@ -0,0 +1,15 @@
@@ -51,7 +51,7 @@ index 0000000..27ded89
 +sys.exit(mod["main"]())
 diff --git a/tools/zig/flashnext_capture_multi.py b/tools/zig/flashnext_capture_multi.py
 new file mode 100644
-index 0000000..7f76108
+index 00000000..7f761083
 --- /dev/null
 +++ b/tools/zig/flashnext_capture_multi.py
 @@ -0,0 +1,58 @@
@@ -115,7 +115,7 @@ index 0000000..7f76108
 +os._exit(0)
 diff --git a/tools/zig/flashnext_exhaust_check.py b/tools/zig/flashnext_exhaust_check.py
 new file mode 100644
-index 0000000..ce0457b
+index 00000000..ce0457b3
 --- /dev/null
 +++ b/tools/zig/flashnext_exhaust_check.py
 @@ -0,0 +1,68 @@
@@ -188,7 +188,7 @@ index 0000000..ce0457b
 +print("EXHAUST", "PASS" if ok else "FAIL")
 +json.dump(res, open(out, "w"), indent=1)
 diff --git a/zig/build/cuda.zig b/zig/build/cuda.zig
-index 29a750f..43dbadd 100644
+index 368f57b1..4d969590 100644
 --- a/zig/build/cuda.zig
 +++ b/zig/build/cuda.zig
 @@ -1,6 +1,7 @@
@@ -199,10 +199,10 @@ index 29a750f..43dbadd 100644
  
  /// Each .cu in zig/kernels/cuda (`src`, else `name`) with the flags its Python extension passes in `extra_cuda_cflags`.
  const Kernel = struct { name: []const u8, flags: []const []const u8, src: ?[]const u8 = null, arch_specific: bool = false };
-@@ -29,6 +30,17 @@ const kernels = [_]Kernel{
-     .{ .name = "nemotron_mamba", .flags = glue },
+@@ -30,6 +31,17 @@ const kernels = [_]Kernel{
      .{ .name = "nemotron_attention", .flags = glue },
      .{ .name = "nemotron_keyed", .flags = glue },
+     .{ .name = "fp8_lane", .flags = &.{"-O3"} }, // nvfp4/qmmf.cu's FP8G device code, tensorfold_nvfp4_v3
 +    // Flash Next (qwen4_exp): device copies of the Python engine's extensions (zig/tests/cuda/flashnext/gen_copies.py)
 +    .{ .name = "fn_experts", .src = "flashnext/experts", .flags = &.{"-O3"} }, // cuda/experts.py, tensorfold_experts_v7
 +    .{ .name = "fn_experts_prefill", .src = "flashnext/experts_prefill", .flags = &.{"-O3"} },
@@ -217,11 +217,11 @@ index 29a750f..43dbadd 100644
      .{ .name = "torch_argmax", .src = "torch_ops/argmax", .flags = torch_ops },
      .{ .name = "torch_topk", .src = "torch_ops/topk", .flags = torch_ops },
      .{ .name = "torch_pointwise", .src = "torch_ops/pointwise", .flags = torch_ops },
-@@ -65,7 +77,15 @@ fn runtime(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
+@@ -66,7 +78,15 @@ fn runtime(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
      return cuda;
  }
  
--fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, cuda: *std.Build.Module, draft_ids: *std.Build.Module) struct { core: *std.Build.Module, lanes: *std.Build.Module, nemotron: *std.Build.Module, tokenizer: *std.Build.Module } {
+-fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, cuda: *std.Build.Module, draft_ids: *std.Build.Module) struct { core: *std.Build.Module, lanes: *std.Build.Module, nemotron: *std.Build.Module, tokenizer: *std.Build.Module, heat: *std.Build.Module } {
 +var flashnext_option: ?bool = null;
 +
 +/// -Dflashnext, read once (family() runs for several targets).
@@ -230,15 +230,15 @@ index 29a750f..43dbadd 100644
 +    return flashnext_option.?;
 +}
 +
-+fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, cuda: *std.Build.Module, draft_ids: *std.Build.Module) struct { core: *std.Build.Module, lanes: *std.Build.Module, nemotron: *std.Build.Module, tokenizer: *std.Build.Module, flashnext: ?*std.Build.Module } {
++fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, cuda: *std.Build.Module, draft_ids: *std.Build.Module) struct { core: *std.Build.Module, lanes: *std.Build.Module, nemotron: *std.Build.Module, tokenizer: *std.Build.Module, heat: *std.Build.Module, flashnext: ?*std.Build.Module } {
      const tokenizer = b.createModule(.{ .root_source_file = b.path("zig/src/core/tokenizer/tokenizer.zig"), .target = target, .optimize = optimize, .link_libc = true });
      const core = b.createModule(.{ .root_source_file = b.path("zig/src/core/root.zig"), .target = target, .optimize = optimize, .link_libc = true });
      core.addImport("tokenizer", tokenizer);
-@@ -75,7 +95,15 @@ fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin
-     nemotron.addImport("core", core);
+@@ -78,7 +98,15 @@ fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin
      nemotron.addImport("lanes", lanes);
+     nemotron.addImport("heat", heat);
      nemotron.addImport("nemotron_draft_ids", draft_ids);
--    return .{ .core = core, .lanes = lanes, .nemotron = nemotron, .tokenizer = tokenizer };
+-    return .{ .core = core, .lanes = lanes, .nemotron = nemotron, .tokenizer = tokenizer, .heat = heat };
 +    // Flash Next on two GB10s (zig/src/families/flashnext_cuda), registered when built with -Dflashnext
 +    const flashnext: ?*std.Build.Module = if (flashnextOption(b)) blk: {
 +        const m = b.createModule(.{ .root_source_file = b.path("zig/src/families/flashnext_cuda/root.zig"), .target = target, .optimize = optimize, .link_libc = true });
@@ -247,11 +247,18 @@ index 29a750f..43dbadd 100644
 +        m.addImport("lanes", lanes);
 +        break :blk m;
 +    } else null;
-+    return .{ .core = core, .lanes = lanes, .nemotron = nemotron, .tokenizer = tokenizer, .flashnext = flashnext };
++    return .{ .core = core, .lanes = lanes, .nemotron = nemotron, .tokenizer = tokenizer, .heat = heat, .flashnext = flashnext };
  }
  
  /// Linux targets: fatbins (-Dnvcc builds them, -Dfatbins embeds prebuilt ones), `tensorfold` and `tf-cuda-test`.
-@@ -110,15 +138,21 @@ pub fn targets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
+@@ -110,21 +138,27 @@ pub fn targets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
+     cli.addImport("core", mods.core);
+     cli.addImport("lanes", mods.lanes);
+     cli.addImport("nemotron", mods.nemotron);
+-    const native = engines(b, target, optimize, cuda, mods.lanes, mods.nemotron);
++    const native = engines(b, target, optimize, cuda, mods.lanes, mods.nemotron, null);
+     cli.addOptions("build_options", build_options);
+     cli.addImport("checkpoint_cli", checkpointCli(b, target, optimize, strip, native.engines));
      b.installArtifact(b.addExecutable(.{ .name = "tensorfold", .root_module = cli }));
      const runner = b.createModule(.{ .root_source_file = b.path("zig/tests/cuda/main.zig"), .target = target, .optimize = optimize, .link_libc = true, .strip = strip });
      runner.addImport("cuda", cuda);
@@ -276,7 +283,7 @@ index 29a750f..43dbadd 100644
      const mod = b.createModule(.{
          .root_source_file = b.path("zig/src/native/cuda.zig"),
          .target = target,
-@@ -126,12 +160,17 @@ fn engines(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
+@@ -132,6 +166,11 @@ fn engines(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
          .link_libc = true,
          .imports = &.{ .{ .name = "cuda", .module = cuda }, .{ .name = "engine_api", .module = api }, .{ .name = "lanes", .module = lanes }, .{ .name = "nemotron", .module = nemotron } },
      });
@@ -288,6 +295,9 @@ index 29a750f..43dbadd 100644
      return .{ .api = api, .engines = mod };
  }
  
+@@ -141,8 +180,8 @@ fn checkpointCli(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.
+ }
+ 
  /// `zig build native`: tensorfold-native with the CUDA engines into zig-out/native/bin, as the Metal build makes it.
 -fn nativeServer(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, cuda: *std.Build.Module, lanes: *std.Build.Module, nemotron: *std.Build.Module, tokenizer: *std.Build.Module, build_options: *std.Build.Step.Options, install_native: bool) *std.Build.Step.Compile {
 -    const m = engines(b, target, optimize, cuda, lanes, nemotron);
@@ -296,16 +306,16 @@ index 29a750f..43dbadd 100644
      // the HTTP side keeps its safety checks; the engine below it runs at `optimize` (the tokenizer is the family's)
      const template = b.createModule(.{ .root_source_file = b.path("zig/src/core/template/template.zig"), .target = target, .optimize = .ReleaseSafe, .link_libc = true });
      const exe = b.addExecutable(.{ .name = "tensorfold-native", .root_module = b.createModule(.{
-@@ -158,7 +197,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, all: *std.Build.St
+@@ -169,7 +208,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
      const host = b.graph.host;
      const cuda = runtime(b, host, .debug, &.{});
      const mods = family(b, host, .debug, cuda, draft_ids);
--    const native = engines(b, host, .debug, cuda, mods.lanes, mods.nemotron).engines;
-+    const native = engines(b, host, .debug, cuda, mods.lanes, mods.nemotron, null).engines;
-     for ([_]*std.Build.Module{ cuda, mods.core, mods.lanes, mods.nemotron, native, stagger(b, host, .debug) }) |m| step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = m })).step);
-     const cli = b.createModule(.{ .root_source_file = b.path("zig/src/cli/cuda_main.zig"), .target = host, .optimize = .debug, .link_libc = true });
-     cli.addImport("cuda", cuda);
-@@ -193,7 +232,7 @@ pub fn distServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_ids: *s
+-    const native_modules = engines(b, host, .debug, cuda, mods.lanes, mods.nemotron);
++    const native_modules = engines(b, host, .debug, cuda, mods.lanes, mods.nemotron, null);
+     const native = native_modules.engines;
+     // the HTTP server's unit tests (zig/src/server/root.zig), which the macOS build runs, on Linux hosts too
+     const template = b.createModule(.{ .root_source_file = b.path("zig/src/core/template/template.zig"), .target = host, .optimize = .debug, .link_libc = true });
+@@ -219,7 +258,7 @@ pub fn distServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_ids: *s
      };
      const cuda = runtime(b, target, .fast, if (prebuilt != null) &images else &.{});
      const mods = family(b, target, .fast, cuda, draft_ids);
@@ -316,7 +326,7 @@ index 29a750f..43dbadd 100644
  /// Validate the complete named input set, including images unused by today's server.
 diff --git a/zig/build/vision.zig b/zig/build/vision.zig
 new file mode 100644
-index 0000000..11eb50c
+index 00000000..11eb50c1
 --- /dev/null
 +++ b/zig/build/vision.zig
 @@ -0,0 +1,10 @@
@@ -332,7 +342,7 @@ index 0000000..11eb50c
 +}
 diff --git a/zig/kernels/cuda/flashnext/experts.cu b/zig/kernels/cuda/flashnext/experts.cu
 new file mode 100644
-index 0000000..ea68062
+index 00000000..ea680620
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/experts.cu
 @@ -0,0 +1,294 @@
@@ -632,7 +642,7 @@ index 0000000..ea68062
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/experts.cuh b/zig/kernels/cuda/flashnext/experts.cuh
 new file mode 100644
-index 0000000..f7fac48
+index 00000000..f7fac486
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/experts.cuh
 @@ -0,0 +1,106 @@
@@ -744,7 +754,7 @@ index 0000000..f7fac48
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/experts_prefill.cu b/zig/kernels/cuda/flashnext/experts_prefill.cu
 new file mode 100644
-index 0000000..6cab13d
+index 00000000..6cab13dd
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/experts_prefill.cu
 @@ -0,0 +1,162 @@
@@ -912,7 +922,7 @@ index 0000000..6cab13d
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/fn_gdn.cu b/zig/kernels/cuda/flashnext/fn_gdn.cu
 new file mode 100644
-index 0000000..0291b8e
+index 00000000..0291b8e4
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/fn_gdn.cu
 @@ -0,0 +1,223 @@
@@ -1141,7 +1151,7 @@ index 0000000..0291b8e
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/gdn_io.cu b/zig/kernels/cuda/flashnext/gdn_io.cu
 new file mode 100644
-index 0000000..3841b52
+index 00000000..3841b521
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/gdn_io.cu
 @@ -0,0 +1,111 @@
@@ -1258,7 +1268,7 @@ index 0000000..3841b52
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/gdn_multi.cu b/zig/kernels/cuda/flashnext/gdn_multi.cu
 new file mode 100644
-index 0000000..9556d62
+index 00000000..9556d628
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/gdn_multi.cu
 @@ -0,0 +1,212 @@
@@ -1476,7 +1486,7 @@ index 0000000..9556d62
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/gdn_prefill.cu b/zig/kernels/cuda/flashnext/gdn_prefill.cu
 new file mode 100644
-index 0000000..12cdc8c
+index 00000000..12cdc8c5
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/gdn_prefill.cu
 @@ -0,0 +1,152 @@
@@ -1634,7 +1644,7 @@ index 0000000..12cdc8c
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/qmm.cu b/zig/kernels/cuda/flashnext/qmm.cu
 new file mode 100644
-index 0000000..0969fef
+index 00000000..0969fefc
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/qmm.cu
 @@ -0,0 +1,260 @@
@@ -1900,7 +1910,7 @@ index 0000000..0969fef
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/qmm_frag.cuh b/zig/kernels/cuda/flashnext/qmm_frag.cuh
 new file mode 100644
-index 0000000..f4a4f45
+index 00000000..f4a4f457
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/qmm_frag.cuh
 @@ -0,0 +1,119 @@
@@ -2025,7 +2035,7 @@ index 0000000..f4a4f45
 +} // namespace qmm_frag
 diff --git a/zig/kernels/cuda/flashnext/qmm_prefill.cu b/zig/kernels/cuda/flashnext/qmm_prefill.cu
 new file mode 100644
-index 0000000..409edaa
+index 00000000..409edaab
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/qmm_prefill.cu
 @@ -0,0 +1,202 @@
@@ -2233,7 +2243,7 @@ index 0000000..409edaa
 +}  // namespace
 diff --git a/zig/kernels/cuda/flashnext/sample.cu b/zig/kernels/cuda/flashnext/sample.cu
 new file mode 100644
-index 0000000..01a19b8
+index 00000000..01a19b80
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/sample.cu
 @@ -0,0 +1,135 @@
@@ -2374,7 +2384,7 @@ index 0000000..01a19b8
 +}
 diff --git a/zig/kernels/cuda/flashnext/vision.cu b/zig/kernels/cuda/flashnext/vision.cu
 new file mode 100644
-index 0000000..5000a08
+index 00000000..5000a085
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext/vision.cu
 @@ -0,0 +1,270 @@
@@ -2649,7 +2659,7 @@ index 0000000..5000a08
 +    }
 +}
 diff --git a/zig/src/core/engine_api.zig b/zig/src/core/engine_api.zig
-index 3ffe291..68a36f6 100644
+index 277c221a..c8f932b4 100644
 --- a/zig/src/core/engine_api.zig
 +++ b/zig/src/core/engine_api.zig
 @@ -1,5 +1,8 @@
@@ -2661,7 +2671,7 @@ index 3ffe291..68a36f6 100644
  const lanes = @import("lanes");
  const Allocator = std.mem.Allocator;
  
-@@ -37,8 +40,12 @@ pub const Structure = struct {
+@@ -40,8 +43,12 @@ pub const Structure = struct {
      text: []const u8 = "",
      /// With thinking on, the grammar starts after this token.
      after: ?u32 = null,
@@ -2674,25 +2684,25 @@ index 3ffe291..68a36f6 100644
  /// A reply to decode. The request and every slice in it stay valid until its ``finished`` event.
  pub const Request = struct {
      prompt: []const u32,
-@@ -69,6 +76,8 @@ pub const Request = struct {
-     structure: ?Structure = null,
-     /// Stop a short exact cycle while the think block is open.
+@@ -76,6 +83,8 @@ pub const Request = struct {
      loop_guard: bool = false,
+     /// Logprob rows for each reply token with this many best tokens (0..20), when ``Info.logprobs``; null: none.
+     logprobs: ?u8 = null,
 +    /// An image prompt's inputs in prompt order (Info.vision engines only; the prompt holds their placeholder rows).
 +    images: []const lanes.Image = &.{},
  };
  
  pub const Reason = enum { stop, length, cancelled, failed };
-@@ -127,6 +136,8 @@ pub const Info = struct {
-     plain_only: bool = false,
-     /// The immutable retained-prefix plan applied at startup, not a process memory limit or current cache occupancy.
+@@ -142,6 +151,8 @@ pub const Info = struct {
      prompt_cache_plan: ?PromptCachePlan = null,
+     /// The engine decodes greedily only: the server refuses a request with a temperature before admitting it.
+     greedy_only: bool = false,
 +    /// The engine encodes image inputs (Request.images): it was opened with ``vision`` and its family has a tower.
 +    vision: bool = false,
  };
  
  pub const PromptCachePlan = struct {
-@@ -169,10 +180,25 @@ pub const Open = struct {
+@@ -186,10 +197,25 @@ pub const Open = struct {
      /// --device and --segments (CUDA); null: the backend's environment fallback, then its default.
      device: ?u32 = null,
      segments: ?u32 = null,
@@ -2717,13 +2727,13 @@ index 3ffe291..68a36f6 100644
 +    follow: ?*const fn (ctx: *anyopaque) anyerror!void = null,
 +};
  
- pub const Memory = struct { active: u64 = 0, cache: u64 = 0, peak: u64 = 0 };
+ pub const Memory = struct { active: u64 = 0, cache: u64 = 0, peak: u64 = 0, pinned: u64 = 0 };
  
 diff --git a/zig/src/core/lane_host.zig b/zig/src/core/lane_host.zig
-index 2b0e8e2..a3701cc 100644
+index dc4e4db1..5fd6949d 100644
 --- a/zig/src/core/lane_host.zig
 +++ b/zig/src/core/lane_host.zig
-@@ -320,18 +320,67 @@ pub const LaneHost = struct {
+@@ -321,18 +321,67 @@ pub const LaneHost = struct {
  
      /// Prefills the next queued request into a free lane; false when none waits or no lane is free.
      fn admitOne(h: *LaneHost) bool {
@@ -2793,7 +2803,7 @@ index 2b0e8e2..a3701cc 100644
          const r = job.request;
          var reuse: lanes.stream.Reuse = .{};
          // the entry stays alive until the backend restores it: nothing keeps between here and this stream's own pass
-@@ -341,7 +390,10 @@ pub const LaneHost = struct {
+@@ -342,7 +391,10 @@ pub const LaneHost = struct {
              job.marks = l.marks;
              reuse = .{ .saved = if (l.entry) |e| e.saved else null, .at = if (l.entry) |e| e.at else 0, .marks = l.marks, .hook = .{ .ptr = job, .at = Job.kept } };
          } else |_| {};
@@ -2805,7 +2815,7 @@ index 2b0e8e2..a3701cc 100644
          job.stream = lanes.Stream.init(h.gpa, .{
              .id = "request",
              .prompt = r.prompt,
-@@ -358,17 +410,15 @@ pub const LaneHost = struct {
+@@ -360,17 +412,15 @@ pub const LaneHost = struct {
              .loop_guard = r.loop_guard,
              .chunks = r.chunks,
              .reuse = reuse,
@@ -2828,7 +2838,7 @@ index 2b0e8e2..a3701cc 100644
          return true;
      }
  
-@@ -478,7 +528,7 @@ pub const LaneHost = struct {
+@@ -480,7 +530,7 @@ pub const LaneHost = struct {
      fn run(h: *LaneHost) void {
          while (true) {
              h.takeCancels();
@@ -2837,7 +2847,7 @@ index 2b0e8e2..a3701cc 100644
              h.noteLive();
              h.lock();
              if (h.closing) {
-@@ -505,7 +555,9 @@ pub const LaneHost = struct {
+@@ -507,7 +557,9 @@ pub const LaneHost = struct {
              }
              h.unlock();
              h.core.step() catch |e| {
@@ -2848,7 +2858,7 @@ index 2b0e8e2..a3701cc 100644
                  continue;
              };
              var i: usize = 0;
-@@ -520,6 +572,32 @@ pub const LaneHost = struct {
+@@ -522,6 +574,32 @@ pub const LaneHost = struct {
          }
      }
  
@@ -2882,7 +2892,7 @@ index 2b0e8e2..a3701cc 100644
      fn failAll(h: *LaneHost, message: []const u8) void {
          h.lock();
 diff --git a/zig/src/core/lane_host_test.zig b/zig/src/core/lane_host_test.zig
-index 4761d7f..1bc56fc 100644
+index 4761d7f2..1bc56fc2 100644
 --- a/zig/src/core/lane_host_test.zig
 +++ b/zig/src/core/lane_host_test.zig
 @@ -312,3 +312,67 @@ test "a learn request steps while the engine idles, its events in order; a host
@@ -2954,10 +2964,10 @@ index 4761d7f..1bc56fc 100644
 +    try std.testing.expectEqual(@as(usize, 64), two.tokens);
 +}
 diff --git a/zig/src/core/lanes/backend.zig b/zig/src/core/lanes/backend.zig
-index ee95dc6..cc9a1f7 100644
+index a10ced86..2583fbe6 100644
 --- a/zig/src/core/lanes/backend.zig
 +++ b/zig/src/core/lanes/backend.zig
-@@ -49,6 +49,9 @@ pub const Backend = struct {
+@@ -65,6 +65,9 @@ pub const Backend = struct {
      pub const VTable = struct {
          /// Prefill the stream's prompt into its caches (and its draft head's).
          prefill: *const fn (ptr: *anyopaque, s: *Stream) anyerror!void,
@@ -2967,8 +2977,8 @@ index ee95dc6..cc9a1f7 100644
          /// Draw the first token from the prompt's last row at `position`; a handle to it.
          first: *const fn (ptr: *anyopaque, s: *Stream, position: u64) anyerror!u64,
          /// Feed one token and queue the draw of the next at `position` (a one-token round); a handle to it.
-@@ -71,6 +74,9 @@ pub const Backend = struct {
-         alternatives: ?*const fn (ptr: *anyopaque, s: *Stream, out: []Alternative) anyerror!usize = null,
+@@ -93,6 +96,9 @@ pub const Backend = struct {
+         first_row: ?*const fn (ptr: *anyopaque, s: *Stream) anyerror!Row = null,
          /// The stream left the rounds: free its caches and held drafts.
          release: *const fn (ptr: *anyopaque, s: *Stream) void,
 +        /// After a failed round: the streams it failed for alone (their caches could not grow), which the caller
@@ -2978,10 +2988,10 @@ index ee95dc6..cc9a1f7 100644
  
      pub fn prefill(b: Backend, s: *Stream) !void {
 diff --git a/zig/src/core/lanes/engine.zig b/zig/src/core/lanes/engine.zig
-index 839322e..2cd63d0 100644
+index b752d84e..c8f0dcba 100644
 --- a/zig/src/core/lanes/engine.zig
 +++ b/zig/src/core/lanes/engine.zig
-@@ -146,11 +146,121 @@ pub const Engine = struct {
+@@ -151,11 +151,121 @@ pub const Engine = struct {
          try e.live.append(e.gpa, s);
      }
  
@@ -3063,7 +3073,7 @@ index 839322e..2cd63d0 100644
 +                const first = if (feeds[i] == .handle) value else e.backend.read(drawns[i]) catch value;
 +                trail.event(e, &.{ f("ev", str("first")), f("stream", str(s.id)), f("position", int(position)), f("drawn", int(first)), f("token", int(value)) }) catch {};
 +            }
-+            _ = s.commit(e.gpa, &.{value}) catch |err| {
++            _ = s.commit(e.gpa, &.{value}, &.{}) catch |err| {
 +                errs[i] = err;
 +                continue;
 +            };
@@ -3104,10 +3114,10 @@ index 839322e..2cd63d0 100644
      pub fn discard(e: *Engine, s: *Stream) void {
          s.finished = true;
 diff --git a/zig/src/core/lanes/fake.zig b/zig/src/core/lanes/fake.zig
-index 67d7741..2c56e06 100644
+index 6ad22fcc..36297f43 100644
 --- a/zig/src/core/lanes/fake.zig
 +++ b/zig/src/core/lanes/fake.zig
-@@ -39,12 +39,16 @@ pub const Fake = struct {
+@@ -53,12 +53,16 @@ pub const Fake = struct {
      prefill_hook: ?*const fn (ctx: *anyopaque, s: *Stream, chunk: usize) void = null,
      prefill_hook_ctx: ?*anyopaque = null,
      refuse_sampled: bool = false, // prefill refuses a sampled stream with error.SamplingRefused
@@ -3124,16 +3134,16 @@ index 67d7741..2c56e06 100644
      }
  
      fn freeLane(gpa: Allocator, l: *Lane) void {
-@@ -54,7 +58,7 @@ pub const Fake = struct {
+@@ -68,7 +72,7 @@ pub const Fake = struct {
      }
  
      pub fn backend(x: *Fake) be.Backend {
--        return .{ .ptr = x, .vtable = &.{ .prefill = prefill, .first = first, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .release = release } };
-+        return .{ .ptr = x, .vtable = &.{ .prefill = prefill, .first = first, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .release = release, .refused = refusedFn } };
+-        return .{ .ptr = x, .vtable = &.{ .prefill = prefill, .first = first, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .features = features, .release = release, .first_row = firstRow } };
++        return .{ .ptr = x, .vtable = &.{ .prefill = prefill, .first = first, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .features = features, .release = release, .first_row = firstRow, .refused = refusedFn } };
      }
  
      fn self(ptr: *anyopaque) *Fake {
-@@ -153,8 +157,20 @@ pub const Fake = struct {
+@@ -173,8 +177,20 @@ pub const Fake = struct {
          return self(ptr).drawn.items[handle];
      }
  
@@ -3156,7 +3166,7 @@ index 67d7741..2c56e06 100644
              const l = x.lane(w.stream);
 diff --git a/zig/src/core/lanes/grammar.zig b/zig/src/core/lanes/grammar.zig
 new file mode 100644
-index 0000000..dff7ae7
+index 00000000..dff7ae78
 --- /dev/null
 +++ b/zig/src/core/lanes/grammar.zig
 @@ -0,0 +1,126 @@
@@ -3287,13 +3297,13 @@ index 0000000..dff7ae7
 +    after: ?u32 = null,
 +};
 diff --git a/zig/src/core/lanes/lanes.zig b/zig/src/core/lanes/lanes.zig
-index 65e0a5c..4e5ee16 100644
+index 6531f81c..91b6125c 100644
 --- a/zig/src/core/lanes/lanes.zig
 +++ b/zig/src/core/lanes/lanes.zig
-@@ -22,9 +22,11 @@ pub const windows = @import("windows.zig");
- pub const trail = @import("trail.zig");
- pub const engine = @import("engine.zig");
- pub const fake = @import("fake.zig");
+@@ -25,9 +25,11 @@ pub const fake = @import("fake.zig");
+ pub const drafter = @import("drafter.zig");
+ pub const drafted = @import("drafted.zig");
+ pub const logprob = @import("logprob.zig");
 +pub const grammar = @import("grammar.zig");
  
  pub const Engine = engine.Engine;
@@ -3303,7 +3313,7 @@ index 65e0a5c..4e5ee16 100644
  pub const Stream = stream.Stream;
  pub const Sampling = sampling.Sampling;
 diff --git a/zig/src/core/lanes/stream.zig b/zig/src/core/lanes/stream.zig
-index 3619e9a..783648a 100644
+index a91cff4d..63802066 100644
 --- a/zig/src/core/lanes/stream.zig
 +++ b/zig/src/core/lanes/stream.zig
 @@ -1,5 +1,6 @@
@@ -3313,7 +3323,7 @@ index 3619e9a..783648a 100644
  const shape = @import("shape.zig");
  const plan_lanes = @import("plan_lanes.zig");
  const Allocator = std.mem.Allocator;
-@@ -95,6 +96,10 @@ pub const Held = struct {
+@@ -96,6 +97,10 @@ pub const Held = struct {
      parents: ?[]i32 = null,
  };
  
@@ -3324,16 +3334,16 @@ index 3619e9a..783648a 100644
  pub const Spec = struct {
      id: []const u8,
      prompt: []const u32,
-@@ -112,6 +117,8 @@ pub const Spec = struct {
-     loop_guard: bool = false,
+@@ -114,6 +119,8 @@ pub const Spec = struct {
      chunks: []const u32 = &.{}, // where prefill chunks start after 0 (Python's PrefillPlan); empty: the backend's step
      reuse: Reuse = .{},
+     logprobs: ?u8 = null, // the target's log probabilities for each committed token, with this many best tokens
 +    images: []const Image = &.{}, // an image prompt's inputs, in prompt order (the backend encodes them at prefill)
 +    structure: ?grammar.Structure = null, // the reply's grammar (Info.structures backends mask its rows)
  };
  
  pub const Stream = struct {
-@@ -128,6 +135,8 @@ pub const Stream = struct {
+@@ -130,6 +137,8 @@ pub const Stream = struct {
      think_close: []const u32,
      think_end: i64,
      think_open: bool,
@@ -3342,7 +3352,7 @@ index 3619e9a..783648a 100644
      loop_guard: bool,
      loop_period: ?u32 = null,
      chunks: []const u32,
-@@ -178,6 +187,8 @@ pub const Stream = struct {
+@@ -182,6 +191,8 @@ pub const Stream = struct {
              .stop_check = spec.stop_check,
              .cancel_check = spec.cancel_check,
              .think_budget = spec.think_budget,
@@ -3352,7 +3362,7 @@ index 3619e9a..783648a 100644
              .think_end = spec.think_end,
              .think_open = spec.think_open orelse (spec.think_budget > 0 or (spec.loop_guard and spec.think_end >= 0)),
 diff --git a/zig/src/cuda/abi.zig b/zig/src/cuda/abi.zig
-index 97e048c..3a2a185 100644
+index a608fd61..8bb4739d 100644
 --- a/zig/src/cuda/abi.zig
 +++ b/zig/src/cuda/abi.zig
 @@ -3,6 +3,23 @@
@@ -3379,7 +3389,7 @@ index 97e048c..3a2a185 100644
  
  pub const Context = ?*opaque {};
  pub const Module = ?*opaque {};
-@@ -167,6 +184,15 @@ pub const Api = struct {
+@@ -171,6 +188,15 @@ pub const Api = struct {
      cuMemsetD32_v2: *const fn (DevicePtr, c_uint, usize) callconv(.c) R,
      cuMemsetD8Async: *const fn (DevicePtr, u8, usize, Stream) callconv(.c) R,
      cuMemsetD32Async: *const fn (DevicePtr, c_uint, usize, Stream) callconv(.c) R,
@@ -3395,7 +3405,7 @@ index 97e048c..3a2a185 100644
      cuStreamCreate: *const fn (*Stream, c_uint) callconv(.c) R,
      cuStreamDestroy_v2: *const fn (Stream) callconv(.c) R,
      cuStreamSynchronize: *const fn (Stream) callconv(.c) R,
-@@ -205,6 +231,14 @@ pub const Api = struct {
+@@ -209,6 +235,14 @@ pub const Api = struct {
      cuGraphExecDestroy: *const fn (GraphExec) callconv(.c) R,
      cuGraphExecUpdate_v2: *const fn (GraphExec, Graph, *ExecUpdateResultInfo) callconv(.c) R,
      cuGraphExecKernelNodeSetParams_v2: *const fn (GraphExec, GraphNode, *const KernelNodeParams) callconv(.c) R,
@@ -3411,7 +3421,7 @@ index 97e048c..3a2a185 100644
      cuGetErrorString: *const fn (R, *?[*:0]const u8) callconv(.c) R,
  };
 diff --git a/zig/src/cuda/cublaslt.zig b/zig/src/cuda/cublaslt.zig
-index cc733b8..cdf3419 100644
+index cc733b85..cdf34195 100644
 --- a/zig/src/cuda/cublaslt.zig
 +++ b/zig/src/cuda/cublaslt.zig
 @@ -108,6 +108,11 @@ pub const Linear = struct {
@@ -3439,7 +3449,7 @@ index cc733b8..cdf3419 100644
          try lt.check(lt.api.cublasLtMatrixLayoutCreate(&self.c, out, n, m, @intCast(n)), "layout D");
          errdefer _ = lt.api.cublasLtMatrixLayoutDestroy(self.c);
 diff --git a/zig/src/cuda/graph.zig b/zig/src/cuda/graph.zig
-index a5ad3e1..a30bf60 100644
+index a5ad3e1b..a30bf604 100644
 --- a/zig/src/cuda/graph.zig
 +++ b/zig/src/cuda/graph.zig
 @@ -93,6 +93,26 @@ pub const Graph = struct {
@@ -3482,13 +3492,13 @@ index a5ad3e1..a30bf60 100644
      pub fn update(self: Exec, g: Graph) Error!abi.ExecUpdateResult {
          var info: abi.ExecUpdateResultInfo = .{ .result = .success, .error_node = null, .error_from_node = null };
 diff --git a/zig/src/cuda/kernels.zig b/zig/src/cuda/kernels.zig
-index a0aeb87..ea33fd9 100644
+index 10615552..1b8e8cf8 100644
 --- a/zig/src/cuda/kernels.zig
 +++ b/zig/src/cuda/kernels.zig
-@@ -24,6 +24,16 @@ pub const scan_rows: []const u8 = if (available) &Blob("fatbin_scan_rows").bytes
- pub const nemotron_ops: []const u8 = if (available) &Blob("fatbin_nemotron_ops").bytes else &.{};
+@@ -25,6 +25,16 @@ pub const nemotron_ops: []const u8 = if (available) &Blob("fatbin_nemotron_ops")
  pub const lane_gemv: []const u8 = if (available) &Blob("fatbin_lane_gemv").bytes else &.{};
  pub const sample: []const u8 = if (available) &Blob("fatbin_sample").bytes else &.{};
+ pub const fp8_lane: []const u8 = if (available) &Blob("fatbin_fp8_lane").bytes else &.{};
 +pub const fn_experts: []const u8 = if (available) &Blob("fatbin_fn_experts").bytes else &.{};
 +pub const fn_experts_prefill: []const u8 = if (available) &Blob("fatbin_fn_experts_prefill").bytes else &.{};
 +pub const fn_gdn_prefill: []const u8 = if (available) &Blob("fatbin_fn_gdn_prefill").bytes else &.{};
@@ -3503,10 +3513,10 @@ index a0aeb87..ea33fd9 100644
  pub const torch_topk: []const u8 = if (available) &Blob("fatbin_torch_topk").bytes else &.{};
  pub const torch_pointwise: []const u8 = if (available) &Blob("fatbin_torch_pointwise").bytes else &.{};
 diff --git a/zig/src/cuda/root.zig b/zig/src/cuda/root.zig
-index dc1cf52..5ad27ae 100644
+index 6ee5648c..db671425 100644
 --- a/zig/src/cuda/root.zig
 +++ b/zig/src/cuda/root.zig
-@@ -19,6 +19,7 @@ pub const Dim3 = launch.Dim3;
+@@ -21,6 +21,7 @@ pub const Dim3 = launch.Dim3;
  pub const graph = @import("graph.zig");
  pub const cublaslt = @import("cublaslt.zig");
  pub const nccl = @import("nccl.zig");
@@ -3514,15 +3524,15 @@ index dc1cf52..5ad27ae 100644
  pub const triton = @import("triton.zig");
  pub const aot = @import("aot.zig");
  pub const kernels = @import("kernels.zig");
-@@ -30,4 +31,5 @@ test {
-     _ = abi;
-     _ = aot;
+@@ -39,4 +40,5 @@ test {
      _ = segments;
+     _ = @import("fp8.zig");
+     _ = carveout;
 +    _ = @import("tp_link.zig");
  }
 diff --git a/zig/src/cuda/tp_link.zig b/zig/src/cuda/tp_link.zig
 new file mode 100644
-index 0000000..1d74b64
+index 00000000..1d74b64c
 --- /dev/null
 +++ b/zig/src/cuda/tp_link.zig
 @@ -0,0 +1,170 @@
@@ -3698,7 +3708,7 @@ index 0000000..1d74b64
 +}
 diff --git a/zig/src/families/flashnext_cuda/api.zig b/zig/src/families/flashnext_cuda/api.zig
 new file mode 100644
-index 0000000..4ce57bd
+index 00000000..4ce57bd5
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/api.zig
 @@ -0,0 +1,131 @@
@@ -3835,7 +3845,7 @@ index 0000000..4ce57bd
 +};
 diff --git a/zig/src/families/flashnext_cuda/devstore.zig b/zig/src/families/flashnext_cuda/devstore.zig
 new file mode 100644
-index 0000000..68560fb
+index 00000000..68560fb5
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/devstore.zig
 @@ -0,0 +1,58 @@
@@ -3899,7 +3909,7 @@ index 0000000..68560fb
 +}
 diff --git a/zig/src/families/flashnext_cuda/draft_vocab_default.txt b/zig/src/families/flashnext_cuda/draft_vocab_default.txt
 new file mode 100644
-index 0000000..ea8e09a
+index 00000000..ea8e09ac
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/draft_vocab_default.txt
 @@ -0,0 +1,79591 @@
@@ -83496,7 +83506,7 @@ index 0000000..ea8e09a
 +248076
 diff --git a/zig/src/families/flashnext_cuda/draw.zig b/zig/src/families/flashnext_cuda/draw.zig
 new file mode 100644
-index 0000000..8856c36
+index 00000000..8856c361
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/draw.zig
 @@ -0,0 +1,124 @@
@@ -83626,7 +83636,7 @@ index 0000000..8856c36
 +}
 diff --git a/zig/src/families/flashnext_cuda/forward.zig b/zig/src/families/flashnext_cuda/forward.zig
 new file mode 100644
-index 0000000..6a1e78d
+index 00000000..6a1e78d4
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/forward.zig
 @@ -0,0 +1,1931 @@
@@ -85563,7 +85573,7 @@ index 0000000..6a1e78d
 +}
 diff --git a/zig/src/families/flashnext_cuda/grow.zig b/zig/src/families/flashnext_cuda/grow.zig
 new file mode 100644
-index 0000000..ff3dddd
+index 00000000..ff3dddd3
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/grow.zig
 @@ -0,0 +1,141 @@
@@ -85710,7 +85720,7 @@ index 0000000..ff3dddd
 +};
 diff --git a/zig/src/families/flashnext_cuda/kern.zig b/zig/src/families/flashnext_cuda/kern.zig
 new file mode 100644
-index 0000000..1e725e6
+index 00000000..1e725e63
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/kern.zig
 @@ -0,0 +1,715 @@
@@ -86431,7 +86441,7 @@ index 0000000..1e725e6
 +}
 diff --git a/zig/src/families/flashnext_cuda/native.zig b/zig/src/families/flashnext_cuda/native.zig
 new file mode 100644
-index 0000000..2f0a033
+index 00000000..2f0a033e
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/native.zig
 @@ -0,0 +1,1459 @@
@@ -87896,7 +87906,7 @@ index 0000000..2f0a033
 +}
 diff --git a/zig/src/families/flashnext_cuda/ngram.zig b/zig/src/families/flashnext_cuda/ngram.zig
 new file mode 100644
-index 0000000..97bbd94
+index 00000000..97bbd946
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/ngram.zig
 @@ -0,0 +1,185 @@
@@ -88087,7 +88097,7 @@ index 0000000..97bbd94
 +};
 diff --git a/zig/src/families/flashnext_cuda/plan.zig b/zig/src/families/flashnext_cuda/plan.zig
 new file mode 100644
-index 0000000..fdc589e
+index 00000000..fdc589ea
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/plan.zig
 @@ -0,0 +1,245 @@
@@ -88338,7 +88348,7 @@ index 0000000..fdc589e
 +};
 diff --git a/zig/src/families/flashnext_cuda/root.zig b/zig/src/families/flashnext_cuda/root.zig
 new file mode 100644
-index 0000000..a81d9c4
+index 00000000..a81d9c4e
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/root.zig
 @@ -0,0 +1,3 @@
@@ -88347,7 +88357,7 @@ index 0000000..a81d9c4
 +pub const api = @import("api.zig");
 diff --git a/zig/src/families/flashnext_cuda/vision.zig b/zig/src/families/flashnext_cuda/vision.zig
 new file mode 100644
-index 0000000..16e76ba
+index 00000000..16e76bad
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/vision.zig
 @@ -0,0 +1,636 @@
@@ -88989,7 +88999,7 @@ index 0000000..16e76ba
 +}
 diff --git a/zig/src/families/flashnext_cuda/weights.zig b/zig/src/families/flashnext_cuda/weights.zig
 new file mode 100644
-index 0000000..1f28660
+index 00000000..1f286602
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/weights.zig
 @@ -0,0 +1,1183 @@
@@ -90178,7 +90188,7 @@ index 0000000..1f28660
 +}
 diff --git a/zig/src/grammar/tf_grammar.cc b/zig/src/grammar/tf_grammar.cc
 new file mode 100644
-index 0000000..c6055a9
+index 00000000..c6055a9a
 --- /dev/null
 +++ b/zig/src/grammar/tf_grammar.cc
 @@ -0,0 +1,173 @@
@@ -90356,7 +90366,7 @@ index 0000000..c6055a9
 +
 +}  // extern "C"
 diff --git a/zig/src/native/cuda.zig b/zig/src/native/cuda.zig
-index e4e8e67..8ed9658 100644
+index 4f702516..b8f28027 100644
 --- a/zig/src/native/cuda.zig
 +++ b/zig/src/native/cuda.zig
 @@ -4,12 +4,14 @@ const cuda = @import("cuda");
@@ -90373,12 +90383,12 @@ index e4e8e67..8ed9658 100644
 -const registry = .{nemotron.native};
 +const registry = if (with_flashnext) .{ nemotron.native, flashnext.native } else .{nemotron.native};
  
- pub const backends: []const []const u8 = &.{"cuda"};
- pub const families: []const api.Family = blk: {
-@@ -147,6 +149,14 @@ const Host = struct {
-     host: api.LaneHost,
+ /// Nemotron's prompt-cache copies. A file-level value so the store's pointer stays valid for the process.
+ const nemotron_snaps: api.prompt_cache.Snapshots.VTable = .{
+@@ -156,6 +158,14 @@ const Host = struct {
      startup: []u8 = &.{},
      lone: ?LoneRun = null, // the family's driver for a lone drafted stream, called with `family`
+     store: ?*api.prompt_cache.Store = null, // kept Nemotron states; null when the budget is 0
 +    follow_fn: ?*const fn (*anyopaque) anyerror!void = null, // rank 1 of two: the family's replay loop
 +
 +    /// Rank 1: the family replays rank 0's calls on this thread (the context was made current here at open).
@@ -90390,7 +90400,7 @@ index e4e8e67..8ed9658 100644
  
      fn close(p: *anyopaque) void {
          const h: *Host = @ptrCast(@alignCast(p));
-@@ -203,6 +213,12 @@ const Host = struct {
+@@ -217,6 +227,12 @@ const Host = struct {
                      return x.inner.vtable.prefill(x.inner.ptr, s);
                  }
              }.f,
@@ -90403,7 +90413,7 @@ index e4e8e67..8ed9658 100644
              .first = struct {
                  fn f(p: *anyopaque, s: *lanes.Stream, position: u64) anyerror!u64 {
                      const x = bind(p);
-@@ -269,6 +285,12 @@ const Host = struct {
+@@ -289,6 +305,12 @@ const Host = struct {
                      x.inner.vtable.release(x.inner.ptr, s);
                  }
              }.f,
@@ -90416,7 +90426,7 @@ index e4e8e67..8ed9658 100644
          };
          return .{ .ptr = h, .vtable = &h.vtable };
      }
-@@ -329,13 +351,34 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+@@ -349,13 +371,34 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
          },
      };
      const before = try pool(a, io, &g.ctx, problem) orelse return null;
@@ -90453,7 +90463,7 @@ index e4e8e67..8ed9658 100644
          problem.* = try std.fmt.allocPrint(a, "the native CUDA engine cannot load {s} with {s} glue kernels ({s})", .{ o.dir, kernels orelse "its own", @errorName(e) });
          return null;
      };
-@@ -351,6 +394,7 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+@@ -371,17 +414,19 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
          };
          return null;
      };
@@ -90461,12 +90471,26 @@ index e4e8e67..8ed9658 100644
      const h = try gpa.create(Host);
      errdefer gpa.destroy(h);
      h.* = .{ .gpa = gpa, .gpu = g, .family = loaded.ctx, .release = loaded.deinit, .inner = loaded.backend, .vtable = undefined, .cfg = undefined, .clock = undefined, .core = undefined, .host = undefined, .lone = loaded.lone };
-@@ -360,8 +404,13 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+-    const cache = budget.cacheBytes(o.prompt_cache_gib, room, loaded.stream_bytes * (streams -| free));
++    // the lane core's kept states (Nemotron's snapshots); a family that keeps its own prompt states has no `target`
++    const cache = if (@hasField(@TypeOf(loaded), "target")) budget.cacheBytes(o.prompt_cache_gib, room, loaded.stream_bytes * (streams -| free)) else 0;
+     h.startup = try std.fmt.allocPrint(gpa, "CUDA sm_{d} device {d} ({s}{s}): model {d:.2} GiB; {d} stream{s} at once, {d:.2} GiB each at a {d}-token window, of {d:.1} GiB left after a {d:.1} GiB reserve; prompts in {d}-row chunks{s}{s}; {s}", .{
+         capability,                                                                                                   device, name, if (after.unified) ", memory shared with the host" else "", toGib(model), streams, if (streams == 1) "" else "s", toGib(loaded.stream_bytes), window, toGib(room), toGib(after.reserve), F.prompt_rows, if (segments > 1) try std.fmt.allocPrint(a, ", {d} staggered segments a call", .{segments}) else "",
+         if (cache > 0) try std.fmt.allocPrint(a, ", a {d:.1} GiB prompt cache", .{toGib(cache)}) else ", no prompt cache",
+         if (kernels) |dir| try std.fmt.allocPrint(a, "glue kernels captured at {s}", .{dir}) else "own glue kernels",
      });
      errdefer gpa.free(h.startup);
+-    if (cache > 0) {
++    if (@hasField(@TypeOf(loaded), "target") and cache > 0) {
+         const pc = api.prompt_cache;
+         const store = try gpa.create(pc.Store);
+         // states kept and resumed on the family's grid, where a cache-off pass cuts; the head reads one token on
+@@ -393,8 +438,13 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+         gpa.destroy(store);
+     };
      // the family cuts its own prompt grid from position 0, as `tensorfold run` does: prefill_step 0
--    try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(window), .startup = h.startup }, .{ .ctx = loaded.ctx, .text = F.explain });
-+    try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(window), .startup = h.startup, .vision = o.vision and @hasField(F.Options, "vision"), .structures = @hasDecl(F, "structures") and F.structures }, .{ .ctx = loaded.ctx, .text = F.explain });
+-    try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(window), .startup = h.startup, .prompt_cache = h.store != null, .logprobs = loaded.backend.vtable.first_row != null }, .{ .ctx = loaded.ctx, .text = F.explain });
++    try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(window), .startup = h.startup, .prompt_cache = h.store != null, .logprobs = loaded.backend.vtable.first_row != null, .vision = o.vision and @hasField(F.Options, "vision"), .structures = @hasDecl(F, "structures") and F.structures }, .{ .ctx = loaded.ctx, .text = F.explain });
      opened = true;
 +    const follow: ?*const fn (*anyopaque) anyerror!void = if (@hasField(@TypeOf(loaded), "follow")) loaded.follow else null;
 +    if (follow) |f| {
@@ -90478,26 +90502,26 @@ index e4e8e67..8ed9658 100644
  
 diff --git a/zig/src/native/no_family.zig b/zig/src/native/no_family.zig
 new file mode 100644
-index 0000000..d81d756
+index 00000000..d81d7567
 --- /dev/null
 +++ b/zig/src/native/no_family.zig
 @@ -0,0 +1,2 @@
 +//! Stands in for a CUDA family the build leaves out (-Dflashnext=false): nothing is registered.
 +pub const native = struct {};
 diff --git a/zig/src/server/chat.zig b/zig/src/server/chat.zig
-index 58a91d0..ff31c41 100644
+index f68d0969..32f8e324 100644
 --- a/zig/src/server/chat.zig
 +++ b/zig/src/server/chat.zig
-@@ -30,6 +30,8 @@ pub const Input = struct {
-     fields: Value,
-     /// The reply's id as its client gets it, so the server's lines for the request carry the same id.
+@@ -32,6 +32,8 @@ pub const Input = struct {
      id: []const u8 = "",
+     /// ``logprobs: true`` with this many ``top_logprobs``; null: not asked.
+     logprobs: ?u8 = null,
 +    /// Image inputs (vision_inputs.extract), in prompt order; the rendered prompt's image pads expand to their tokens.
 +    images: []const api.Image = &.{},
  };
  
  /// A streamed piece: content text (a string) or a delta object (reasoning or tool calls).
-@@ -135,9 +137,31 @@ pub const Prepared = struct {
+@@ -142,9 +144,31 @@ pub const Prepared = struct {
      preparing: bool,
  };
  
@@ -90530,7 +90554,7 @@ index 58a91d0..ff31c41 100644
      const io = srv.io;
      const received = nowNs(io);
      const f = input.fields;
-@@ -153,7 +177,8 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
+@@ -160,7 +184,8 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
      var thinking = flag(f, "enable_thinking") orelse srv.config.enable_thinking;
      if (input.prompt != null) thinking = false;
      const effort = srv.effortFor(if (f.get("reasoning_effort")) |e| (if (e == .string) e.string else null) else null);
@@ -90540,7 +90564,7 @@ index 58a91d0..ff31c41 100644
      if (gone.check()) return error.Cancelled;
      if (rendered.ids.len == 0) return cx.refuse("rendered prompt is empty");
      const window: i64 = srv.info.context_window;
-@@ -164,7 +189,7 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
+@@ -171,7 +196,7 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
          if (input.max_tokens != null and limit > room) return cx.fail(.context_length, "{s} {d} tokens, but the rendered prompt has {d} tokens and requests {d} reply tokens, which exceeds the context window. Reduce the prompt to at most {d} prompt tokens or request at most {d} reply tokens, including chat template and thinking tokens.", .{ errors.context_limit, window, n, limit, @max(0, window - limit), room });
          limit = @min(limit, room);
      }
@@ -90549,19 +90573,22 @@ index 58a91d0..ff31c41 100644
      var shared: std.ArrayList(u32) = .empty;
      if (system_len > 0) for ([_]i64{ @as(i64, @intCast(system_len)) - 2048, @as(i64, @intCast(system_len)) - 512, @intCast(system_len) }) |cut| {
          if (cut >= 512) try shared.append(a, @intCast(cut));
-@@ -181,6 +206,7 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
-         .background = background,
+@@ -189,7 +214,9 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
          .history_len = @intCast(rendered.history_len),
+         .rewind_len = @intCast(rendered.rewind_len),
          .shared_prefixes = shared.items,
+-        .chunks = try chunk_plan.withCut(a, try srv.chunks.starts(a, rendered.ids), if (srv.chunks.step > 0) @intCast(@max(system_len, 1) - 1) else 0, rendered.ids.len, srv.chunks.min_chunk), // a cut before the conversation's own text: fresh sessions resume their whole harness
 +        .images = input.images,
-         // a cut just before the conversation's own text: fresh sessions resume their whole harness
-         .chunks = try chunk_plan.withCut(a, try srv.chunks.starts(a, rendered.ids), if (srv.chunks.step > 0) @intCast(@max(system_len, 1) - 1) else 0, rendered.ids.len, srv.chunks.min_chunk),
++        // a cut just before the conversation's own text: fresh sessions resume their whole harness
++        .chunks = try chunk_plan.withCut(a, try srv.chunks.starts(a, rendered.ids), if (srv.chunks.step > 0) @intCast(@max(system_len, 1) - 1) else 0, rendered.ids.len, srv.chunks.min_chunk),
          .decode_spans = try prompt_mod.replySpans(srv, cx, rendered.ids), // from the tokens alone, for every request: cached states are keyed by tokens
+         .tools_json = if (input.tools.len > 0) try json.stringify(a, .{ .array = @constCast(input.tools) }, .{ .ascii = false }) else "",
+     };
 diff --git a/zig/src/server/cli.zig b/zig/src/server/cli.zig
-index 9ddee80..d64192c 100644
+index ecf96361..de1760a2 100644
 --- a/zig/src/server/cli.zig
 +++ b/zig/src/server/cli.zig
-@@ -36,15 +36,16 @@ pub const flags = [_]Flag{
+@@ -37,15 +37,16 @@ pub const flags = [_]Flag{
      .{ .name = "--api-key-file", .native = true },
      .{ .name = "--metrics-open", .kind = .store_true, .native = true },
      .{ .name = "--dashboard", .kind = .store_true, .native = true },
@@ -90582,7 +90609,7 @@ index 9ddee80..d64192c 100644
      .{ .name = "--top-p", .native = true },
      .{ .name = "--top-k", .native = true },
      .{ .name = "--min-p", .native = true },
-@@ -80,11 +81,12 @@ pub const flags = [_]Flag{
+@@ -81,11 +82,12 @@ pub const flags = [_]Flag{
      .{ .name = "--ple-on-ssd", .kind = .store_true },
      .{ .name = "--no-update-check", .kind = .store_true, .native = true },
      .{ .name = "--backend", .choices = &.{ "auto", "mlx", "cuda" }, .native = true, .native_values = backend_values },
@@ -90600,7 +90627,7 @@ index 9ddee80..d64192c 100644
      .{ .name = "--prefill-fp8", .kind = .store_true },
      .{ .name = "--no-prefill-fp8", .kind = .store_true },
      .{ .name = "--precision", .choices = &.{ "checkpoint", "full" } },
-@@ -120,6 +122,11 @@ pub const Args = struct {
+@@ -124,6 +126,11 @@ pub const Args = struct {
      learn_gib: f64 = 32, // disk for learned states, every model and build together
      max_tokens: i64 = 4096,
      temperature: ?f64 = null,
@@ -90612,7 +90639,7 @@ index 9ddee80..d64192c 100644
      top_p: ?f64 = null,
      top_k: ?i64 = null,
      min_p: ?f64 = null,
-@@ -141,6 +148,11 @@ pub const Args = struct {
+@@ -145,6 +152,11 @@ pub const Args = struct {
      backend: []const u8 = "auto",
      device: ?u32 = null,
      segments: ?u32 = null,
@@ -90624,7 +90651,7 @@ index 9ddee80..d64192c 100644
  };
  
  /// A usage error's message (argparse's ``error:`` line); the caller exits 2.
-@@ -229,7 +241,7 @@ fn apply(a: Allocator, out: *Args, name: []const u8, value: ?[]const u8, u: *Usa
+@@ -239,7 +251,7 @@ fn apply(a: Allocator, out: *Args, name: []const u8, value: ?[]const u8, u: *Usa
      } else if (is(name, "--learn-gib")) {
          out.learn = true;
          out.learn_gib = try gib(u, a, name, v);
@@ -90633,7 +90660,7 @@ index 9ddee80..d64192c 100644
          if (std.mem.eql(u8, v, "auto")) out.compact_auto = true else {
              const f = try float(u, a, name, v);
              if (!(f > 0 and f <= 1)) return fail(u, a, "argument --compact-at: expected auto or a fraction in (0, 1]: '{s}'", .{v});
-@@ -246,9 +258,19 @@ fn apply(a: Allocator, out: *Args, name: []const u8, value: ?[]const u8, u: *Usa
+@@ -256,9 +268,19 @@ fn apply(a: Allocator, out: *Args, name: []const u8, value: ?[]const u8, u: *Usa
  fn cudaFlag(a: Allocator, out: *Args, name: []const u8, v: []const u8, u: *Usage) error{ Usage, OutOfMemory }!bool {
      if (std.mem.eql(u8, name, "--device")) {
          out.device = std.math.cast(u32, try int(u, a, name, v)) orelse return fail(u, a, "argument --device: a GPU ordinal from 0: '{s}'", .{v});
@@ -90654,7 +90681,7 @@ index 9ddee80..d64192c 100644
      return true;
  }
 diff --git a/zig/src/server/engines.zig b/zig/src/server/engines.zig
-index de203e3..a212fed 100644
+index db75d871..3d798489 100644
 --- a/zig/src/server/engines.zig
 +++ b/zig/src/server/engines.zig
 @@ -23,6 +23,8 @@ pub fn open(a: Allocator, gpa: Allocator, io: std.Io, dir: []const u8, model_typ
@@ -90666,7 +90693,7 @@ index de203e3..a212fed 100644
          .speed_up = args.speed_up,
          .prompt_cache_gib = args.prompt_cache_gib,
          .prompt_cache_over_cap = args.prompt_cache_over_cap,
-@@ -31,5 +33,9 @@ pub fn open(a: Allocator, gpa: Allocator, io: std.Io, dir: []const u8, model_typ
+@@ -32,5 +34,9 @@ pub fn open(a: Allocator, gpa: Allocator, io: std.Io, dir: []const u8, model_typ
          .slide = args.slide,
          .device = args.device,
          .segments = args.segments,
@@ -90677,10 +90704,10 @@ index de203e3..a212fed 100644
      }, problem);
  }
 diff --git a/zig/src/server/main.zig b/zig/src/server/main.zig
-index 1ee0b65..a044086 100644
+index 1d172348..4408c106 100644
 --- a/zig/src/server/main.zig
 +++ b/zig/src/server/main.zig
-@@ -68,10 +68,15 @@ pub fn main(init: std.process.Init) !u8 {
+@@ -69,10 +69,15 @@ pub fn main(init: std.process.Init) !u8 {
      } orelse return fail(problem);
      defer up.text.deinit();
      defer up.engine.close(up.engine.ctx);
@@ -90698,7 +90725,7 @@ index 1ee0b65..a044086 100644
          .started = started,
 diff --git a/zig/src/server/media_fetch.zig b/zig/src/server/media_fetch.zig
 new file mode 100644
-index 0000000..e175033
+index 00000000..e175033b
 --- /dev/null
 +++ b/zig/src/server/media_fetch.zig
 @@ -0,0 +1,336 @@
@@ -91039,10 +91066,10 @@ index 0000000..e175033
 +    try std.testing.expectEqualStrings("https://e.com/z", try join(a, "https://e.com/b/a.png", "/z"));
 +}
 diff --git a/zig/src/server/openai.zig b/zig/src/server/openai.zig
-index 0d2c0ae..82423d8 100644
+index 6bcc7908..4a154414 100644
 --- a/zig/src/server/openai.zig
 +++ b/zig/src/server/openai.zig
-@@ -123,7 +123,12 @@ fn plan(srv: *Server, cx: *Cx, is_chat: bool, raw: Value) errors.Refused!Plan {
+@@ -125,7 +125,12 @@ fn plan(srv: *Server, cx: *Cx, is_chat: bool, raw: Value) errors.Refused!Plan {
      if (srv.config.request_log) |path| request_log.append(cx.a, path, body);
      var input: chat.Input = .{ .fields = undefined };
      if (is_chat) {
@@ -91057,7 +91084,7 @@ index 0d2c0ae..82423d8 100644
      } else if (body.get("messages")) |m| if (m == .array and m.array.len > 0) {
          input.messages = try messages.normalize(cx, m, "system", srv.needs_user_after_tool);
 diff --git a/zig/src/server/serve.zig b/zig/src/server/serve.zig
-index b748d4d..8caa528 100644
+index d03230c4..e07835e7 100644
 --- a/zig/src/server/serve.zig
 +++ b/zig/src/server/serve.zig
 @@ -65,6 +65,8 @@ pub const Setup = struct {
@@ -91069,7 +91096,7 @@ index b748d4d..8caa528 100644
      /// Sampling defaults from generation_config.json and the flags, as a JSON object; null: greedy.
      sampling: ?json.Value = null,
      environ: ?*const std.process.Environ.Map = null,
-@@ -103,8 +105,13 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
+@@ -104,8 +106,13 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
      } else 0;
      const config: server_mod.Config = .{
          .served_name = s.served,
@@ -91084,7 +91111,7 @@ index b748d4d..8caa528 100644
          .reasoning_effort = args.reasoning_effort,
          .thinking_budget = args.thinking_budget,
 diff --git a/zig/src/server/server.zig b/zig/src/server/server.zig
-index 45595de..71fcee3 100644
+index 48854d56..abdfe34b 100644
 --- a/zig/src/server/server.zig
 +++ b/zig/src/server/server.zig
 @@ -30,9 +30,14 @@ pub const CompactAt = union(enum) { auto, fraction: f64 };
@@ -91113,15 +91140,15 @@ index 45595de..71fcee3 100644
  
      /// Reads what the template and tokenizer decide once: late system role, think markers, efforts, the forced close.
      pub fn init(gpa: Allocator, io: std.Io, engine: api.Engine, text: model_text.Text, config: Config, keys: ?*auth.Store) !*Server {
-@@ -118,6 +127,7 @@ pub const Server = struct {
- 
+@@ -119,6 +128,7 @@ pub const Server = struct {
      pub fn deinit(srv: *Server) void {
          if (srv.keepalive) |k| k.stop(); // before the engine's queue goes away
+         srv.metrics.deinit();
 +        if (srv.grammars) |g| g.close();
          srv.arena.deinit();
          srv.store.deinit();
          srv.slide.deinit();
-@@ -171,10 +181,50 @@ pub const Server = struct {
+@@ -177,10 +187,50 @@ pub const Server = struct {
          }
          if (try grammar.spec(cx, f)) |s| {
              if (!srv.info.structures) return cx.refuse("structured output (response_format and the guided_* fields) is not supported by this engine yet");
@@ -91175,7 +91202,7 @@ index 45595de..71fcee3 100644
      /// (opener, lead, tail) of this template's tool calls, read from a rendered probe call.
 diff --git a/zig/src/server/vision_inputs.zig b/zig/src/server/vision_inputs.zig
 new file mode 100644
-index 0000000..e887c36
+index 00000000..e887c36f
 --- /dev/null
 +++ b/zig/src/server/vision_inputs.zig
 @@ -0,0 +1,273 @@
@@ -91454,7 +91481,7 @@ index 0000000..e887c36
 +}
 diff --git a/zig/src/vision/qwen_image.zig b/zig/src/vision/qwen_image.zig
 new file mode 100644
-index 0000000..23990c1
+index 00000000..23990c1a
 --- /dev/null
 +++ b/zig/src/vision/qwen_image.zig
 @@ -0,0 +1,426 @@
@@ -91886,7 +91913,7 @@ index 0000000..23990c1
 +}
 diff --git a/zig/src/vision/tf_video.c b/zig/src/vision/tf_video.c
 new file mode 100644
-index 0000000..1049416
+index 00000000..10494165
 --- /dev/null
 +++ b/zig/src/vision/tf_video.c
 @@ -0,0 +1,220 @@
@@ -92112,7 +92139,7 @@ index 0000000..1049416
 +}
 diff --git a/zig/tests/cuda/flashnext/gen_copies.py b/zig/tests/cuda/flashnext/gen_copies.py
 new file mode 100644
-index 0000000..8dd76ea
+index 00000000..8dd76ea7
 --- /dev/null
 +++ b/zig/tests/cuda/flashnext/gen_copies.py
 @@ -0,0 +1,93 @@
@@ -92211,7 +92238,7 @@ index 0000000..8dd76ea
 +sys.exit(main())
 diff --git a/zig/tests/cuda/flashnext/sass_compare.py b/zig/tests/cuda/flashnext/sass_compare.py
 new file mode 100644
-index 0000000..5a195a3
+index 00000000..5a195a30
 --- /dev/null
 +++ b/zig/tests/cuda/flashnext/sass_compare.py
 @@ -0,0 +1,28 @@
@@ -92245,7 +92272,7 @@ index 0000000..5a195a3
 +sys.exit(1 if bad else 0)
 diff --git a/zig/tests/cuda/fn_ext.zig b/zig/tests/cuda/fn_ext.zig
 new file mode 100644
-index 0000000..a9fc4aa
+index 00000000..a9fc4aae
 --- /dev/null
 +++ b/zig/tests/cuda/fn_ext.zig
 @@ -0,0 +1,511 @@
@@ -92762,7 +92789,7 @@ index 0000000..a9fc4aa
 +}
 diff --git a/zig/tests/cuda/fn_fixtures.zig b/zig/tests/cuda/fn_fixtures.zig
 new file mode 100644
-index 0000000..3e7f91c
+index 00000000..3e7f91ce
 --- /dev/null
 +++ b/zig/tests/cuda/fn_fixtures.zig
 @@ -0,0 +1,110 @@
@@ -92878,7 +92905,7 @@ index 0000000..3e7f91c
 +}
 diff --git a/zig/tests/cuda/fn_forward.zig b/zig/tests/cuda/fn_forward.zig
 new file mode 100644
-index 0000000..0559a9a
+index 00000000..0559a9ac
 --- /dev/null
 +++ b/zig/tests/cuda/fn_forward.zig
 @@ -0,0 +1,791 @@
@@ -93675,7 +93702,7 @@ index 0000000..0559a9a
 +}
 diff --git a/zig/tests/cuda/fn_mtp.zig b/zig/tests/cuda/fn_mtp.zig
 new file mode 100644
-index 0000000..399fbfa
+index 00000000..399fbfaa
 --- /dev/null
 +++ b/zig/tests/cuda/fn_mtp.zig
 @@ -0,0 +1,577 @@
@@ -94258,7 +94285,7 @@ index 0000000..399fbfa
 +}
 diff --git a/zig/tests/cuda/fn_native.zig b/zig/tests/cuda/fn_native.zig
 new file mode 100644
-index 0000000..01a4fcb
+index 00000000..01a4fcbc
 --- /dev/null
 +++ b/zig/tests/cuda/fn_native.zig
 @@ -0,0 +1,170 @@
@@ -94434,7 +94461,7 @@ index 0000000..01a4fcb
 +}
 diff --git a/zig/tests/cuda/fn_ngram.zig b/zig/tests/cuda/fn_ngram.zig
 new file mode 100644
-index 0000000..3336494
+index 00000000..3336494b
 --- /dev/null
 +++ b/zig/tests/cuda/fn_ngram.zig
 @@ -0,0 +1,161 @@
@@ -94601,7 +94628,7 @@ index 0000000..3336494
 +};
 diff --git a/zig/tests/cuda/fn_run.zig b/zig/tests/cuda/fn_run.zig
 new file mode 100644
-index 0000000..9975d73
+index 00000000..9975d737
 --- /dev/null
 +++ b/zig/tests/cuda/fn_run.zig
 @@ -0,0 +1,1182 @@
@@ -95789,7 +95816,7 @@ index 0000000..9975d73
 +};
 diff --git a/zig/tests/cuda/fn_vision.zig b/zig/tests/cuda/fn_vision.zig
 new file mode 100644
-index 0000000..098ed7d
+index 00000000..098ed7d3
 --- /dev/null
 +++ b/zig/tests/cuda/fn_vision.zig
 @@ -0,0 +1,204 @@
@@ -95999,7 +96026,7 @@ index 0000000..098ed7d
 +}
 diff --git a/zig/tests/cuda/kernels/fn_sample.cu b/zig/tests/cuda/kernels/fn_sample.cu
 new file mode 100644
-index 0000000..24bc262
+index 00000000..24bc2622
 --- /dev/null
 +++ b/zig/tests/cuda/kernels/fn_sample.cu
 @@ -0,0 +1,52 @@
@@ -96056,7 +96083,7 @@ index 0000000..24bc262
 +    }
 +}
 diff --git a/zig/tests/cuda/main.zig b/zig/tests/cuda/main.zig
-index 8d70066..7a681fc 100644
+index 9451db61..3c6d09a6 100644
 --- a/zig/tests/cuda/main.zig
 +++ b/zig/tests/cuda/main.zig
 @@ -6,6 +6,9 @@ const check = @import("check.zig");
@@ -96069,7 +96096,7 @@ index 8d70066..7a681fc 100644
  const libs_tests = @import("libs_tests.zig");
  const sample_tests = @import("sample_tests.zig");
  const glue_tests = @import("glue_tests.zig");
-@@ -28,6 +31,8 @@ const usage =
+@@ -31,6 +34,8 @@ const usage =
      \\  gdn-replay <dir>          replay_kernel bits against the Python oracle's fixture
      \\  gdn-tree <dir>            tree_kernel bits against the Python oracle's fixture
      \\  triton <dir>              a Triton cubin's bits against the Python oracle's fixture
@@ -96078,7 +96105,7 @@ index 8d70066..7a681fc 100644
      \\  sample                    sample.cu's keyed draws against the Metal rule's host references (synthetic rows)
      \\  glue                      Nemotron's glue kernels against their host references at its shapes (synthetic rows)
      \\  window-profile MODEL WIDTHS IDS_FILE   a decode window's GPU ms by kernel class (WIDTHS like 1,4,16), beside its graph
-@@ -52,6 +57,7 @@ pub fn main(init: std.process.Init) !u8 {
+@@ -58,6 +63,7 @@ pub fn main(init: std.process.Init) !u8 {
  
      run(gpu, cmd, rest) catch |e| {
          std.debug.print("FAIL {s}: {t}\n", .{ cmd, e });
@@ -96086,10 +96113,10 @@ index 8d70066..7a681fc 100644
          return 1;
      };
      return 0;
-@@ -87,6 +93,31 @@ fn run(gpu: check.Gpu, cmd: []const u8, rest: []const [:0]const u8) !void {
-     if (std.mem.eql(u8, cmd, "window-profile")) return window_profile.run(gpu, try arg(rest, 0), try arg(rest, 1), try arg(rest, 2));
-     if (std.mem.eql(u8, cmd, "tree-accept")) return tree_accept.run(gpu, try arg(rest, 0), try arg(rest, 1), try arg(rest, 2), try arg(rest, 3));
-     if (std.mem.eql(u8, cmd, "chunk-costs")) return chunk_costs.run(gpu, try arg(rest, 0), try arg(rest, 1), try arg(rest, 2));
+@@ -99,6 +105,31 @@ fn run(gpu: check.Gpu, cmd: []const u8, rest: []const [:0]const u8) !void {
+         const mib = if (rest.len > 0) try std.fmt.parseInt(usize, rest[0], 10) else cuda.carveout.default_bytes >> 20;
+         return carveout_tests.run(gpu, if (rest.len > 1) rest[1] else cuda.carveout.default_card, mib);
+     }
 +    if (std.mem.eql(u8, cmd, "fn-triton")) return fn_fixtures.tritonRegions(gpu, try arg(rest, 0));
 +    if (std.mem.eql(u8, cmd, "fn-ext")) return fn_ext.extCall(gpu, try arg(rest, 0));
 +    if (std.mem.eql(u8, cmd, "fn-aot")) return @import("fn_native.zig").aotLoad(gpu, try arg(rest, 0));
@@ -96120,7 +96147,7 @@ index 8d70066..7a681fc 100644
  }
 diff --git a/zig/vendor/stb/README.md b/zig/vendor/stb/README.md
 new file mode 100644
-index 0000000..11466f4
+index 00000000..11466f43
 --- /dev/null
 +++ b/zig/vendor/stb/README.md
 @@ -0,0 +1,3 @@
@@ -96129,7 +96156,7 @@ index 0000000..11466f4
 +(see the license at the end of the file). stb_image_impl.c compiles it for JPEG and PNG only.
 diff --git a/zig/vendor/stb/stb_image.h b/zig/vendor/stb/stb_image.h
 new file mode 100644
-index 0000000..9eedabe
+index 00000000..9eedabed
 --- /dev/null
 +++ b/zig/vendor/stb/stb_image.h
 @@ -0,0 +1,7988 @@
@@ -104123,7 +104150,7 @@ index 0000000..9eedabe
 +*/
 diff --git a/zig/vendor/stb/stb_image_impl.c b/zig/vendor/stb/stb_image_impl.c
 new file mode 100644
-index 0000000..908982a
+index 00000000..908982ad
 --- /dev/null
 +++ b/zig/vendor/stb/stb_image_impl.c
 @@ -0,0 +1,10 @@

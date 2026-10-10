@@ -1,0 +1,26 @@
+--- rank 0
+rank 0: shared rounds of 1-row windows over 3 streams: 51 of 51 tokens equal the lone runs
+rank 0: shared rounds of 4-row windows over 3 streams: 51 of 51 tokens equal the lone runs
+PASS EXACT rank 0: shared rounds over 3 streams equal each stream alone
+rank 0: batched drafts over 3 streams: 6 of 6 draft runs equal the lone runs
+PASS EXACT rank 0: batched drafts over 3 streams equal each stream's own
+rank 0: MTP decoding over 5 streams together: 5 of 5 streams equal alone (25 rounds, 35 windows cut short)
+PASS EXACT rank 0: MTP decoding over 5 streams together equals each stream alone
+fresh:   { 13402, 13, 10379, 11, 9150, 17, 17, 2015, 2261, 41820, 777, 220, 883, 440, 279, 13 }
+resumed: { 13402, 13, 10379, 11, 9150, 17, 17, 2015, 2261, 41820, 777, 220, 883, 440, 279, 13 }
+PASS EXACT rank 0: a turn resumed from its kept point (2694 of 2994 prompt tokens kept) decodes as prefilled fresh
+rank 0: admit 40 tokens: new sequence 4.7 ms, prefill 95.5 ms, first drafts 3.2 ms; reset 1.7 ms, prefill 83.8 ms, first drafts 3.7 ms
+rank 0: admit 120 tokens: new sequence 4.7 ms, prefill 148.6 ms, first drafts 6.1 ms; reset 1.7 ms, prefill 135.3 ms, first drafts 7.7 ms
+rank 0: admit 400 tokens: new sequence 4.7 ms, prefill 240.8 ms, first drafts 1.3 ms; reset 1.7 ms, prefill 223.9 ms, first drafts 1.4 ms
+rank 0: 8 prompts in one pass: 367.6 ms, one by one 1077.7 ms; 8 of 8 decode as alone; 8 kept points resume as fresh
+PASS rank 0: 8 prompts in one pass decode as each alone
+NCCL version 2.30.7+cuda13.3
+--- rank 1
+fresh:   { 13402, 13, 10379, 11, 9150, 17, 17, 2015, 2261, 41820, 777, 220, 883, 440, 279, 13 }
+resumed: { 13402, 13, 10379, 11, 9150, 17, 17, 2015, 2261, 41820, 777, 220, 883, 440, 279, 13 }
+PASS EXACT rank 1: a turn resumed from its kept point (2694 of 2994 prompt tokens kept) decodes as prefilled fresh
+rank 1: admit 40 tokens: new sequence 5.3 ms, prefill 94.5 ms, first drafts 3.2 ms; reset 1.7 ms, prefill 83.8 ms, first drafts 3.7 ms
+rank 1: admit 120 tokens: new sequence 5.2 ms, prefill 147.7 ms, first drafts 6.0 ms; reset 1.7 ms, prefill 135.3 ms, first drafts 7.7 ms
+rank 1: admit 400 tokens: new sequence 5.3 ms, prefill 239.9 ms, first drafts 1.3 ms; reset 1.7 ms, prefill 224.0 ms, first drafts 1.4 ms
+rank 1: 8 prompts in one pass: 367.8 ms, one by one 1077.7 ms; 8 of 8 decode as alone; 8 kept points resume as fresh
+PASS rank 1: 8 prompts in one pass decode as each alone
