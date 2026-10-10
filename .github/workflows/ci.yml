@@ -27,17 +27,15 @@ jobs:
           YARN=0 CONTEXT=262144 python3 -m spark validate | grep -q "ctx=262144 yarn=0"
       - name: refusals
         run: |
-          for bad in "YARN=0 CONTEXT=524288" "CONTEXT=262144" "PROFILE=long" "EXTRA_ARGS=--tp\ 1" "MAX_TOKENS=0100" "KV_DTYPE=fp8" "PATCH_SHA256=$(printf 'b%.0s' {1..64})"; do
+          for bad in "YARN=0 CONTEXT=524288" "CONTEXT=262144" "PROFILE=long" "EXTRA_ARGS=--tp\ 1" "MAX_TOKENS=0100" "KV_DTYPE=fp8" "KV_DTYPE=bf16" "ENGINE=python" "TP=1" "MTP_DRAFTS=0" "PARALLEL=17" "PATCH_SHA256=$(printf 'b%.0s' {1..64})"; do
             if env $bad python3 -m spark validate; then echo "accepted $bad" >&2; exit 1; fi
           done
-      - name: the patches apply to TensorFold at their pinned commits
+      - name: the patch applies to TensorFold at its pinned release
         run: |
           git clone --quiet --filter=blob:none https://github.com/ashhart/TensorFold.git tf
           e() { python3 -c "import tomllib; print(tomllib.load(open('recipe.toml','rb'))['engine']['$1'])"; }
           git -C tf checkout --quiet "$(e tensorfold_sha)"
           git -C tf apply --check "../docker/patches/$(e patch)"
-          git -C tf checkout --quiet "$(e native_tensorfold_sha)"
-          git -C tf apply --check "../docker/patches/$(e native_patch)"
       - name: byte and compile checks
         run: |
           python3 -m py_compile spark/*.py quality/*.py bench/*.py

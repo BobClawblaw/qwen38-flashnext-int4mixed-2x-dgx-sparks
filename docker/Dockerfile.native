@@ -12,7 +12,7 @@ ARG ZIG_SHA256=9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
 ARG FFMPEG_URL=https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
 ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 ARG PYAV=av==19.0.1
-# structured output: libtfgrammar (in the patch) over xgrammar 0.2.8's C++ library, the version the Python image installs
+# structured output: libtfgrammar (in the patch) over xgrammar 0.2.8's C++ library, the version TensorFold's Python engine used
 ARG XGRAMMAR_TAG=v0.2.8
 ARG XGRAMMAR_SHA=97787376faee5ed8466cfad57c99855e4ce2f6aa
 COPY patches/${TF_PATCH} /opt/patches/${TF_PATCH}

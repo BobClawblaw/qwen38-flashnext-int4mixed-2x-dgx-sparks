@@ -87,13 +87,13 @@ class DockerCommand(unittest.TestCase):
                 seen.append(list(argv))
                 return mock.Mock(returncode=0, stdout="", stderr="")
 
-        docker.run_rank(s, Fake("worker", "user@host"), 1, src_mount=Path("/src/tf"))
+        docker.run_rank(s, Fake("worker", "user@host"), 1)
         argv = seen[-1]
         self.assertEqual(argv[:3], ["docker", "run", "-d"])
         for flag in ("--init", "--gpus", "--network", "--ipc", "--device", "--cap-add", "--ulimit"):
             self.assertIn(flag, argv)
         self.assertIn(f"{s.hf_cache}:{config.CONTAINER_HF}:ro", argv)
-        self.assertIn("/src/tf:/usr/local/lib/python3.12/dist-packages/tensorfold:ro", argv)
+        self.assertEqual(argv[argv.index("serve") - 1], s.image)     # the image's entrypoint is tensorfold-native
         self.assertIn("NCCL_IB_HCA=" + s.hca, argv)
         i = argv.index("serve")
         self.assertEqual(argv[i + 1], s.model_in_container)

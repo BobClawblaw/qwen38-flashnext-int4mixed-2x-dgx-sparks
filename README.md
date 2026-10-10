@@ -41,7 +41,9 @@ long-running server ([`evidence/2026-10-10-native-v1.0.4-graphs/`](evidence/2026
 The release image before both (pin `fcf3092a`, [`evidence/2026-10-10-native-v1.0.4/`](evidence/2026-10-10-native-v1.0.4/))
 measured 69.1 / 110.0 / 88.7 / 112.5 at one user and 297.3 / 511.8 / 383.5 / 519.8 at 16.
 
-The Python engine (`ENGINE=python`, pin `e286b134`) on the same pair:
+Against TensorFold's Python engine (frozen upstream; removed here on 2026-10-10), pin `e286b134` on the same pair
+([`evidence/2026-10-08-prefill-fusions/`](evidence/2026-10-08-prefill-fusions/),
+[`evidence/2026-10-09-native-v1.0.2/`](evidence/2026-10-09-native-v1.0.2/)):
 
 | Users | prose | code | structured | list | first token |
 |---:|---:|---:|---:|---:|---:|
@@ -52,8 +54,8 @@ The Python engine (`ENGINE=python`, pin `e286b134`) on the same pair:
 
 One stream undrafted: 42 tok/s (native), 35 (Python).
 
-Prompt passes on the Python engine (time to the first token, one prompt, needle found in each); the native engine's
-long-context check runs its slowest, 225k, at 2,012 tok/s:
+Prompt passes, measured on the Python engine (time to the first token, one prompt, needle found in each); the native
+engine's long-context check runs its slowest, 225k, at 2,012 tok/s:
 
 | Prompt | Time | Rate |
 |---:|---:|---:|
@@ -96,15 +98,16 @@ How the speed got here, one user:
 | + int8 MTP layer, retuned tiles (serial) | 68.9 | 121.5 | 88.6 | 117.4 |
 | defaults (concurrent, 1M), + fused hyper-connection and shared-expert kernels | 68.7 | 109.0 | 89.0 | 109.9 |
 
-The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays.
+The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays. The table above is the
+Python engine's history; on the native engine the same sweep around 0.70 found nothing faster.
 
-## The native engine (TensorFold 1.0.4)
+## The engine (TensorFold 1.0.4, native)
 
-`engine = "native"` (the default) serves the converted checkpoint on TensorFold v1.0.4, the Zig engine, with
+The recipe serves the converted checkpoint on TensorFold v1.0.4, the Zig engine, with
 [`docker/patches/tensorfold-native-v1.0.4.patch`](docker/patches/tensorfold-native-v1.0.4.patch): this project's
 Flash Next family for two CUDA ranks (the release serves Flash Next on Metal only; the port is on
 [BobClawblaw/TensorFold `native-v1.0.4`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.4)).
-`ENGINE=python` keeps the Python engine.
+TensorFold's Python engine, which the recipe served first, is frozen upstream and was removed here on 2026-10-10.
 
 - Up to 16 streams in shared rounds (DeltaNet, keeps and attention batched across streams, up to 128 rows a round),
   prompts admitted together, MTP drafts batched across streams; CUDA graphs for a single stream.
@@ -211,14 +214,13 @@ environment variable of the same name in upper case (`PORT=8001 python3 -m spark
 
 | Setting | Default | Notes |
 |---|---|---|
-| `engine` | `native` | TensorFold v1.0.4 (the Zig engine) with this recipe's patch; `python`: TensorFold's Python engine (`python-0.6`), the only one with logprobs (at `tp=1`) |
-| `profile` | `concurrent` | `concurrent`: sixteen streams (`parallel=16`); `serial`: one stream on CUDA graphs |
+| `profile` | `concurrent` | `concurrent`: sixteen streams (`parallel=16`); `serial`: one stream (`parallel=1`); `parallel` takes 1 to 16 |
 | `yarn` | true | static YaRN x4 over the trained 262,144 (a profile folder's `config.json`; the weights untouched). Every prompt sees the scaled rotary, short ones too (Qwen's card notes a possible cost on short texts); `yarn = false` keeps the plain rotary |
 | `context` | 1048576 | up to 1,048,576 with `yarn`, up to 262,144 without |
-| `kv_dtype` | `int8` | `int8` or `int4` on native (int4: 30% less cache a position, 0-10% slower at 16 streams, scores within an item or two); `python` also serves `bf16` |
-| `mtp_drafts`, `mtp_confidence` | 15, 0.70 | `mtp_drafts=0` serves without drafts |
+| `kv_dtype` | `int8` | `int8` or `int4` (int4: 30% less cache a position, 0-10% slower at 16 streams, scores within an item or two) |
+| `drafts` | true | MTP and copy drafts (up to 15, cut at 0.70 by the engine; outputs equal undrafted); `false` serves without them |
 | `vision` | true | images and video on both ranks: the tower on rank 0, rank 1 receives each request's features |
-| `vision_urls` | true | public HTTPS image and video URLs as well as data URLs, fetched by rank 0 as the Python server does: HTTPS on 443, every resolved address public, redirects checked again, declared media types, 10 MB an image and 20 MB a request, 10 s a download. The server then makes outbound requests for whoever can reach its port: keep the port on a trusted network, or `false` for data URLs only |
+| `vision_urls` | true | public HTTPS image and video URLs as well as data URLs, fetched by rank 0 by the rules TensorFold's Python server used: HTTPS on 443, every resolved address public, redirects checked again, declared media types, 10 MB an image and 20 MB a request, 10 s a download. The server then makes outbound requests for whoever can reach its port: keep the port on a trusted network, or `false` for data URLs only |
 | `tool_system` | an instruction | added to tool requests without a system message; empty serves none |
 | `max_tokens` | 32768 | the reply cap when a request sets none |
 | `hca`, `iface`, `master_port` | | NCCL: the RoCE devices to use, comma-separated (both halves of the cabled port); GB10 also exposes dead ones |
@@ -227,7 +229,8 @@ environment variable of the same name in upper case (`PORT=8001 python3 -m spark
 `python3 -m spark validate` refuses, before anything runs: a window above the trained 262,144 with `yarn = false`
 or outside (262,144, 1,048,576] with `yarn = true`, zero-padded or non-decimal integers, a patch whose sha256 is not
 the pinned one, `extra_args` that re-set a flag the recipe builds (`--tp`, `--context`, `--parallel`, `--vision`,
-any prefix of them), an `extra_env` entry that is not `KEY=VALUE`, `tp` other than 1 or 2.
+any prefix of them), an `extra_env` entry that is not `KEY=VALUE`, `parallel` outside 1 to 16, and the settings of the
+removed Python engine (`engine`, `tp`, `mtp_drafts`, `mtp_confidence`, the `native_*` names), each with what replaced it.
 
 ## Quality suite and ruler
 
@@ -262,8 +265,8 @@ Both run against any OpenAI-compatible server, which is how the comparison table
 - A start can fail when the worker refuses NCCL's first memory registration (rank 0 exits during its warm-up
   gather); `spark up` again after a minute. It happens most right after a stop, which is what `settle_seconds` is for.
 - Scores above are with thinking off; the suite does not yet run every check with thinking on.
-- No logprobs on two ranks (either engine). Grammars (`response_format`, `guided_*`) and sampling are served on both
-  engines and in both profiles.
+- No logprobs (the Python engine served them at one rank only; it is gone). Grammars (`response_format`, `guided_*`) and
+  sampling are served in both profiles.
 - When the streams' caches outgrow the GPU memory left for them (about 0.85M tokens across streams at int8, 1.2M at
   int4, per rank), the request that asks for more is refused with "the GPU had no memory left for this request's
   caches: retry once another request ends"; the others carry on and the server keeps serving. Prompts that grow

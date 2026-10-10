@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -28,7 +29,7 @@ class GuardTests(unittest.TestCase):
 
     def test_defaults_load_and_name_the_pinned_patch(self) -> None:
         s = load()
-        self.assertEqual((s.profile, s.tp, s.context, s.parallel, s.yarn), ("concurrent", 2, 1048576, 16, True))
+        self.assertEqual((s.profile, s.context, s.parallel, s.yarn, s.drafts), ("concurrent", 1048576, 16, True, True))
         self.assertEqual(hashlib.sha256(s.patch_path.read_bytes()).hexdigest(), s.patch_sha256)
 
     def test_profiles_fill_only_what_nothing_else_set(self) -> None:
@@ -48,23 +49,37 @@ class GuardTests(unittest.TestCase):
     def test_integers_and_flags(self) -> None:
         self.refused("not a decimal integer", MAX_TOKENS="0100")
         self.refused("not a decimal integer", PARALLEL="x")
-        self.refused("outside", MTP_DRAFTS="16")
-        self.refused("outside", TP="4")
+        self.refused("outside", PARALLEL="17")
         self.refused("0/1 or true/false", VISION="yes")
-        self.refused("must be a decimal in [0, 1]", MTP_CONFIDENCE=".7")
         self.refused("must be one of", KV_DTYPE="fp8")
+        self.refused("must be one of", KV_DTYPE="bf16")
         self.refused("40-hex", REVISION="main")
 
     def test_extra_args_cannot_reset_owned_flags(self) -> None:
-        for word in ("--tp 1", "--context=8192", "--paral 8", "--vis", "--mtp-d 3", "--port 1"):
+        for word in ("--tp 1", "--context=8192", "--paral 8", "--vis", "--no-dr", "--port 1"):
             self.refused("which the recipe passes itself", EXTRA_ARGS=word)
-        self.refused("not used by this checkpoint", EXTRA_ARGS="--prefill-fp8")
-        self.assertEqual(load(EXTRA_ARGS="--temperature 0.6 --alias q").extra_args, "--temperature 0.6 --alias q")
+        self.assertEqual(load(EXTRA_ARGS="--temperature 0.6").extra_args, "--temperature 0.6")
         self.refused("not KEY=VALUE", EXTRA_ENV="NCCL_PROTO")
 
     def test_converted_repo_needs_a_revision(self) -> None:
         self.refused("converted_revision", CONVERTED_REPO="x/y", CONVERTED_REVISION="")
         self.assertEqual(load(CONVERTED_REPO="x/y", CONVERTED_REVISION="a" * 40).converted_repo, "x/y")
+
+    def test_removed_settings_say_what_replaced_them(self) -> None:
+        self.refused("only the native engine", ENGINE="python")
+        self.refused("two ranks", TP="1")
+        self.refused("drafts = false", MTP_DRAFTS="0")
+        self.refused("it is patch now", NATIVE_PATCH="x.patch")
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "cluster.toml"
+            f.write_text('[engine]\nnative_image = "x"\n')
+            with self.assertRaises(config.ConfigError) as got:
+                config.load(cluster_file=f, env=CLEAN)
+            self.assertIn("it is image now", str(got.exception))
+
+    def test_cache_folder(self) -> None:
+        self.assertTrue(str(load().converted_dir).endswith(load().cache_folder + "/affine-experts-v2"))
+        self.refused("one folder name", CACHE_FOLDER="a/b")
 
     def test_patch_pin(self) -> None:
         self.refused("not a sha256", PATCH_SHA256="abc")
@@ -75,49 +90,35 @@ class GuardTests(unittest.TestCase):
 class ServeArgsTests(unittest.TestCase):
     def test_both_ranks_share_the_engine_settings(self) -> None:
         s = load()
-        r0, r1 = s.serve_args(0), s.serve_args(1)
-        for flag in ("--context", "--kv-dtype", "--mtp-drafts", "--mtp-confidence", "--tp", "--master", "--master-port"):
+        r0, r1 = s.native_args(0), s.native_args(1)
+        for flag in ("--context", "--tp", "--master", "--master-port"):
             self.assertEqual(r0[r0.index(flag) + 1], r1[r1.index(flag) + 1], flag)
         self.assertEqual(r1[r1.index("--rank") + 1], "1")
-        for flag in ("--name", "--host", "--port", "--max-tokens", "--no-thinking", "--tool-system"):
+        for flag in ("--name", "--host", "--port", "--max-tokens", "--no-thinking", "--tool-system", "--parallel"):
             self.assertIn(flag, r0)
-            self.assertNotIn(flag, r1)
+            self.assertNotIn(flag, r1)                   # rank 1 serves no HTTP
+        self.assertEqual(r0[r0.index("--parallel") + 1], "16")
         self.assertIn("--vision", r0)
         self.assertIn("--vision", r1)                    # both ranks admit the same geometry; the tower on rank 0
         self.assertIn("--vision-urls", r0)               # on by default; rank 0 fetches
         self.assertNotIn("--vision-urls", r1)
-        self.assertNotIn("--vision-urls", load(VISION_URLS="0").serve_args(0))
-
-    def test_switches(self) -> None:
-        r = load(MTP_DRAFTS="0").serve_args(0)
-        self.assertIn("--no-drafts", r)
-        self.assertNotIn("--mtp-drafts", r)
-        self.assertIn("--thinking", load(THINKING="1").serve_args(0))
-        self.assertNotIn("--parallel", load(PROFILE="serial").serve_args(0))
-        self.assertIn("--parallel", load(PROFILE="concurrent").serve_args(1))
-        r0 = load(VISION_URLS="1", VISION_MAX_IMAGES="8").serve_args(0)
-        self.assertIn("--vision-urls", r0)
-        self.assertEqual(r0[r0.index("--vision-max-images") + 1], "8")
-        self.assertNotIn("--vision", load(VISION="0").serve_args(0))
-        r = load(TP="1", ENGINE="python").serve_args(0)   # one rank: the Python engine (native serves two)
-        for flag in ("--tp", "--rank", "--master"):
-            self.assertNotIn(flag, r)
-
-    def test_native_switches(self) -> None:
-        self.assertEqual(load().engine, "native")              # the default
-        r0 = load().native_args(0)
-        self.assertEqual(r0[r0.index("--parallel") + 1], "16")
-        self.assertIn("--vision", r0)
-        self.assertIn("--tool-system", r0)
-        self.assertNotIn("--vision", load(VISION="0").native_args(0))
-        self.assertNotIn("--parallel", load().native_args(1))   # rank 1 serves no HTTP
-        for rank in (0, 1):                                     # both ranks keep the same cache
+        self.assertNotIn("--vision-urls", load(VISION_URLS="0").native_args(0))
+        self.assertNotIn("--kv-dtype", r0)               # int8 is the engine's default
+        for rank in (0, 1):                              # both ranks keep the same cache
             r = load(KV_DTYPE="int4").native_args(rank)
             self.assertEqual(r[r.index("--kv-dtype") + 1], "int4")
-        with self.assertRaises(config.ConfigError):
-            load(TP="1")                                        # native serves two ranks
-        with self.assertRaises(config.ConfigError):
-            load(KV_DTYPE="bf16")                               # native keeps int8 or int4
+
+    def test_switches(self) -> None:
+        self.assertIn("--no-drafts", load(DRAFTS="0").native_args(1))
+        self.assertNotIn("--no-drafts", load().native_args(0))
+        self.assertIn("--thinking", load(THINKING="1").native_args(0))
+        r0 = load(PROFILE="serial").native_args(0)
+        self.assertEqual(r0[r0.index("--parallel") + 1], "1")
+        r0 = load(VISION_URLS="1", VISION_MAX_IMAGES="8").native_args(0)
+        self.assertIn("--vision-urls", r0)
+        self.assertEqual(r0[r0.index("--vision-max-images") + 1], "8")
+        self.assertNotIn("--vision", load(VISION="0").native_args(0))
+        self.assertEqual(load(EXTRA_ARGS="--temperature 0").native_args(0)[-2:], ["--temperature", "0"])
 
     def test_model_folder_follows_the_profile(self) -> None:
         self.assertTrue(load(YARN="0", CONTEXT="262144").model_in_container.endswith("/affine-experts-v2"))

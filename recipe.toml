@@ -13,22 +13,17 @@ converted_repo = "BobClawblaw/Qwen3.8-Flash-Next-INT4-Mixed-TensorFold"
 converted_revision = "00a844f4a5453ec8f34e75bce7d43a004731ebfa"
 
 [engine]
+# TensorFold's native (Zig) release with this recipe's patch, built by docker/Dockerfile.native: our Flash Next port
+# for two CUDA ranks. Up to 16 streams, images and video (data and HTTPS URLs), sampling, structured output, kept
+# prompt states, kv_dtype int8 or int4.
 tensorfold_repo = "https://github.com/ashhart/TensorFold.git"
-tensorfold_sha = "ed78d6fc204d89d90b045bf033d6551e7714f3a1"
-patch = "flashnext-int4mixed-py0.6-ed78d6f.patch"
+tensorfold_sha = "d4fc1964d0637c33e09ddac18aec936f962bb646"     # v1.0.4
+patch = "tensorfold-native-v1.0.4.patch"
 # sha256 of docker/patches/<patch>; the image carries it as a label and `up` refuses a mismatch
-patch_sha256 = "44e82a02ff65ad8ecdab5e094182d7220996f03dfa75ba06af01f2759b2ffb05"
-image = "tf-qwen38-int4mixed:py0.6-ed78d6f"
+patch_sha256 = "ce40418ae58ec402b9598ab2ae415003b4d8995c204121dea5eb3376b4cc423e"
+image = "tf-qwen38-int4mixed:native-v1.0.4"
 base_image = "nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c"
 container = "tf-qwen38-int4mixed"
-# engine = "native": TensorFold's latest release (the Zig engine) with this recipe's patch, docker/Dockerfile.native.
-# Up to 16 streams, images and video (data and HTTPS URLs), sampling, structured output, kept prompt states,
-# kv_dtype int8 or int4. "python" also serves logprobs, at tp=1 only.
-engine = "native"
-native_tensorfold_sha = "d4fc1964d0637c33e09ddac18aec936f962bb646"     # v1.0.4
-native_patch = "tensorfold-native-v1.0.4.patch"
-native_patch_sha256 = "ce40418ae58ec402b9598ab2ae415003b4d8995c204121dea5eb3376b4cc423e"
-native_image = "tf-qwen38-int4mixed:native-v1.0.4"
 
 [cluster]
 head_ip = "10.100.8.1"           # the head's address on the RoCE link (rank 1 rendezvous)
@@ -39,17 +34,18 @@ master_port = 29561
 port = 8000
 hf_cache = "~/.cache/huggingface"
 tf_cache = "~/.cache/tensorfold-qwen38-int4mixed"
+# the folder under tf_cache that holds the converted checkpoint and the profile folders (named after the commit the
+# first conversion ran under; kept so existing caches stay valid)
+cache_folder = "ed78d6fc204d89d90b045bf033d6551e7714f3a1"
 
 [serve]
-tp = 2
-profile = "concurrent"           # concurrent (16 streams, the default) | serial (one stream on CUDA graphs, response_format)
+profile = "concurrent"           # concurrent (16 streams, the default) | serial (one stream)
 # the window: 1,048,576 tokens through static YaRN x4 over the trained 262,144 (yarn = true), or yarn = false and
 # context up to 262,144 for the plain rotary (short prompts see the scaled rotary too when yarn is on)
 yarn = true
 context = 1048576
-kv_dtype = "int8"
-mtp_drafts = 15
-mtp_confidence = "0.70"
+kv_dtype = "int8"                # int8 | int4 (30% less cache a position, 0-10% slower at 16 streams)
+drafts = true                    # MTP and copy drafts (outputs equal undrafted); false serves without them
 parallel = 1
 thinking = false
 max_tokens = 32768

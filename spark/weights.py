@@ -107,7 +107,8 @@ def download_converted(s: Settings, head: Node) -> None:
 
 
 def ensure_converted(s: Settings, head: Node) -> None:
-    """The served folder on the head: downloaded ready-made when converted_repo is set, else converted here (GPU)."""
+    """The served folder on the head: downloaded ready-made when converted_repo is set, else converted here (GPU), by
+    spark/convert_mixed.py inside the engine's image (it carries torch and safetensors; `up` builds it first)."""
     if converted_ready(s, head):
         log(f"Converted checkpoint {s.converted_dir}")
         return

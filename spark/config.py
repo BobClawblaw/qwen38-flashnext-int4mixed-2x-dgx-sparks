@@ -1,5 +1,7 @@
 """The recipe's settings: recipe.toml defaults, cluster.toml overrides, environment overrides, then the guards.
 
+The engine is TensorFold's native (Zig) release with this recipe's patch, on two ranks.
+
 Every value is validated before anything touches Docker or the worker. A profile (concurrent, serial) fills the
 settings it owns only where nothing more specific set them, so PROFILE=concurrent with PARALLEL=4 serves 4 streams.
 The window is independent of the profile: yarn = true serves up to 1,048,576 tokens (static YaRN x4), yarn = false
@@ -17,16 +19,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = ("concurrent", "serial")
-KV_DTYPES = ("bf16", "int8", "int4")
-MAX_MTP_DRAFTS = 15                   # the engine's draft cap (families/qwen4_exp/cuda/engine.py MAX_DEPTH)
+KV_DTYPES = ("int8", "int4")
 CONTAINER_HF = "/cache/huggingface"
 CONTAINER_TF = "/cache/tf"
-# flags `serve_args` builds itself; EXTRA_ARGS may not set them (argparse keeps the last value and the ranks would
-# disagree); TensorFold's parser takes unambiguous prefixes, so any prefix of these is refused too
+# flags `native_args` builds itself; EXTRA_ARGS may not set them (the ranks would disagree), nor any prefix of them
 OWNED_FLAGS = ("--tp", "--rank", "--master", "--master-port", "--host", "--port", "--name", "--context", "--kv-dtype",
-               "--mtp-drafts", "--mtp-confidence", "--parallel", "--thinking", "--no-thinking", "--max-tokens",
-               "--no-update-check", "--no-drafts", "--tool-system", "--vision", "--vision-urls", "--vision-max-images")
-UNUSED_FLAGS = ("--prefill-fp8", "--drafter", "--ple-on-ssd", "--ssd-experts", "--vision-offload")
+               "--parallel", "--thinking", "--no-thinking", "--max-tokens", "--no-update-check", "--no-drafts",
+               "--tool-system", "--vision", "--vision-urls", "--vision-max-images")
+# settings this recipe no longer reads (the Python engine was removed on 2026-10-10): refused with what replaced them
+REMOVED = {
+    "engine": "the recipe serves only the native engine now (TensorFold's Python engine is frozen upstream)",
+    "native_tensorfold_sha": "it is tensorfold_sha now", "native_patch": "it is patch now",
+    "native_patch_sha256": "it is patch_sha256 now", "native_image": "it is image now",
+    "tp": "the native engine always serves two ranks",
+    "mtp_drafts": "use drafts = false to serve without drafts (the engine sets the depth itself)",
+    "mtp_confidence": "the engine sets its draft cut itself",
+}
 
 
 class ConfigError(ValueError):
@@ -44,17 +52,12 @@ class Settings:
     converted_revision: str
     # [engine]
     tensorfold_repo: str
-    tensorfold_sha: str
+    tensorfold_sha: str              # the native release the image builds from
     patch: str
     patch_sha256: str
     image: str
     base_image: str
     container: str
-    engine: str                      # python (the Python line, every feature) | native (the Zig release engine)
-    native_tensorfold_sha: str       # the release the native engine builds from
-    native_patch: str
-    native_patch_sha256: str
-    native_image: str
     # [cluster]
     head_ip: str
     worker: str
@@ -64,14 +67,13 @@ class Settings:
     port: int
     hf_cache: Path
     tf_cache: Path
+    cache_folder: str                # tf_cache/<cache_folder>: the converted checkpoint, profile folders
     # [serve]
-    tp: int
     profile: str
     yarn: bool
     context: int
     kv_dtype: str
-    mtp_drafts: int
-    mtp_confidence: str
+    drafts: bool
     parallel: int
     thinking: bool
     max_tokens: int
@@ -105,8 +107,8 @@ class Settings:
 
     @property
     def cache_dir(self) -> Path:
-        """Host folder mounted at /cache/tf: kernels, the converted checkpoint, profile folders, logs."""
-        return self.tf_cache / self.tensorfold_sha
+        """Host folder mounted at /cache/tf: the converted checkpoint and the profile folders."""
+        return self.tf_cache / self.cache_folder
 
     @property
     def converted_dir(self) -> Path:
@@ -136,34 +138,13 @@ class Settings:
     def extra_env_pairs(self) -> list[str]:
         return [kv for kv in self.extra_env.split() if kv]
 
-    # ----- the engine in use: the Python line's image or the native one ----------------------------------------
-    @property
-    def native(self) -> bool:
-        return self.engine == "native"
-
-    @property
-    def run_image(self) -> str:
-        return self.native_image if self.native else self.image
-
-    @property
-    def run_sha(self) -> str:
-        return self.native_tensorfold_sha if self.native else self.tensorfold_sha
-
-    @property
-    def run_patch(self) -> str:
-        return self.native_patch if self.native else self.patch
-
-    @property
-    def run_patch_sha256(self) -> str:
-        return self.native_patch_sha256 if self.native else self.patch_sha256
-
     def native_args(self, rank: int) -> list[str]:
         """``tensorfold-native serve <model>`` arguments: the flags the native server reads (it refuses the rest)."""
         args = ["--context", str(self.context), "--no-update-check", "--tp", "2", "--rank", str(rank),
                 "--master", self.head_ip, "--master-port", str(self.master_port)]
         if self.kv_dtype != "int8":
             args += ["--kv-dtype", self.kv_dtype]   # both ranks; int8 is the native default
-        if self.mtp_drafts == 0:
+        if not self.drafts:
             args.append("--no-drafts")
         if rank == 0:
             args += ["--name", self.served_name, "--host", "0.0.0.0", "--port", str(self.port),
@@ -179,34 +160,8 @@ class Settings:
             args.append("--vision")                 # both ranks: the tower on rank 0, rank 1 receives the features
         return args + self.extra_args.split()
 
-    # ----- the engine's command line ------------------------------------------------------------------------
-    def serve_args(self, rank: int) -> list[str]:
-        """``tensorfold serve <model>`` arguments for one rank; both ranks share every engine setting."""
-        args = ["--context", str(self.context), "--kv-dtype", self.kv_dtype, "--no-update-check"]
-        if self.mtp_drafts == 0:
-            args.append("--no-drafts")
-        else:
-            args += ["--mtp-drafts", str(self.mtp_drafts), "--mtp-confidence", self.mtp_confidence]
-        if self.parallel > 1:
-            args += ["--parallel", str(self.parallel)]
-        if self.vision:
-            args.append("--vision")                 # both ranks: the tower on rank 0, rank 1 receives the features
-        if self.tp == 2:
-            args += ["--tp", "2", "--rank", str(rank), "--master", self.head_ip, "--master-port", str(self.master_port)]
-        if rank == 0:
-            args += ["--name", self.served_name, "--host", "0.0.0.0", "--port", str(self.port),
-                     "--max-tokens", str(self.max_tokens), "--thinking" if self.thinking else "--no-thinking"]
-            if self.tool_system:
-                args += ["--tool-system", self.tool_system]
-            if self.vision and self.vision_urls:
-                args.append("--vision-urls")
-            if self.vision and self.vision_max_images:
-                args += ["--vision-max-images", str(self.vision_max_images)]
-        return args + self.extra_args.split()
-
     def container_env(self) -> dict[str, str]:
         env = {"HF_HOME": CONTAINER_HF, "HF_HUB_OFFLINE": "1", "TENSORFOLD_NO_UPDATE_CHECK": "1",
-               "TORCH_EXTENSIONS_DIR": f"{CONTAINER_TF}/torch_extensions", "TRITON_CACHE_DIR": f"{CONTAINER_TF}/triton",
                "NCCL_SOCKET_IFNAME": self.iface, "NCCL_IB_HCA": self.hca, "NCCL_DEBUG": "WARN"}
         if self.memory_reserve_gib:
             env["TENSORFOLD_MEMORY_RESERVE_GIB"] = str(self.memory_reserve_gib)
@@ -216,10 +171,9 @@ class Settings:
         return env
 
     def summary(self) -> str:
-        return (f"profile={self.profile} tp={self.tp} ctx={self.context} yarn={int(self.yarn)} kv={self.kv_dtype} "
-                f"mtp={self.mtp_drafts}@{self.mtp_confidence} parallel={self.parallel} vision={int(self.vision)} "
-                f"engine={self.engine} image={self.run_image} patch={self.run_patch} model={self.repo}@{self.revision[:8]} "
-                f"port={self.port}")
+        return (f"profile={self.profile} tp=2 ctx={self.context} yarn={int(self.yarn)} kv={self.kv_dtype} "
+                f"drafts={int(self.drafts)} parallel={self.parallel} vision={int(self.vision)} image={self.image} "
+                f"patch={self.patch} model={self.repo}@{self.revision[:8]} port={self.port}")
 
 
 # ----- loading ---------------------------------------------------------------------------------------------------
@@ -274,8 +228,13 @@ def load(cluster_file: Path | str | None = None, env: dict[str, str] | None = No
             if not isinstance(body, dict):
                 raise ConfigError(f"{cluster}: top-level key {section} must be a table")
             for k, v in body.items():
+                if k in REMOVED:
+                    raise ConfigError(f"{cluster}: {k} is no longer a setting: {REMOVED[k]}")
                 values[k] = v
                 explicit.add(k)
+    for k, why in REMOVED.items():
+        if k.upper() in env:
+            raise ConfigError(f"{k.upper()} is no longer a setting: {why}")
     kinds = {f.name: f.type for f in fields(Settings)}
     for name in kinds:
         if name.upper() in env:
@@ -302,17 +261,17 @@ def load(cluster_file: Path | str | None = None, env: dict[str, str] | None = No
 
 
 def validate(s: Settings) -> None:
-    for name, lo, hi in (("port", 1, 65535), ("master_port", 1, 65535), ("tp", 1, 2), ("parallel", 1, 64),
-                         ("max_tokens", 1, 1 << 24), ("mtp_drafts", 0, MAX_MTP_DRAFTS), ("vision_max_images", 0, 64),
+    for name, lo, hi in (("port", 1, 65535), ("master_port", 1, 65535), ("parallel", 1, 16),
+                         ("max_tokens", 1, 1 << 24), ("vision_max_images", 0, 64),
                          ("settle_seconds", 0, 600), ("memguard_min_avail_mb", 0, 1 << 20),
                          ("memguard_min_swap_free_mb", 0, 1 << 20), ("yarn_factor", 1, 16)):
         v = getattr(s, name)
         if not lo <= v <= hi:
             raise ConfigError(f"{name}={v} is outside [{lo}, {hi}]")
     if s.kv_dtype not in KV_DTYPES:
-        raise ConfigError(f"kv_dtype={s.kv_dtype} must be one of {', '.join(KV_DTYPES)}")
-    if not re.fullmatch(r"(0(\.[0-9]+)?|1(\.0+)?)", s.mtp_confidence):
-        raise ConfigError(f"mtp_confidence={s.mtp_confidence} must be a decimal in [0, 1], e.g. 0.70")
+        raise ConfigError(f"kv_dtype={s.kv_dtype} must be one of {', '.join(KV_DTYPES)} (the engine's caches)")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", s.cache_folder):
+        raise ConfigError(f"cache_folder={s.cache_folder!r} must be one folder name under tf_cache")
     for name in ("revision", "tensorfold_sha"):
         if not re.fullmatch(r"[0-9a-f]{40}", getattr(s, name)):
             raise ConfigError(f"{name}={getattr(s, name)} is not a 40-hex commit")
@@ -328,21 +287,6 @@ def validate(s: Settings) -> None:
                           f"to {s.long_context}")
     if s.context % 256:
         raise ConfigError(f"context={s.context} must be a multiple of 256")
-    if s.engine not in ("python", "native"):
-        raise ConfigError(f"engine={s.engine} must be python or native")
-    if s.native:
-        if s.tp != 2 or not 1 <= s.parallel <= 16:
-            raise ConfigError("engine=native serves two ranks and up to 16 streams: tp=2, parallel=1..16")
-        if s.kv_dtype not in ("int8", "int4"):
-            raise ConfigError(f"kv_dtype={s.kv_dtype}: the native engine keeps an int8 or int4 cache (engine=python serves bf16)")
-        if not re.fullmatch(r"[0-9a-f]{40}", s.native_tensorfold_sha):
-            raise ConfigError(f"native_tensorfold_sha={s.native_tensorfold_sha} is not a 40-hex commit")
-        npath = ROOT / "docker" / "patches" / s.native_patch
-        if not npath.is_file():
-            raise ConfigError(f"docker/patches/{s.native_patch} is missing")
-        nhave = hashlib.sha256(npath.read_bytes()).hexdigest()
-        if nhave != s.native_patch_sha256:
-            raise ConfigError(f"docker/patches/{s.native_patch} has sha256 {nhave}, not the pinned {s.native_patch_sha256}")
     if not re.fullmatch(r"[A-Za-z0-9._-]+\.patch", s.patch):
         raise ConfigError(f"patch={s.patch} must be a file name under docker/patches/")
     if not s.patch_path.is_file():
@@ -361,11 +305,8 @@ def validate(s: Settings) -> None:
             if owned.startswith(flag):
                 raise ConfigError(f"extra_args sets {word} (the engine reads it as {owned}), which the recipe passes "
                                   "itself; use the matching setting instead")
-        for unused in UNUSED_FLAGS:
-            if unused.startswith(flag):
-                raise ConfigError(f"extra_args sets {word} ({unused}): not used by this checkpoint on CUDA")
     for kv in s.extra_env_pairs:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", kv):
             raise ConfigError(f"extra_env entry {kv!r} is not KEY=VALUE")
-    if s.tp == 2 and "@" not in s.worker and "." not in s.worker:
+    if "@" not in s.worker and "." not in s.worker:
         raise ConfigError(f"worker={s.worker!r} should be an ssh destination such as user@10.100.8.2")

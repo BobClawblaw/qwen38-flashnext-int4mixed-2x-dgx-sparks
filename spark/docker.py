@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from .config import CONTAINER_HF, CONTAINER_TF, ROOT, Settings
 from .nodes import Node, log, pipe
 
@@ -25,48 +23,28 @@ def image_id(node: Node, image: str) -> str | None:
 
 
 def ensure_image(s: Settings, head: Node, rebuild: bool = False) -> None:
-    """Build the image on the head when it is missing (or ``rebuild``); refuse one whose labels name another patch."""
-    if s.native:
-        return ensure_native(s, head, rebuild)
+    """The engine's image on the head: TensorFold's release at tensorfold_sha with the patch, docker/Dockerfile.native.
+    Built when missing (or ``rebuild``); refused when its labels name another release or patch."""
+    want = (s.tensorfold_sha, s.patch_sha256)
     have = labels(head, s.image)
-    if have is None or (rebuild and have != (s.tensorfold_sha, s.patch_sha256)):
-        log(f"Building {s.image} (TensorFold {s.tensorfold_sha[:8]}, patch {s.patch}) from docker/Dockerfile")
-        rc = head.stream(["docker", "build", "--build-arg", f"TF_REPO={s.tensorfold_repo}",
-                          "--build-arg", f"TF_SHA={s.tensorfold_sha}", "--build-arg", f"TF_PATCH={s.patch}",
-                          "--build-arg", f"TF_PATCH_SHA={s.patch_sha256}", "--build-arg", f"BASE={s.base_image}",
-                          "-t", s.image, str(ROOT / "docker")])
+    if have is None or (rebuild and have != want):
+        log(f"Building {s.image} (TensorFold {s.tensorfold_sha[:8]}, patch {s.patch}) from docker/Dockerfile.native")
+        rc = head.stream(["docker", "build", "-f", str(ROOT / "docker" / "Dockerfile.native"),
+                          "--build-arg", f"TF_REPO={s.tensorfold_repo}", "--build-arg", f"TF_SHA={s.tensorfold_sha}",
+                          "--build-arg", f"TF_PATCH={s.patch}", "--build-arg", f"TF_PATCH_SHA={s.patch_sha256}",
+                          "--build-arg", f"BASE_IMAGE={s.base_image}", "-t", s.image, str(ROOT / "docker")])
         if rc:
             raise RuntimeError(f"docker build of {s.image} failed ({rc})")
         have = labels(head, s.image)
-    if have != (s.tensorfold_sha, s.patch_sha256):
-        raise RuntimeError(f"image {s.image} carries TensorFold/patch {have}, not ({s.tensorfold_sha}, "
-                           f"{s.patch_sha256}): rebuild it or point `image` at the matching tag")
-    log(f"Image {s.image} (TensorFold {s.tensorfold_sha[:8]}, patch {s.patch} sha256 {s.patch_sha256[:8]})")
-
-
-def ensure_native(s: Settings, head: Node, rebuild: bool = False) -> None:
-    """The native engine's image: TensorFold's release at native_tensorfold_sha with native_patch, docker/Dockerfile.native."""
-    want = (s.native_tensorfold_sha, s.native_patch_sha256)
-    have = labels(head, s.native_image)
-    if have is None or (rebuild and have != want):
-        log(f"Building {s.native_image} (TensorFold {s.native_tensorfold_sha[:8]}, patch {s.native_patch}) from "
-            "docker/Dockerfile.native")
-        rc = head.stream(["docker", "build", "-f", str(ROOT / "docker" / "Dockerfile.native"),
-                          "--build-arg", f"TF_REPO={s.tensorfold_repo}", "--build-arg", f"TF_SHA={s.native_tensorfold_sha}",
-                          "--build-arg", f"TF_PATCH={s.native_patch}", "--build-arg", f"TF_PATCH_SHA={s.native_patch_sha256}",
-                          "--build-arg", f"BASE_IMAGE={s.base_image}", "-t", s.native_image, str(ROOT / "docker")])
-        if rc:
-            raise RuntimeError(f"docker build of {s.native_image} failed ({rc})")
-        have = labels(head, s.native_image)
     if have != want:
-        raise RuntimeError(f"image {s.native_image} carries TensorFold/patch {have}, not {want}: rebuild it")
-    log(f"Image {s.native_image} (TensorFold {s.native_tensorfold_sha[:8]}, patch {s.native_patch} sha256 "
-        f"{s.native_patch_sha256[:8]})")
+        raise RuntimeError(f"image {s.image} carries TensorFold/patch {have}, not {want}: "
+                           "`python3 -m spark image --rebuild`")
+    log(f"Image {s.image} (TensorFold {s.tensorfold_sha[:8]}, patch {s.patch} sha256 {s.patch_sha256[:8]})")
 
 
 def sync_image(s: Settings, head: Node, worker: Node) -> bool:
     """The worker runs the head's exact image: same ID, or the head's copy goes over the link. True when it copied."""
-    image = s.run_image
+    image = s.image
     local, remote = image_id(head, image), image_id(worker, image)
     if local == remote:
         return False
@@ -95,22 +73,17 @@ def stop(node: Node, name: str, timeout: int = 30) -> bool:
     return True
 
 
-def run_rank(s: Settings, node: Node, rank: int, *, src_mount: Path | None = None) -> None:
-    """Start one rank's container (detached). ``src_mount``: a tensorfold source tree mounted over the image's."""
+def run_rank(s: Settings, node: Node, rank: int) -> None:
+    """Start one rank's container (detached)."""
     hf, tf = s.hf_cache, s.cache_dir
     node.run(["mkdir", "-p", str(hf), str(tf)])
     argv = ["docker", "run", "-d", "--name", s.container, "--init", "--restart", "no", "--oom-score-adj", "1000",
             "--ulimit", "core=1", "--gpus", "all", "--network", "host", "--ipc", "host", "--device", "/dev/infiniband",
             "--cap-add", "IPC_LOCK", "--ulimit", "memlock=-1:-1",
             "-v", f"{hf}:{CONTAINER_HF}:ro", "-v", f"{tf}:{CONTAINER_TF}"]
-    if src_mount is not None:
-        argv += ["-v", f"{src_mount}:/usr/local/lib/python3.12/dist-packages/tensorfold:ro"]
     for k, v in s.container_env().items():
         argv += ["-e", f"{k}={v}"]
-    if s.native:              # the image's entrypoint is tensorfold-native
-        argv += [s.run_image, "serve", s.model_in_container, *s.native_args(rank)]
-    else:
-        argv += [s.image, "tensorfold", "serve", s.model_in_container, *s.serve_args(rank)]
+    argv += [s.image, "serve", s.model_in_container, *s.native_args(rank)]   # the entrypoint is tensorfold-native
     # --init: rank 1 installs no SIGTERM handler (docker stop would wait out its timeout). memlock + IPC_LOCK: the
     # n-gram table pages are locked. --ulimit core=1: no multi-GiB core dumps in host memory.
     log(f"Starting {s.container} rank={rank} on {node.name}: {s.summary()}")

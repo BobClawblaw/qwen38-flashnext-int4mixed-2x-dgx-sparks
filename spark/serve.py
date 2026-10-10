@@ -32,10 +32,8 @@ done
 """
 
 
-def nodes(s: Settings) -> tuple[Node, Node | None]:
-    head = Node("head")
-    worker = Node("worker", s.worker) if s.tp == 2 else None
-    return head, worker
+def nodes(s: Settings) -> tuple[Node, Node]:
+    return Node("head"), Node("worker", s.worker)
 
 
 def _stamp(s: Settings) -> Path:
@@ -84,13 +82,13 @@ def health(s: Settings, timeout: float = 3) -> dict | None:
         return None
 
 
-def wait_ready(s: Settings, head: Node, worker: Node | None, limit: int = 3600) -> None:
+def wait_ready(s: Settings, head: Node, worker: Node, limit: int = 3600) -> None:
     log(f"Waiting for http://127.0.0.1:{s.port}/health and /v1/models")
     t0 = time.time()
     n = 0
     while time.time() - t0 < limit:
         h = health(s)
-        if h and (h.get("ok") or h.get("status") == "ok"):   # the Python server says ok: true, the native status: ok
+        if h and h.get("status") == "ok":
             try:
                 with urllib.request.urlopen(f"http://127.0.0.1:{s.port}/v1/models", timeout=3) as r:
                     body = r.read().decode()
@@ -101,7 +99,7 @@ def wait_ready(s: Settings, head: Node, worker: Node | None, limit: int = 3600) 
                 return
         if docker.state(head, s.container) != "running":
             raise RuntimeError(f"rank 0 exited:\n{docker.logs(head, s.container, 40)}")
-        if worker is not None and n % 6 == 5 and docker.state(worker, s.container) != "running":
+        if n % 6 == 5 and docker.state(worker, s.container) != "running":
             docker.stop(head, s.container)
             raise RuntimeError(f"rank 1 exited on {worker.name}:\n{docker.logs(worker, s.container, 40)}")
         n += 1
@@ -115,7 +113,7 @@ def down(s: Settings) -> None:
     """Rank 0 first (its store closes and rank 1 exits by itself), then rank 1, then the stop stamp."""
     head, worker = nodes(s)
     docker.stop(head, s.container)
-    if worker is not None and worker.reachable():
+    if worker.reachable():
         for _ in range(30):                  # rank 1 leaves when rank 0's store closes
             if docker.state(worker, s.container) != "running":
                 break
@@ -125,10 +123,9 @@ def down(s: Settings) -> None:
     _stamp(s).write_text(f"{time.time():.0f}\n")
 
 
-def up(s: Settings, *, src_mount: dict[str, Path] | None = None, download: bool = True) -> None:
-    """``src_mount``: {"head": path, "worker": path} tensorfold source trees mounted over the image's (development)."""
+def up(s: Settings, *, download: bool = True) -> None:
     head, worker = nodes(s)
-    for node in (head, worker) if worker else (head,):
+    for node in (head, worker):
         if node is worker and not worker.reachable():
             raise RuntimeError(f"cannot ssh to the worker {s.worker}")
         busy = docker.foreign_gpu_containers(node, s.container)
@@ -142,32 +139,30 @@ def up(s: Settings, *, src_mount: dict[str, Path] | None = None, download: bool 
     elif not weights.converted_ready(s, head):
         raise RuntimeError("the converted checkpoint is missing; run `python3 -m spark convert`")
     stopped = docker.stop(head, s.container)
-    if worker is not None:
-        # a 25 GB image load leaves the worker's memory fragmented: NCCL's first ibv_reg_mr then fails with ENOMEM
-        # (seen on the first start of this recipe), so a copy counts as a stop for the settle below
-        stopped |= docker.sync_image(s, head, worker)
-        weights.sync_converted(s, head, worker)
-        stopped |= docker.stop(worker, s.container)
+    # a 25 GB image load leaves the worker's memory fragmented: NCCL's first ibv_reg_mr then fails with ENOMEM
+    # (seen on the first start of this recipe), so a copy counts as a stop for the settle below
+    stopped |= docker.sync_image(s, head, worker)
+    weights.sync_converted(s, head, worker)
+    stopped |= docker.stop(worker, s.container)
     if stopped:
         _stamp(s).write_text(f"{time.time():.0f}\n")
     settle(s)
     for attempt in range(1, ATTEMPTS + 1):
         try:
-            _start_ranks(s, head, worker, src_mount)
+            _start_ranks(s, head, worker)
             wait_ready(s, head, worker)
             return
         except RuntimeError as exc:
             # GB10: the worker's first NCCL memory registration can fail with ENOMEM (ibv_reg_mr) for a while
             # after a rank freed its memory or a large image load; a pause and a compaction clear it.
             time.sleep(3)   # rank 0 can exit before the worker has logged its refusal
-            text = str(exc) + (docker.logs(worker, s.container, 2000) if worker is not None else "")
-            # the native engine names the collective that failed: its warm-up gather, right after the communicator
+            text = str(exc) + docker.logs(worker, s.container, 2000)
+            # the engine names the collective that failed: its warm-up gather, right after the communicator
             if not ("ibv_reg_mr" in text or "warm gather" in text) or attempt == ATTEMPTS:
                 raise
             log(f"NCCL could not register memory on the worker (attempt {attempt} of {ATTEMPTS}); retrying in {RETRY_WAIT}s")
             docker.stop(head, s.container)
-            if worker is not None:
-                docker.stop(worker, s.container)
+            docker.stop(worker, s.container)
             time.sleep(RETRY_WAIT)
 
 
@@ -175,13 +170,12 @@ ATTEMPTS = 4
 RETRY_WAIT = 45
 
 
-def _start_ranks(s: Settings, head: Node, worker: Node | None, src_mount) -> None:
-    order = ([worker] if worker else []) + [head]
-    for node in order:
+def _start_ranks(s: Settings, head: Node, worker: Node) -> None:
+    for node in (worker, head):
         drop_caches(node)
         if s.yarn:
             weights.ensure_long_profile(s, node)
-        docker.run_rank(s, node, 1 if node is worker else 0, src_mount=(src_mount or {}).get(node.name))
+        docker.run_rank(s, node, 1 if node is worker else 0)
         start_memguard(s, node)
         if node is worker:
             time.sleep(5)
@@ -191,19 +185,16 @@ def _start_ranks(s: Settings, head: Node, worker: Node | None, src_mount) -> Non
 
 def status(s: Settings) -> str:
     head, worker = nodes(s)
-    lines = [f"head:   {s.container} {docker.state(head, s.container)}"]
-    if worker is not None:
-        lines.append(f"worker: {s.container} {docker.state(worker, s.container) if worker.reachable() else 'unreachable'}")
+    lines = [f"head:   {s.container} {docker.state(head, s.container)}",
+             f"worker: {s.container} {docker.state(worker, s.container) if worker.reachable() else 'unreachable'}"]
     h = health(s)
-    if h and "live" in h:       # the native server: its own fields
+    if h and "live" in h:
         lv = h["live"]
-        lines.append(f"api:    ok (native), {h.get('max_batch_size')} stream, {lv.get('connections')} connected / "
+        lines.append(f"api:    ok, {h.get('max_batch_size')} stream, {lv.get('connections')} connected / "
                      f"{lv.get('waiting')} waiting, decode {lv.get('decode_tokens_per_second'):.1f} tok/s, "
                      f"prefill {lv.get('prefill_tokens_per_second'):.0f} tok/s, peak {h['memory']['peak'] / 2**30:.1f} GiB")
     elif h:
-        st = h.get("streams", {})
-        lines.append(f"api:    ok, context {h.get('context_length')}, streams {st.get('decoding')} decoding / "
-                     f"{st.get('prefilling')} prefilling of {st.get('max')}, {h.get('requests_total')} requests served")
+        lines.append(f"api:    {h.get('status', 'answering')}")
     else:
         lines.append(f"api:    no answer on port {s.port}")
     return "\n".join(lines)

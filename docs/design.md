@@ -11,8 +11,8 @@ and shared-expert linears, int8 on the mixers, embeddings, head and indexer, and
 the vision tower and the n-gram table. Its card reports IFBench 81.0, GPQA Diamond 90.4 and LiveCodeBench 92.4
 against 81.3 / 91.7 / 91.9 for the bf16 release.
 
-It ships as compressed-tensors `pack-quantized`, which TensorFold's Python engine does not read (it reads MLX affine 4-bit,
-NVFP4 and EXL3 for this model). Two routes were open: teach vLLM's two-Spark path to serve it (its author's patches
+It ships as compressed-tensors `pack-quantized`, which TensorFold does not read (its Python engine read MLX affine
+4-bit, NVFP4 and EXL3 for this model; its native engine served Flash Next on Metal only). Two routes were open: teach vLLM's two-Spark path to serve it (its author's patches
 target 24 GB cards and a specific nightly, int6 is not in stock vLLM, and he reports no gain from tensor
 parallelism), or give TensorFold a reader. The TensorFold route keeps everything this pair already has: two-rank
 images and video, copy drafts, sixteen streams, the 1M profile, tool-call handling, and an engine whose
@@ -22,7 +22,7 @@ per-request lines make every claim checkable.
 
 TensorFold's grouped expert kernel already takes affine 4-bit weights in groups of 32 or 64, and its NVFP4 route
 already runs every non-expert linear in bf16 and reads an e4m3 n-gram table. So the checkpoint is converted once
-per node (`spark/convert_mixed.py`, inside the image, on the GPU, about 25 minutes) rather than served through a
+per node (`spark/convert_mixed.py`, inside the engine's image, on the GPU, about 25 minutes) rather than served through a
 new set of kernels:
 
 | Source | Converted | Exactness |
@@ -37,13 +37,16 @@ The n-gram table is the one place the recipe loses more than a rounding: at bf16
 on a 128 GB node (the engine locks it in host memory), and at e4m3 it does. The suite's long-context and GSM8K
 checks are where a table loss would show.
 
-## The engine change
+## The engine
 
-A third loader branch, `affine-experts`: the routed experts on the affine kernel at group 64, the rest on the bf16
-paths. One structural difference from the MLX route: the shared expert is bf16, not a 513th 4-bit expert in the
-kernel's table, so the selection's last slot points past the table and the plan kernels now skip such picks (they
-indexed every pick before). Two ranks split expert widths in half (whole 64-groups), heads by count and the head's
-vocabulary in half, and gather fp32 partial sums. Details and tests: `docker/patches/README.md`.
+The recipe first served the converted checkpoint on TensorFold's Python engine, through a loader branch
+(`affine-experts`) in a patch to its `python-0.6` line. Upstream froze that engine, and this project ported Flash Next
+to TensorFold's native (Zig) engine for two CUDA ranks instead: the Python engine's extension kernels built from
+source, its Triton kernels captured and packed (`docker/kernels/sm121`), and a forward that reproduces the Python
+engine's tokens exactly, drafts included. On that port the recipe added shared rounds for sixteen streams, sampling,
+structured output, kept prompt states, image and video input, an int4 cache option, growth agreed by both ranks, and
+decode graphs split at the cross-rank gathers and shared across sequences. The Python engine and its patch were
+removed on 2026-10-10; its measurements stay under `evidence/`. Details: `docker/patches/README.md`.
 
 ## The orchestrator
 
