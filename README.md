@@ -19,7 +19,8 @@ dependencies.
 
 ## Measured on this pair
 
-The defaults: TensorFold v1.0.5's native engine with this recipe's patch (pin `8bea0406`), sixteen concurrent
+The defaults: TensorFold v1.0.5's native engine with this recipe's patch (pin `8bea0406`; the current pin `d5eacba9` adds the
+kept-state fix below and measures the same, [`ab/`](evidence/2026-10-10-native-v1.0.5-kept/ab/)), sixteen concurrent
 streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link.
 `bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per stream, median of 3 runs. Receipts:
 [`evidence/2026-10-10-native-v1.0.5/`](evidence/2026-10-10-native-v1.0.5/).
@@ -268,8 +269,6 @@ Both run against any OpenAI-compatible server, which is how the comparison table
 
 - A start can fail when the worker refuses NCCL's first memory registration (rank 0 exits during its warm-up
   gather); `spark up` again after a minute. It happens most right after a stop, which is what `settle_seconds` is for.
-- Sending the same request twice in a row (a regenerate) resumes the kept state but does not keep a new one, so the
-  turn after it reads its whole history again (about 2 s at 5k tokens). Replies are unaffected; a fix is under way.
 - Scores above are with thinking off; the suite does not yet run every check with thinking on.
 - No logprobs (the Python engine served them at one rank only; it is gone). Grammars (`response_format`, `guided_*`) and
   sampling are served in both profiles.

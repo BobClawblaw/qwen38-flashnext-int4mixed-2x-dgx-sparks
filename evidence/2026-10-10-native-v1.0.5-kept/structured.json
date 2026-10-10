@@ -1,0 +1,93 @@
+{
+ "json_object/greedy": {
+  "text": "{\n  \"name\": \"Whiskers\",\n  \"age\": 4,\n  \"breed\": \"Tabby\",\n  \"color\": \"Orange and White\",\n  \"personality\": \"Playful and affectionate\",\n  \"favorite_toy\": \"Feather wand\"\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "json_object/sampled": {
+  "text": "{\n  \"species\": \"Domestic Cat\",\n  \"fur_color\": \"Orange Tabby\",\n  \"weight_kg\": 4.5,\n  \"is_hungry\": true\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "json_object/thinking": {
+  "text": "{\n  \"name\": \"Whiskers\",\n  \"species\": \"cat\",\n  \"color\": \"gray\",\n  \"age\": 3,\n  \"personality\": \"playful\"\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "json_schema/greedy": {
+  "text": "{\n  \"name\": \"Elara Vance\",\n  \"age\": 34,\n  \"hobbies\": [\n    \"Restoring vintage typewriters\",\n    \"Urban foraging\",\n    \"Writing speculative fiction\"\n  ]\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "json_schema/sampled": {
+  "text": "{\n  \"name\": \"Elara Vance\",\n  \"age\": 34,\n  \"hobbies\": [\n    \"Restoring vintage typewriters\",\n    \"Urban foraging for wild mushrooms\",\n    \"Composing ambient soundscapes\"\n  ]\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "json_schema/thinking": {
+  "text": "{\n  \"name\": \"Mira Solenne\",\n  \"age\": 34,\n  \"hobbies\": [\"restoring old maps\", \"night gardening\", \"writing letters to strangers\"]\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "guided_json/greedy": {
+  "text": "{\n  \"name\": \"Elara Vance\",\n  \"age\": 34,\n  \"hobbies\": [\n    \"Saltwater fishing\",\n    \"Marine biology observation\",\n    \"Sailing small dinghies\"\n  ]\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "guided_json/sampled": {
+  "text": "{\n  \"name\": \"Elara Vane\",\n  \"age\": 34,\n  \"hobbies\": [\n    \"Tide pooling\",\n    \"Saltwater swimming\",\n    \"Collecting sea glass\"\n  ]\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "guided_json/thinking": {
+  "text": "{\n  \"name\": \"Mara Voss\",\n  \"age\": 34,\n  \"hobbies\": [\"sailing\", \"beachcombing\", \"sketching waves in a watercolor journal\"]\n}",
+  "finish": "stop",
+  "ok": true
+ },
+ "regex/greedy": {
+  "text": "(202) 555-0123",
+  "finish": "stop",
+  "ok": true
+ },
+ "regex/sampled": {
+  "text": "(555) 123-4567",
+  "finish": "stop",
+  "ok": true
+ },
+ "regex/thinking": {
+  "text": "(555) 55",
+  "finish": "length",
+  "ok": null
+ },
+ "choice/greedy": {
+  "text": "no",
+  "finish": "stop",
+  "ok": true
+ },
+ "choice/sampled": {
+  "text": "no",
+  "finish": "stop",
+  "ok": true
+ },
+ "choice/thinking": {
+  "text": "no",
+  "finish": "stop",
+  "ok": true
+ },
+ "grammar/greedy": {
+  "text": "1, 2, 3, 4, 5",
+  "finish": "stop",
+  "ok": true
+ },
+ "grammar/sampled": {
+  "text": "1, 2, 3, 4, 5",
+  "finish": "stop",
+  "ok": true
+ },
+ "grammar/thinking": {
+  "text": "1, 2, 3, 4, 5",
+  "finish": "stop",
+  "ok": true
+ },
+ "bad_regex_status": 400
+}

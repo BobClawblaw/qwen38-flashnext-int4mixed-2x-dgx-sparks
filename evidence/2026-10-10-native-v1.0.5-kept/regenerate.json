@@ -1,0 +1,27 @@
+{
+ "turn1": {
+  "prompt": 4334,
+  "cached": 0,
+  "text": "I acknowledge that the vault code is 4471."
+ },
+ "turn2": {
+  "prompt": 4357,
+  "cached": 4333,
+  "text": "The vault code is 4471."
+ },
+ "turn2_again": {
+  "prompt": 4357,
+  "cached": 4356,
+  "text": "The vault code is 4471."
+ },
+ "turn2_third": {
+  "prompt": 4357,
+  "cached": 4356,
+  "text": "The vault code is 4471."
+ },
+ "turn3": {
+  "prompt": 4380,
+  "cached": 4356,
+  "text": "4471 4471"
+ }
+}

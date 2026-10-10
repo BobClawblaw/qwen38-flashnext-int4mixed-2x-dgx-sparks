@@ -83636,10 +83636,10 @@ index 00000000..8856c361
 +}
 diff --git a/zig/src/families/flashnext_cuda/forward.zig b/zig/src/families/flashnext_cuda/forward.zig
 new file mode 100644
-index 00000000..6a1e78d4
+index 00000000..93c24f2a
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/forward.zig
-@@ -0,0 +1,1931 @@
+@@ -0,0 +1,1933 @@
 +//! Flash Next (qwen4_exp) on CUDA, one rank of two: the forward the Python engine runs for our recipe (int8 dense
 +//! linears, affine 4-bit routed experts, the int8 shared expert, a 4-bit MTP draft head), as code. Each launch takes
 +//! the grid, constexprs and arguments the Python engine gives it (kern.zig), so every row equals Python's bit for bit.
@@ -84981,9 +84981,10 @@ index 00000000..6a1e78d4
 +        if (start >= prompt.len or s.snap.at != @as(i64, @intCast(start))) return error.NoKeptState;
 +        try restore(e, b, s, prompt[start]);
 +    }
-+    s.snap.at = 0; // the kept point is this prompt's (or none)
 +    const cut = s.cut_at;
 +    s.cut_at = null;
++    // the kept point is this prompt's (or none); one the prompt resumes at stays kept (a repeat has nothing before it)
++    s.snap.at = if (start > 0 and cut != null and cut.? == @as(i64, @intCast(start))) cut.? else 0;
 +    if (cut != null and s.snap.buf == null) s.snap.buf = try cuda.DeviceBuffer.alloc(e.ctx.d, Snap.REC + Snap.CONV + Snap.PLE + Snap.TAIL);
 +    var first: Pick = undefined;
 +    while (at < prompt.len) {
@@ -85088,7 +85089,8 @@ index 00000000..6a1e78d4
 +    for (prompts, 0..) |p, j| {
 +        const s = p.s;
 +        if (p.start > 0) try restore(e, b, s, p.ids[p.start]);
-+        s.snap.at = 0; // the kept point is this prompt's (or none)
++        // the kept point is this prompt's (or none); one the prompt resumes at stays kept (see prefill)
++        s.snap.at = if (p.start > 0 and cuts[j] != null and cuts[j].? == @as(i64, @intCast(p.start))) cuts[j].? else 0;
 +        s.cut_at = null;
 +        if (cuts[j] != null and s.snap.buf == null) s.snap.buf = try cuda.DeviceBuffer.alloc(e.ctx.d, Snap.REC + Snap.CONV + Snap.PLE + Snap.TAIL);
 +        try room(e, s, segs[j].rows + 1);
@@ -92905,10 +92907,10 @@ index 00000000..3e7f91ce
 +}
 diff --git a/zig/tests/cuda/fn_forward.zig b/zig/tests/cuda/fn_forward.zig
 new file mode 100644
-index 00000000..0559a9ac
+index 00000000..3d291660
 --- /dev/null
 +++ b/zig/tests/cuda/fn_forward.zig
-@@ -0,0 +1,791 @@
+@@ -0,0 +1,797 @@
 +//! Flash Next on CUDA, M1: the native forward (src/families/flashnext_cuda/forward.zig) through its engine API only,
 +//! on two ranks: the reference prompt and Python's MTP reply, token for token, with the same rounds and drafts.
 +
@@ -93118,8 +93120,8 @@ index 00000000..0559a9ac
 +    defer gpa.free(next);
 +    @memcpy(next[0..k], prompt[0..k]);
 +    for (next[k..], 0..) |*x, j| x.* = prompt[(j * 7 + 3) % prompt.len];
-+    var runs: [2][32]u32 = undefined;
-+    for (0..2) |way| {
++    var runs: [3][32]u32 = undefined; // fresh; resumed; resumed after a repeat of the kept prompt (a regenerate)
++    for (0..3) |way| {
 +        const s = try fwd.newSeq(e);
 +        defer fwd.freeSeq(e, s);
 +        var tok: u32 = undefined;
@@ -93130,6 +93132,11 @@ index 00000000..0559a9ac
 +            s.cut_at = @intCast(k);
 +            _ = try fwd.prefill(e, s, prompt, 0);
 +            try check.expect(s.snap.at == @as(i64, @intCast(k)), "the kept point is at {d} (want {d})", .{ s.snap.at, k });
++            if (way == 2) { // the same prompt again, resumed at its own kept point: the point must stay kept
++                s.cut_at = @intCast(k);
++                _ = try fwd.prefill(e, s, prompt, k);
++                try check.expect(s.snap.at == @as(i64, @intCast(k)), "a repeat keeps the point at {d} (want {d})", .{ s.snap.at, k });
++            }
 +            s.cut_at = @intCast(next.len - 1);
 +            tok = try fwd.prefill(e, s, next, k);
 +        }
@@ -93141,9 +93148,10 @@ index 00000000..0559a9ac
 +            tok = out[0];
 +        }
 +    }
-+    std.debug.print("fresh:   {any}\nresumed: {any}\n", .{ runs[0][0..16], runs[1][0..16] });
++    std.debug.print("fresh:   {any}\nresumed: {any}\nrepeat:  {any}\n", .{ runs[0][0..16], runs[1][0..16], runs[2][0..16] });
 +    try check.expect(std.mem.eql(u32, &runs[0], &runs[1]), "the resumed turn's 32 tokens equal the fresh turn's", .{});
-+    check.pass("EXACT rank {d}: a turn resumed from its kept point ({d} of {d} prompt tokens kept) decodes as prefilled fresh", .{ rank, k, next.len });
++    try check.expect(std.mem.eql(u32, &runs[0], &runs[2]), "after a repeat, the resumed turn's 32 tokens equal the fresh turn's", .{});
++    check.pass("EXACT rank {d}: a turn resumed from its kept point ({d} of {d} prompt tokens kept), also after a repeat, decodes as prefilled fresh", .{ rank, k, next.len });
 +}
 +
 +/// Each probe prompt of <dir> (vision_ref.py's tokens and grid) decoded greedily (40 tokens, one row a step) with

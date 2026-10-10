@@ -1,0 +1,45 @@
+23:22:26 ==> Ready: http://0.0.0.0:8888/v1 (context=1048576, 156s)
+== prev 8bea0406
+  c=1   prose         77.4 /    77.4 tok/s   ttft 0.08s   256 tokens a reply
+  c=1   code         125.4 /   125.4 tok/s   ttft 0.09s   218 tokens a reply
+  c=1   structured    99.5 /    99.5 tok/s   ttft 0.09s   178 tokens a reply
+  c=1   list         125.5 /   125.5 tok/s   ttft 0.08s   217 tokens a reply
+  c=1   prose         77.0 /    77.0 tok/s   ttft 0.05s   256 tokens a reply
+  c=1   code         125.5 /   125.5 tok/s   ttft 0.04s   218 tokens a reply
+  c=1   structured    99.4 /    99.4 tok/s   ttft 0.04s   178 tokens a reply
+  c=1   list         125.0 /   125.0 tok/s   ttft 0.03s   217 tokens a reply
+23:23:26 ==> Stopping tf-qwen38-int4mixed on worker
+23:27:51 ==> Ready: http://0.0.0.0:8888/v1 (context=1048576, 159s)
+== fix d5eacba9
+  c=1   prose         76.1 /    76.1 tok/s   ttft 0.04s   256 tokens a reply
+  c=1   code         124.6 /   124.6 tok/s   ttft 0.04s   218 tokens a reply
+  c=1   structured    97.9 /    97.9 tok/s   ttft 0.04s   178 tokens a reply
+  c=1   list         126.6 /   126.6 tok/s   ttft 0.04s   217 tokens a reply
+  c=1   prose         77.5 /    77.5 tok/s   ttft 0.03s   256 tokens a reply
+  c=1   code         125.2 /   125.2 tok/s   ttft 0.04s   218 tokens a reply
+  c=1   structured    99.1 /    99.1 tok/s   ttft 0.04s   178 tokens a reply
+  c=1   list         126.1 /   126.1 tok/s   ttft 0.03s   217 tokens a reply
+23:28:50 ==> Stopping tf-qwen38-int4mixed on worker
+23:32:05 ==> Ready: http://0.0.0.0:8888/v1 (context=1048576, 155s)
+== prev 8bea0406
+  c=1   prose         75.2 /    75.2 tok/s   ttft 0.08s   256 tokens a reply
+  c=1   code         123.6 /   123.6 tok/s   ttft 0.10s   218 tokens a reply
+  c=1   structured    97.1 /    97.1 tok/s   ttft 0.09s   178 tokens a reply
+  c=1   list         125.7 /   125.7 tok/s   ttft 0.07s   217 tokens a reply
+  c=1   prose         74.3 /    74.3 tok/s   ttft 0.05s   256 tokens a reply
+  c=1   code         120.7 /   120.7 tok/s   ttft 0.04s   218 tokens a reply
+  c=1   structured    95.9 /    95.9 tok/s   ttft 0.04s   178 tokens a reply
+  c=1   list         127.7 /   127.7 tok/s   ttft 0.03s   217 tokens a reply
+23:33:06 ==> Stopping tf-qwen38-int4mixed on worker
+23:36:26 ==> Ready: http://0.0.0.0:8888/v1 (context=1048576, 161s)
+== fix d5eacba9
+  c=1   prose         75.9 /    75.9 tok/s   ttft 0.03s   256 tokens a reply
+  c=1   code         122.5 /   122.5 tok/s   ttft 0.04s   218 tokens a reply
+  c=1   structured    96.6 /    96.6 tok/s   ttft 0.04s   178 tokens a reply
+  c=1   list         123.7 /   123.7 tok/s   ttft 0.04s   217 tokens a reply
+  c=1   prose         75.4 /    75.4 tok/s   ttft 0.03s   256 tokens a reply
+  c=1   code         122.8 /   122.8 tok/s   ttft 0.04s   218 tokens a reply
+  c=1   structured    97.3 /    97.3 tok/s   ttft 0.04s   178 tokens a reply
+  c=1   list         122.3 /   122.3 tok/s   ttft 0.03s   217 tokens a reply
+23:37:26 ==> Stopping tf-qwen38-int4mixed on worker
+2026-10-10T23:37:27+00:00 done
