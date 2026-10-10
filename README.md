@@ -31,7 +31,11 @@ started server. Receipts: [`evidence/2026-10-10-native-v1.0.4/`](evidence/2026-1
 | 8 | 221.9 | 382.2 | 279.7 | 412.3 | 0.23-0.32 s |
 | 16 | 297.3 | 511.8 | 383.5 | 519.8 | 0.41-0.55 s |
 
-Aggregate tokens a second. The Python engine (`ENGINE=python`, pin `e286b134`) on the same pair:
+Aggregate tokens a second. Since pin `bc0402c1` a released sequence's CUDA graphs are freed, so one stream holds its speed
+on a long-running server (66.8 / 106.1 / 85.1 / 106.9 fresh, 67.1 / 103.4 / 84.1 / 107.5 after other traffic; it had
+fallen to 62-63 / 99-101 / 81-82 / 99-103), at a few percent below the fresh-server figures above, which reused graphs
+kept from earlier requests ([`evidence/2026-10-10-native-v1.0.4-graphs/`](evidence/2026-10-10-native-v1.0.4-graphs/)).
+The Python engine (`ENGINE=python`, pin `e286b134`) on the same pair:
 
 | Users | prose | code | structured | list | first token |
 |---:|---:|---:|---:|---:|---:|
@@ -249,9 +253,6 @@ Both run against any OpenAI-compatible server, which is how the comparison table
 
 ## Known issues and limits
 
-- Single-stream speed drops 7-10% on a server that has run for a while (cached CUDA graphs pile up across pooled
-  sequences, and new requests recapture them). Restarting (`spark down && spark up`) restores it; several streams at
-  once are not affected. The fix is verified on a branch and comes in the next update.
 - A start can fail when the worker refuses NCCL's first memory registration (rank 0 exits during its warm-up
   gather); `spark up` again after a minute. It happens most right after a stop, which is what `settle_seconds` is for.
 - Scores above are with thinking off; the suite does not yet run every check with thinking on.

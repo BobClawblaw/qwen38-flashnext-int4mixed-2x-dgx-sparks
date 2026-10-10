@@ -83578,10 +83578,10 @@ index 0000000..8856c36
 +}
 diff --git a/zig/src/families/flashnext_cuda/forward.zig b/zig/src/families/flashnext_cuda/forward.zig
 new file mode 100644
-index 0000000..654d83f
+index 0000000..dbca1b4
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/forward.zig
-@@ -0,0 +1,1835 @@
+@@ -0,0 +1,1882 @@
 +//! Flash Next (qwen4_exp) on CUDA, one rank of two: the forward the Python engine runs for our recipe (int8 dense
 +//! linears, affine 4-bit routed experts, the int8 shared expert, a 4-bit MTP draft head), as code. Each launch takes
 +//! the grid, constexprs and arguments the Python engine gives it (kern.zig), so every row equals Python's bit for bit.
@@ -84065,6 +84065,11 @@ index 0000000..654d83f
 +    timing: bool = false,
 +    split: [3]f64 = .{ 0, 0, 0 }, // staging: ids upload, n-gram ids, table rows
 +    graphs: std.AutoHashMap(GKey, cuda.graph.Exec) = undefined,
++    graph_log: bool = false, // TENSORFOLD_FN_GRAPHLOG: live graphs, captures and launch time logged a request
++    captures: u64 = 0,
++    capture_ms: f64 = 0,
++    launches: u64 = 0,
++    launch_ms: f64 = 0,
 +};
 +
 +const GKey = struct { kind: u8, rows: i64, par: u1, sig: [3]i64, seq: usize };
@@ -84120,6 +84125,11 @@ index 0000000..654d83f
 +        var ex = e.graphs.fetchRemove(o).?.value;
 +        ex.deinit();
 +    }
++    const t0 = std.Io.Timestamp.now(e.io, .awake);
++    defer {
++        e.captures += 1;
++        e.capture_ms += @as(f64, @floatFromInt(t0.durationTo(std.Io.Timestamp.now(e.io, .awake)).toNanoseconds())) / 1e6;
++    }
 +    try cuda.graph.beginCapture(e.k.stream, .thread_local);
 +    body(e, kind, s, R) catch |err| {
 +        if (cuda.graph.endCapture(e.k.stream)) |g| {
@@ -84139,7 +84149,28 @@ index 0000000..654d83f
 +fn step(e: *Engine, kind: u8, s: *Seq, R: i64) !void {
 +    if (!e.use_graphs or e.k.sync_each or s.img != null or (kind == 0 and s.sampling != null)) return body(e, kind, s, R); // image and sampled sequences: eager
 +    try capture(e, kind, s, R);
++    const t0 = std.Io.Timestamp.now(e.io, .awake);
++    defer {
++        e.launches += 1;
++        e.launch_ms += @as(f64, @floatFromInt(t0.durationTo(std.Io.Timestamp.now(e.io, .awake)).toNanoseconds())) / 1e6;
++    }
 +    return e.graphs.get(keyOf(e, kind, s, R)).?.launchOn(e.k.stream);
++}
++
++/// TENSORFOLD_FN_GRAPHLOG: the graphs held, and the captures and launches since the last call (one line a request).
++pub fn logGraphs(e: *Engine) void {
++    if (!e.graph_log) return;
++    var seqs: std.AutoHashMap(usize, void) = .init(e.gpa);
++    defer seqs.deinit();
++    var it = e.graphs.keyIterator();
++    while (it.next()) |k| seqs.put(k.seq, {}) catch {};
++    const per = if (e.launches > 0) e.launch_ms / @as(f64, @floatFromInt(e.launches)) else 0;
++    std.log.info("flash next graphs: {d} held over {d} sequences; {d} captures ({d:.1} ms), {d} launches ({d:.3} ms each)", .{
++        e.graphs.count(), seqs.count(), e.captures, e.capture_ms, e.launches, per });
++    e.captures = 0;
++    e.capture_ms = 0;
++    e.launches = 0;
++    e.launch_ms = 0;
 +}
 +
 +
@@ -84214,6 +84245,11 @@ index 0000000..654d83f
 +    e.timing = false; // the engine is built field by field: a default left out is whatever the allocator held
 +    e.gpu_ms = 0;
 +    e.graphs = .init(gpa);
++    e.graph_log = std.c.getenv("TENSORFOLD_FN_GRAPHLOG") != null;
++    e.captures = 0;
++    e.capture_ms = 0;
++    e.launches = 0;
++    e.launch_ms = 0;
 +    return e;
 +}
 +
@@ -84330,7 +84366,8 @@ index 0000000..654d83f
 +    s.hist = e.ng.start();
 +}
 +
-+pub fn freeSeq(e: *Engine, s: *Seq) void {
++/// ``s``'s graphs freed.
++fn freeGraphs(e: *Engine, s: *Seq) void {
 +    var gone: std.ArrayList(GKey) = .empty;
 +    defer gone.deinit(e.gpa);
 +    var it = e.graphs.iterator();
@@ -84339,6 +84376,16 @@ index 0000000..654d83f
 +        var ex = e.graphs.fetchRemove(key).?.value;
 +        ex.deinit();
 +    }
++}
++
++/// A released sequence's graphs freed (kept or a spare): its next request starts at another geometry anyway, and
++/// every graph held makes each later capture slower (about 3 ms with one sequence's, 6-7 ms with nine's).
++pub fn releaseGraphs(e: *Engine, s: *Seq) void {
++    freeGraphs(e, s);
++}
++
++pub fn freeSeq(e: *Engine, s: *Seq) void {
++    freeGraphs(e, s);
 +    detach(e, s);
 +    s.grow.deinit();
 +    s.mem.free();
@@ -86287,10 +86334,10 @@ index 0000000..1e725e6
 +}
 diff --git a/zig/src/families/flashnext_cuda/native.zig b/zig/src/families/flashnext_cuda/native.zig
 new file mode 100644
-index 0000000..f8bd1cb
+index 0000000..a8cd7e3
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/native.zig
-@@ -0,0 +1,1452 @@
+@@ -0,0 +1,1458 @@
 +//! Flash Next (qwen4_exp) on two GB10s behind the native family interface: rank 0's lane core drives the engine
 +//! through a lane backend that first sends each call to rank 1, which replays it on its own half of the model
 +//! (``follow``). Every token is drawn inside the forward from both ranks' vocabulary shards (an NCCL exchange), so
@@ -87546,10 +87593,12 @@ index 0000000..f8bd1cb
 +fn releaseFn(p: *anyopaque, s: *lanes.Stream) void {
 +    const self = of(p);
 +    const kv = self.lanes_by.fetchRemove(s) orelse return;
++    forward.logGraphs(self.e);
 +    if (kv.value.g) |g| g.m.free();
 +    var w: Writer = .{ .gpa = self.gpa };
 +    defer w.buf.deinit(self.gpa);
 +    const seq = kv.value.seq;
++    forward.releaseGraphs(self.e, seq);
 +    const at: usize = @intCast(seq.snap.at);
 +    const kept_ids: ?[]u32 = if (at > 0 and at <= s.prompt_len) self.gpa.dupe(u32, s.context.items[0..at]) catch null else null;
 +    w.int(kv.value.id) catch {};
@@ -87683,8 +87732,12 @@ index 0000000..f8bd1cb
 +            },
 +            .release => {
 +                const rid = try r.int();
-+                if (try r.int() == 1) continue; // kept: it stays under its id until a prefill resumes it or it is dropped
++                if (try r.int() == 1) { // kept: it stays under its id until a prefill resumes it or it is dropped
++                    if (self.by_id.get(rid)) |sq| forward.releaseGraphs(self.e, sq);
++                    continue;
++                }
 +                const kv = self.by_id.fetchRemove(rid) orelse continue;
++                forward.releaseGraphs(self.e, kv.value);
 +                if (kv.key == 1) { // the calibration's sequence (rank 0 frees its own at open, see there)
 +                    forward.freeSeq(self.e, kv.value);
 +                    continue;
