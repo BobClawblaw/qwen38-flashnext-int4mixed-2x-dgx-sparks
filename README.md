@@ -19,7 +19,7 @@ dependencies.
 
 ## Measured on this pair
 
-The defaults: TensorFold v1.0.5's native engine with this recipe's patch (pin `8bea0406`; the current pin `d5eacba9` adds the
+The defaults: TensorFold v1.0.7's native engine with this recipe's patch (measured on 1.0.5 at pin `8bea0406`; `d5eacba9` adds the
 kept-state fix below and measures the same, [`ab/`](evidence/2026-10-10-native-v1.0.5-kept/ab/)), sixteen concurrent
 streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link.
 `bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per stream, median of 3 runs. Receipts:
@@ -103,8 +103,9 @@ How the speed got here, one user:
 | defaults (concurrent, 1M), + fused hyper-connection and shared-expert kernels | 68.7 | 109.0 | 89.0 | 109.9 |
 | the same, re-measured 2026-10-11 after a day of other serving (`evidence/2026-10-11-c16/`) | 72.4 | 120.4 | 95.3 | 121.7 |
 
-Sixteen streams at once on the same server (`evidence/2026-10-11-c16/`, per stream / aggregate): prose 18.4 / 295.6,
-code 30.2 / 507.1, structured 23.5 / 384.6, lists 31.3 / 516.4 tok/s, first token 0.5-0.6 s. For comparison, Mia AI
+Sixteen streams at once (per stream / aggregate; 1.0.5 `evidence/2026-10-11-c16/`, 1.0.7
+`evidence/2026-10-11-native-v1.0.7/`): prose 18.4 / 295.6 and 18.4 / 295.9, code 30.2 / 507.1 and 30.2 / 507.2,
+structured 23.5 / 384.6 and 23.3 / 382.3, lists 31.3 / 516.4 and 31.0 / 516.5 tok/s, first token 0.5-0.6 s. For comparison, Mia AI
 Lab's dual-Spark Zig recipe for this model (their NVFP4 pack) reports 67 tok/s for one user and 390 tok/s aggregate at
 sixteen streams; this recipe measures 72 for one user and 296-516 aggregate by workload, so the two are at parity
 within the spread of the workloads.
@@ -112,12 +113,14 @@ within the spread of the workloads.
 The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays. The table above is the
 Python engine's history; on the native engine the same sweep around 0.70 found nothing faster.
 
-## The engine (TensorFold 1.0.5, native)
+## The engine (TensorFold 1.0.7, native)
 
-The recipe serves the converted checkpoint on TensorFold v1.0.5, the Zig engine, with
-[`docker/patches/tensorfold-native-v1.0.5.patch`](docker/patches/tensorfold-native-v1.0.5.patch): this project's
+The recipe serves the converted checkpoint on TensorFold v1.0.7 (its `main`, e7c523eb), the Zig engine, with
+[`docker/patches/tensorfold-native-v1.0.7.patch`](docker/patches/tensorfold-native-v1.0.7.patch): this project's
 Flash Next family for two CUDA ranks (the release serves Flash Next on Metal only; the port is on
-[BobClawblaw/TensorFold `native-v1.0.5`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.5)).
+[BobClawblaw/TensorFold `native-v1.0.7`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.7)). On 1.0.7 the
+port rides upstream's own structured-output machinery and admission flow; what it adds is the family itself (the
+two-rank CUDA forward, kernels, MTP and copy drafts, vision), batched prompt admission, and the two-rank serving.
 TensorFold's Python engine, which the recipe served first, is frozen upstream and was removed here on 2026-10-10.
 
 - Up to 16 streams in shared rounds (DeltaNet, keeps and attention batched across streams, up to 128 rows a round),

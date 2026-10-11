@@ -1,16 +1,16 @@
 diff --git a/build.zig b/build.zig
-index 9515dc36..c7f71bcb 100644
+index 054e6882..468c888b 100644
 --- a/build.zig
 +++ b/build.zig
-@@ -4,6 +4,7 @@ const cuda_build = @import("zig/build/cuda.zig");
- const dist_build = @import("zig/build/dist.zig");
+@@ -5,6 +5,7 @@ const dist_build = @import("zig/build/dist.zig");
  const qwen27_build = @import("zig/build/qwen27.zig");
  const hip_build = @import("zig/build/hip.zig");
+ const grammar_build = @import("zig/build/grammar.zig");
 +const vision_build = @import("zig/build/vision.zig");
  
  comptime {
      const required = std.mem.trim(u8, @embedFile(".zig-version"), "\r\n");
-@@ -264,7 +265,7 @@ fn metalTargets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
+@@ -267,7 +268,7 @@ fn metalTargets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
      const kernels_mod = embedded(b, lib, "tensorfold.metallib");
  
      // The engines registry: the families this platform's binaries serve; the CLI reads it for models/info/pull.
@@ -19,7 +19,7 @@ index 9515dc36..c7f71bcb 100644
      const engines = b.createModule(.{
          .root_source_file = b.path("zig/src/native/metal.zig"),
          .target = target,
-@@ -558,7 +559,7 @@ pub fn distMetalServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_id
+@@ -563,7 +564,7 @@ pub fn distMetalServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_id
      m.metal.addSystemFrameworkPath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "System/Library/Frameworks" })));
      m.metal.addLibraryPath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/lib" })));
      m.metal.addSystemIncludePath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/include" })));
@@ -188,7 +188,7 @@ index 00000000..ce0457b3
 +print("EXHAUST", "PASS" if ok else "FAIL")
 +json.dump(res, open(out, "w"), indent=1)
 diff --git a/zig/build/cuda.zig b/zig/build/cuda.zig
-index 368f57b1..4d969590 100644
+index 7f19ad92..4a37dd0c 100644
 --- a/zig/build/cuda.zig
 +++ b/zig/build/cuda.zig
 @@ -1,6 +1,7 @@
@@ -199,10 +199,10 @@ index 368f57b1..4d969590 100644
  
  /// Each .cu in zig/kernels/cuda (`src`, else `name`) with the flags its Python extension passes in `extra_cuda_cflags`.
  const Kernel = struct { name: []const u8, flags: []const []const u8, src: ?[]const u8 = null, arch_specific: bool = false };
-@@ -30,6 +31,17 @@ const kernels = [_]Kernel{
-     .{ .name = "nemotron_attention", .flags = glue },
-     .{ .name = "nemotron_keyed", .flags = glue },
-     .{ .name = "fp8_lane", .flags = &.{"-O3"} }, // nvfp4/qmmf.cu's FP8G device code, tensorfold_nvfp4_v3
+@@ -36,6 +37,17 @@ const kernels = [_]Kernel{
+     .{ .name = "qmmf", .flags = &.{"-O3"} }, // nvfp4/qmmf.cu's device code (FP8G, FP4), tensorfold_nvfp4_v3
+     .{ .name = "prompt16", .flags = &.{"-O3"} }, // nvfp4/prompt.cu's FP4 and FP8 tile 4, tensorfold_nvfp4_prompt_v1
+     .{ .name = "modelopt_pack", .flags = &.{"-O3"} }, // ours: ModelOpt tensors into the lane, prompt and expert layouts
 +    // Flash Next (qwen4_exp): device copies of the Python engine's extensions (zig/tests/cuda/flashnext/gen_copies.py)
 +    .{ .name = "fn_experts", .src = "flashnext/experts", .flags = &.{"-O3"} }, // cuda/experts.py, tensorfold_experts_v7
 +    .{ .name = "fn_experts_prefill", .src = "flashnext/experts_prefill", .flags = &.{"-O3"} },
@@ -217,7 +217,7 @@ index 368f57b1..4d969590 100644
      .{ .name = "torch_argmax", .src = "torch_ops/argmax", .flags = torch_ops },
      .{ .name = "torch_topk", .src = "torch_ops/topk", .flags = torch_ops },
      .{ .name = "torch_pointwise", .src = "torch_ops/pointwise", .flags = torch_ops },
-@@ -66,7 +78,15 @@ fn runtime(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
+@@ -72,7 +84,15 @@ fn runtime(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
      return cuda;
  }
  
@@ -234,7 +234,7 @@ index 368f57b1..4d969590 100644
      const tokenizer = b.createModule(.{ .root_source_file = b.path("zig/src/core/tokenizer/tokenizer.zig"), .target = target, .optimize = optimize, .link_libc = true });
      const core = b.createModule(.{ .root_source_file = b.path("zig/src/core/root.zig"), .target = target, .optimize = optimize, .link_libc = true });
      core.addImport("tokenizer", tokenizer);
-@@ -78,7 +98,15 @@ fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin
+@@ -84,7 +104,15 @@ fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin
      nemotron.addImport("lanes", lanes);
      nemotron.addImport("heat", heat);
      nemotron.addImport("nemotron_draft_ids", draft_ids);
@@ -251,7 +251,7 @@ index 368f57b1..4d969590 100644
  }
  
  /// Linux targets: fatbins (-Dnvcc builds them, -Dfatbins embeds prebuilt ones), `tensorfold` and `tf-cuda-test`.
-@@ -110,21 +138,27 @@ pub fn targets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
+@@ -116,21 +144,27 @@ pub fn targets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
      cli.addImport("core", mods.core);
      cli.addImport("lanes", mods.lanes);
      cli.addImport("nemotron", mods.nemotron);
@@ -283,7 +283,7 @@ index 368f57b1..4d969590 100644
      const mod = b.createModule(.{
          .root_source_file = b.path("zig/src/native/cuda.zig"),
          .target = target,
-@@ -132,6 +166,11 @@ fn engines(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
+@@ -138,6 +172,11 @@ fn engines(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
          .link_libc = true,
          .imports = &.{ .{ .name = "cuda", .module = cuda }, .{ .name = "engine_api", .module = api }, .{ .name = "lanes", .module = lanes }, .{ .name = "nemotron", .module = nemotron } },
      });
@@ -295,7 +295,7 @@ index 368f57b1..4d969590 100644
      return .{ .api = api, .engines = mod };
  }
  
-@@ -141,8 +180,8 @@ fn checkpointCli(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.
+@@ -147,8 +186,8 @@ fn checkpointCli(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.
  }
  
  /// `zig build native`: tensorfold-native with the CUDA engines into zig-out/native/bin, as the Metal build makes it.
@@ -306,8 +306,8 @@ index 368f57b1..4d969590 100644
      // the HTTP side keeps its safety checks; the engine below it runs at `optimize` (the tokenizer is the family's)
      const template = b.createModule(.{ .root_source_file = b.path("zig/src/core/template/template.zig"), .target = target, .optimize = .ReleaseSafe, .link_libc = true });
      const exe = b.addExecutable(.{ .name = "tensorfold-native", .root_module = b.createModule(.{
-@@ -169,7 +208,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
-     const host = b.graph.host;
+@@ -176,7 +215,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
+     step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("zig/build/check_fatbins.zig"), .target = host }) })).step);
      const cuda = runtime(b, host, .debug, &.{});
      const mods = family(b, host, .debug, cuda, draft_ids);
 -    const native_modules = engines(b, host, .debug, cuda, mods.lanes, mods.nemotron);
@@ -315,7 +315,7 @@ index 368f57b1..4d969590 100644
      const native = native_modules.engines;
      // the HTTP server's unit tests (zig/src/server/root.zig), which the macOS build runs, on Linux hosts too
      const template = b.createModule(.{ .root_source_file = b.path("zig/src/core/template/template.zig"), .target = host, .optimize = .debug, .link_libc = true });
-@@ -219,7 +258,7 @@ pub fn distServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_ids: *s
+@@ -226,7 +265,7 @@ pub fn distServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_ids: *s
      };
      const cuda = runtime(b, target, .fast, if (prebuilt != null) &images else &.{});
      const mods = family(b, target, .fast, cuda, draft_ids);
@@ -323,7 +323,7 @@ index 368f57b1..4d969590 100644
 +    return nativeServer(b, target, .fast, cuda, mods.lanes, mods.nemotron, mods.flashnext, mods.tokenizer, build_options, false);
  }
  
- /// Validate the complete named input set, including images unused by today's server.
+ /// SASS targets every release fatbin holds: Ampere (sm_86), RTX 50 and RTX PRO Blackwell (sm_120), GB10 (sm_121).
 diff --git a/zig/build/vision.zig b/zig/build/vision.zig
 new file mode 100644
 index 00000000..11eb50c1
@@ -2659,7 +2659,7 @@ index 00000000..5000a085
 +    }
 +}
 diff --git a/zig/src/core/engine_api.zig b/zig/src/core/engine_api.zig
-index 277c221a..c8f932b4 100644
+index f72c13b2..12ebc179 100644
 --- a/zig/src/core/engine_api.zig
 +++ b/zig/src/core/engine_api.zig
 @@ -1,5 +1,8 @@
@@ -2671,21 +2671,8 @@ index 277c221a..c8f932b4 100644
  const lanes = @import("lanes");
  const Allocator = std.mem.Allocator;
  
-@@ -40,8 +43,12 @@ pub const Structure = struct {
-     text: []const u8 = "",
-     /// With thinking on, the grammar starts after this token.
-     after: ?u32 = null,
-+    /// The server's compiler (it has compiled ``text`` once already: the engine's compile is a cache hit).
-+    compiler: ?*grammar.Compiler = null,
- };
- 
-+pub const grammar = lanes.grammar;
-+
- /// A reply to decode. The request and every slice in it stay valid until its ``finished`` event.
- pub const Request = struct {
-     prompt: []const u32,
-@@ -76,6 +83,8 @@ pub const Request = struct {
-     loop_guard: bool = false,
+@@ -82,6 +85,8 @@ pub const Request = struct {
+     decide: ?u32 = null,
      /// Logprob rows for each reply token with this many best tokens (0..20), when ``Info.logprobs``; null: none.
      logprobs: ?u8 = null,
 +    /// An image prompt's inputs in prompt order (Info.vision engines only; the prompt holds their placeholder rows).
@@ -2693,24 +2680,19 @@ index 277c221a..c8f932b4 100644
  };
  
  pub const Reason = enum { stop, length, cancelled, failed };
-@@ -142,6 +151,8 @@ pub const Info = struct {
+@@ -150,6 +155,8 @@ pub const Info = struct {
      prompt_cache_plan: ?PromptCachePlan = null,
      /// The engine decodes greedily only: the server refuses a request with a temperature before admitting it.
      greedy_only: bool = false,
 +    /// The engine encodes image inputs (Request.images): it was opened with ``vision`` and its family has a tower.
 +    vision: bool = false,
+     /// Whether a request's caches fit beside the running streams' now (null: a free lane does); else it waits in order.
+     admit: ?Admit = null,
  };
- 
- pub const PromptCachePlan = struct {
-@@ -186,10 +197,25 @@ pub const Open = struct {
-     /// --device and --segments (CUDA); null: the backend's environment fallback, then its default.
-     device: ?u32 = null,
-     segments: ?u32 = null,
-+    /// --tp 2 (CUDA): this rank and rank 0's address; rank 1 follows rank 0 and serves no requests itself.
-+    tp: u8 = 1,
-+    rank: u8 = 0,
-+    master: ?[]const u8 = null,
-+    master_port: u16 = 29600,
+@@ -213,10 +220,20 @@ pub const Open = struct {
+     master_port: u16 = 29551,
+     /// --policy: the engine's policy as `key=value,...`; empty: its defaults.
+     policy: []const u8 = "",
 +    /// --vision: load the family's vision tower and accept image inputs.
 +    vision: bool = false,
 +    /// --kv-dtype: bits of the attention cache's codes (8 or 4) for families that keep a quantized cache.
@@ -2730,62 +2712,29 @@ index 277c221a..c8f932b4 100644
  pub const Memory = struct { active: u64 = 0, cache: u64 = 0, peak: u64 = 0, pinned: u64 = 0 };
  
 diff --git a/zig/src/core/lane_host.zig b/zig/src/core/lane_host.zig
-index dc4e4db1..5fd6949d 100644
+index 09ff0fa2..e33dd3bf 100644
 --- a/zig/src/core/lane_host.zig
 +++ b/zig/src/core/lane_host.zig
-@@ -321,18 +321,67 @@ pub const LaneHost = struct {
+@@ -268,26 +268,32 @@ pub const LaneHost = struct {
+     }
  
      /// Prefills the next queued request into a free lane; false when none waits or no lane is free.
-     fn admitOne(h: *LaneHost) bool {
-+        const job = h.takeJob() orelse return false;
-+        if (!h.prepare(job)) return true;
-+        if (h.loneFits(job)) return h.runLone(job, job.began);
-+        h.core.addStream(&job.stream) catch |e| return if (e == error.Cancelled) h.cancel(job) else h.drop(job, h.words(e));
-+        h.prefilled(job, job.began);
-+        if (h.deliver(job)) h.remove(job);
-+        return true;
-+    }
-+
-+    /// Every queued request a lane is free for, their prompts in one pass where the backend takes several
-+    /// (lanes.Engine.addStreams): one request alone goes through admitOne (the lone driver, a prompt alone).
-+    fn admitMany(h: *LaneHost) bool {
-+        if (!h.core.batchesPrompts()) return h.admitOne();
-+        h.lock();
-+        const waiting = h.queued.items.len;
-+        const free = h.info_.lanes -| h.admitted.items.len;
-+        h.unlock();
-+        if (waiting < 2 or free < 2) return h.admitOne();
-+        var jobs: [lanes.Engine.max_together]*Job = undefined;
-+        var n: usize = 0;
-+        while (n < jobs.len) {
-+            const job = h.takeJob() orelse break;
-+            if (!h.prepare(job)) continue;
-+            jobs[n] = job;
-+            n += 1;
-+        }
-+        if (n == 0) return true;
-+        var streams: [lanes.Engine.max_together]*lanes.Stream = undefined;
-+        for (jobs[0..n], 0..) |job, i| streams[i] = &job.stream;
-+        var errs: [lanes.Engine.max_together]?anyerror = undefined;
-+        h.core.addStreams(streams[0..n], errs[0..n]);
-+        for (jobs[0..n], errs[0..n]) |job, err| {
-+            if (err) |e| {
-+                _ = if (e == error.Cancelled) h.cancel(job) else h.drop(job, h.words(e));
-+                continue;
-+            }
-+            h.prefilled(job, job.began);
-+            if (h.deliver(job)) h.remove(job);
-+        }
-+        return true;
-+    }
-+
-+    /// The next queued request into the admitted ones (null: none waits or no lane is free).
+-    fn admitOne(h: *LaneHost) bool {
++    /// The next queued request into the admitted ones (null: none waits, no lane is free, or its caches do not fit yet).
 +    fn takeJob(h: *LaneHost) ?*Job {
          h.lock();
          if (h.queued.items.len == 0 or h.admitted.items.len >= h.info_.lanes) {
              h.unlock();
 -            return false;
 +            return null;
+         }
+         if (h.info_.admit) |a| { // a shared cache pool: the next request waits for room (always there when idle)
+             const r = h.queued.items[0].request;
+             if (h.core.activeCount() > 0 and !a.fits(a.ctx, @intCast(r.prompt.len), r.max_tokens)) {
+                 h.unlock();
+-                return false;
++                return null;
+             }
          }
          const job = h.queued.orderedRemove(0);
          h.admitted.append(h.gpa, job) catch {
@@ -2798,12 +2747,12 @@ index dc4e4db1..5fd6949d 100644
 +        return job;
 +    }
 +
-+    /// The admitted request's stream (the prompt cache's entry, its drafter); false when it was dropped instead.
-+    fn prepare(h: *LaneHost, job: *Job) bool {
++    /// The admitted request's stream (its kept state, drafter and grammar); false when it was dropped instead.
++    fn setup(h: *LaneHost, job: *Job) bool {
          const r = job.request;
          var reuse: lanes.stream.Reuse = .{};
          // the entry stays alive until the backend restores it: nothing keeps between here and this stream's own pass
-@@ -342,7 +391,10 @@ pub const LaneHost = struct {
+@@ -297,7 +303,10 @@ pub const LaneHost = struct {
              job.marks = l.marks;
              reuse = .{ .saved = if (l.entry) |e| e.saved else null, .at = if (l.entry) |e| e.at else 0, .marks = l.marks, .hook = .{ .ptr = job, .at = Job.kept } };
          } else |_| {};
@@ -2815,170 +2764,122 @@ index dc4e4db1..5fd6949d 100644
          job.stream = lanes.Stream.init(h.gpa, .{
              .id = "request",
              .prompt = r.prompt,
-@@ -360,17 +412,15 @@ pub const LaneHost = struct {
-             .loop_guard = r.loop_guard,
-             .chunks = r.chunks,
+@@ -320,17 +329,30 @@ pub const LaneHost = struct {
              .reuse = reuse,
+             .grammar = if (r.structure) |st| h.constraint(st) catch |e| {
+                 job.proposer.deinit();
+-                return h.drop(job, if (e == error.OutOfMemory) "out of memory" else "the reply's grammar could not start (xgrammar)");
++                {
++                _ = h.drop(job, if (e == error.OutOfMemory) "out of memory" else "the reply's grammar could not start (xgrammar)");
++                return false;
++            }
+             } else null,
 +            .images = r.images,
-+            .structure = if (r.structure) |st| if (st.compiler) |c| .{ .compiler = c, .kind = @enumFromInt(@intFromEnum(st.kind)), .text = st.text, .after = st.after } else null else null,
+             .decode_spans = h.spans(r),
+             .decide = r.decide,
          }) catch {
              job.proposer.deinit();
 -            return h.drop(job, "out of memory");
-+            _ = h.drop(job, "out of memory");
-+            return false;
++            {
++                _ = h.drop(job, "out of memory");
++                return false;
++            }
          };
          job.started = true;
 -        const began = std.Io.Clock.awake.now(h.io).toNanoseconds();
 -        job.began = began;
--        if (h.loneFits(job)) return h.runLone(job, began);
--        h.core.addStream(&job.stream) catch |e| return if (e == error.Cancelled) h.cancel(job) else h.drop(job, h.words(e));
--        h.prefilled(job, began);
--        if (h.deliver(job)) h.remove(job);
 +        job.began = std.Io.Clock.awake.now(h.io).toNanoseconds();
++        return true;
++    }
++
++    /// An admitted, set-up request into the engine: a warm pass, the lone driver, the fill queue, or its own prompt pass.
++    fn launch(h: *LaneHost, job: *Job) bool {
++        const r = job.request;
++        const began = job.began;
+         if (r.max_tokens == 0 and h.info_.warm_turns) return h.warmPass(job, began);
+         if (h.loneFits(job)) return h.runLone(job, began);
+         if (h.core.fills()) {
+@@ -346,6 +368,55 @@ pub const LaneHost = struct {
+         if (h.deliver(job)) h.remove(job);
          return true;
      }
++    fn admitOne(h: *LaneHost) bool {
++        const job = h.takeJob() orelse return false;
++        if (!h.setup(job)) return true;
++        return h.launch(job);
++    }
++
++    /// Every queued request a lane is free for, their prompts in one pass where the backend takes several
++    /// (lanes.Engine.addStreams); the engine's special paths (chunked prompts, warm passes, the lone driver) go
++    /// through admitOne as before.
++    fn admitMany(h: *LaneHost) bool {
++        if (!h.core.batchesPrompts() or h.core.fills()) return h.admitOne();
++        h.lock();
++        const waiting = h.queued.items.len;
++        const free = h.info_.lanes -| h.admitted.items.len;
++        h.unlock();
++        if (waiting < 2 or free < 2) return h.admitOne();
++        var jobs: [lanes.Engine.max_together]*Job = undefined;
++        var n: usize = 0;
++        while (n < jobs.len and n < free) {
++            const job = h.takeJob() orelse break;
++            if (!h.setup(job)) continue;
++            if ((job.request.max_tokens == 0 and h.info_.warm_turns) or h.loneFits(job)) {
++                _ = h.launch(job);
++                continue;
++            }
++            jobs[n] = job;
++            n += 1;
++        }
++        if (n == 0) return true;
++        if (n == 1) return h.launch(jobs[0]);
++        var streams: [lanes.Engine.max_together]*lanes.Stream = undefined;
++        for (jobs[0..n], 0..) |job, i| streams[i] = &job.stream;
++        var errs: [lanes.Engine.max_together]?anyerror = undefined;
++        h.core.addStreams(streams[0..n], errs[0..n]);
++        for (jobs[0..n], errs[0..n]) |job, err| {
++            if (err) |e| {
++                _ = switch (e) {
++                    error.Cancelled => h.cancel(job),
++                    error.LaneMemory => h.requeue(job),
++                    else => h.drop(job, h.words(e)),
++                };
++                continue;
++            }
++            h.prefilled(job, job.began);
++            if (h.deliver(job)) h.remove(job);
++        }
++        return true;
++    }
++
  
-@@ -480,7 +530,7 @@ pub const LaneHost = struct {
+     /// The oldest filling job's next prompt chunk: the other streams' rounds run between chunks, not after the prompt.
+     fn fillOne(h: *LaneHost) void {
+@@ -525,7 +596,7 @@ pub const LaneHost = struct {
      fn run(h: *LaneHost) void {
          while (true) {
              h.takeCancels();
 -            while (h.admitOne()) {}
 +            while (h.admitMany()) {}
-             h.noteLive();
+             h.fillOne();
+             status.noteLive(h);
              h.lock();
-             if (h.closing) {
-@@ -507,7 +557,9 @@ pub const LaneHost = struct {
-             }
-             h.unlock();
-             h.core.step() catch |e| {
--                h.failAll(@errorName(e));
-+                var refused: [lanes.Engine.max_together]*lanes.Stream = undefined;
-+                const n = h.core.refused(&refused);
-+                if (n > 0) h.failSome(refused[0..n], h.words(e)) else h.failAll(h.words(e));
-                 continue;
-             };
-             var i: usize = 0;
-@@ -522,6 +574,32 @@ pub const LaneHost = struct {
-         }
-     }
- 
-+    /// A round the backend refused for some streams alone (their caches could not grow): those end with its error,
-+    /// the others take the next round.
-+    fn failSome(h: *LaneHost, streams: []const *lanes.Stream, message: []const u8) void {
-+        var i: usize = 0;
-+        while (true) {
-+            h.lock();
-+            if (i >= h.admitted.items.len) {
-+                h.unlock();
-+                break;
-+            }
-+            const job = h.admitted.items[i];
-+            const hit = for (streams) |s| {
-+                if (s == &job.stream) break true;
-+            } else false;
-+            if (!hit) {
-+                i += 1;
-+                h.unlock();
-+                continue;
-+            }
-+            _ = h.admitted.orderedRemove(i);
-+            h.unlock();
-+            if (!job.stream.finished) h.core.discard(&job.stream);
-+            h.finish(job, .failed, message);
-+        }
-+    }
-+
-     /// A failed round ends every stream it held, with the backend's error.
-     fn failAll(h: *LaneHost, message: []const u8) void {
-         h.lock();
-diff --git a/zig/src/core/lane_host_test.zig b/zig/src/core/lane_host_test.zig
-index 4761d7f2..1bc56fc2 100644
---- a/zig/src/core/lane_host_test.zig
-+++ b/zig/src/core/lane_host_test.zig
-@@ -312,3 +312,67 @@ test "a learn request steps while the engine idles, its events in order; a host
-         std.Io.sleep(std.testing.io, .fromMilliseconds(1), .awake) catch {};
-     }
- }
-+
-+test "a round refused for one stream's cache growth ends that stream alone; the others go on" {
-+    const gpa = std.testing.allocator;
-+    var cfg = try lanes.Config.init(gpa, .{ .exact_width = 8, .gpu_tokens = true, .hidden_rows = true }, 8, 7);
-+    defer cfg.deinit(gpa);
-+    var target: lanes.fake.Fake = .{ .gpa = gpa, .refuse_after = 20, .refuse_marker = 9 };
-+    defer target.deinit();
-+    var clock: lanes.fake.FixedClock = .{};
-+    var core = lanes.Engine.init(gpa, &cfg, target.backend(), clock.clock());
-+    defer core.deinit();
-+    var host = LaneHost.init(gpa, std.testing.io, &core, .{ .lanes = 3 });
-+    const Words = struct {
-+        fn text(_: ?*anyopaque, err: anyerror) ?[]const u8 {
-+            return if (err == error.OutOfDeviceMemory) "no memory left for this request's caches" else null;
-+        }
-+    };
-+    host.explain = .{ .text = Words.text };
-+    try host.start();
-+    defer host.stop();
-+    const Box = struct {
-+        mutex: std.Io.Mutex = .init,
-+        done: ?Reason = null,
-+        message: []const u8 = "",
-+        tokens: usize = 0,
-+        fn event(ctx: *anyopaque, _: Id, e: *const Event) void {
-+            const b: *@This() = @ptrCast(@alignCast(ctx));
-+            b.mutex.lockUncancelable(std.testing.io);
-+            defer b.mutex.unlock(std.testing.io);
-+            switch (e.*) {
-+                .tokens => |t| b.tokens += t.len,
-+                .finished => |f| {
-+                    b.done = f.reason;
-+                    b.message = f.message;
-+                },
-+                else => {},
-+            }
-+        }
-+        fn wait(b: *@This()) Reason {
-+            while (true) {
-+                b.mutex.lockUncancelable(std.testing.io);
-+                const d = b.done;
-+                b.mutex.unlock(std.testing.io);
-+                if (d) |r| return r;
-+                std.Io.sleep(std.testing.io, .fromMilliseconds(1), .awake) catch {};
-+            }
-+        }
-+    };
-+    const plain_prompt = [_]u32{ 2, 7, 1, 8 };
-+    const marked_prompt = [_]u32{ 9, 7, 1, 8 };
-+    var one: Box = .{};
-+    var two: Box = .{};
-+    var marked: Box = .{};
-+    const e = host.engine();
-+    try e.submit(1, &.{ .prompt = &plain_prompt, .max_tokens = 64 }, .{ .ctx = &one, .event = Box.event });
-+    try e.submit(2, &.{ .prompt = &marked_prompt, .max_tokens = 64 }, .{ .ctx = &marked, .event = Box.event });
-+    try e.submit(3, &.{ .prompt = &plain_prompt, .max_tokens = 64 }, .{ .ctx = &two, .event = Box.event });
-+    try std.testing.expectEqual(Reason.failed, marked.wait());
-+    try std.testing.expectEqualStrings("no memory left for this request's caches", marked.message);
-+    try std.testing.expect(marked.tokens < 64);
-+    try std.testing.expectEqual(Reason.length, one.wait());
-+    try std.testing.expectEqual(Reason.length, two.wait());
-+    try std.testing.expectEqual(@as(usize, 64), one.tokens);
-+    try std.testing.expectEqual(@as(usize, 64), two.tokens);
-+}
 diff --git a/zig/src/core/lanes/backend.zig b/zig/src/core/lanes/backend.zig
-index a10ced86..2583fbe6 100644
+index 9d8d9d33..e8e589aa 100644
 --- a/zig/src/core/lanes/backend.zig
 +++ b/zig/src/core/lanes/backend.zig
-@@ -65,6 +65,9 @@ pub const Backend = struct {
-     pub const VTable = struct {
-         /// Prefill the stream's prompt into its caches (and its draft head's).
+@@ -68,6 +68,9 @@ pub const Backend = struct {
          prefill: *const fn (ptr: *anyopaque, s: *Stream) anyerror!void,
+         /// One chunk of the prompt pass, false while chunks remain; null: the pass runs whole.
+         prefill_step: ?*const fn (ptr: *anyopaque, s: *Stream) anyerror!bool = null,
 +        /// Prefill several streams' prompts in one pass (each then as after `prefill`); false, having done nothing,
 +        /// when they do not go together (each is then prefilled alone).
 +        prefill_many: ?*const fn (ptr: *anyopaque, ss: []const *Stream) anyerror!bool = null,
          /// Draw the first token from the prompt's last row at `position`; a handle to it.
          first: *const fn (ptr: *anyopaque, s: *Stream, position: u64) anyerror!u64,
          /// Feed one token and queue the draw of the next at `position` (a one-token round); a handle to it.
-@@ -93,6 +96,9 @@ pub const Backend = struct {
-         first_row: ?*const fn (ptr: *anyopaque, s: *Stream) anyerror!Row = null,
+@@ -100,6 +103,9 @@ pub const Backend = struct {
+         held: ?*const fn (ptr: *anyopaque, s: *Stream, out: []u32) anyerror!void = null,
          /// The stream left the rounds: free its caches and held drafts.
          release: *const fn (ptr: *anyopaque, s: *Stream) void,
 +        /// After a failed round: the streams it failed for alone (their caches could not grow), which the caller
@@ -2988,21 +2889,24 @@ index a10ced86..2583fbe6 100644
  
      pub fn prefill(b: Backend, s: *Stream) !void {
 diff --git a/zig/src/core/lanes/engine.zig b/zig/src/core/lanes/engine.zig
-index b752d84e..c8f0dcba 100644
+index 4339af40..1f8968a6 100644
 --- a/zig/src/core/lanes/engine.zig
 +++ b/zig/src/core/lanes/engine.zig
-@@ -151,11 +151,121 @@ pub const Engine = struct {
+@@ -104,11 +104,57 @@ pub const Engine = struct {
          try e.live.append(e.gpa, s);
      }
  
-+    /// Whether the backend prefills several prompts in one pass (addStreams then batches admissions).
++    /// Streams a backend prefills in one pass at most.
++    pub const max_together = 16;
++
++    /// Whether the backend prefills several prompts in one pass (addStreams batches them).
 +    pub fn batchesPrompts(e: *const Engine) bool {
 +        return e.backend.vtable.prefill_many != null;
 +    }
 +
-+    /// addStream for several streams: their prompts in one pass when the backend takes them together (else each
-+    /// alone), their first drafts in one batch. ``errs[i]``: stream i's error (a cancelled one is released already;
-+    /// the caller discards a failed one).
++    /// open.add for several streams: their prompts in one pass when the backend takes them together (else each
++    /// alone), then each opened as after its own prefill. ``errs[i]``: stream i's error (a cancelled one is released
++    /// already; the caller discards a failed one).
 +    pub fn addStreams(e: *Engine, ss: []const *Stream, errs: []?anyerror) void {
 +        for (errs) |*x| x.* = null;
 +        const many = e.backend.vtable.prefill_many orelse return e.addEach(ss, errs);
@@ -3014,87 +2918,20 @@ index b752d84e..c8f0dcba 100644
 +            return;
 +        };
 +        if (!together) return e.addEach(ss, errs);
-+        var feeds: [max_together]Feed = undefined;
-+        var asked: [max_together]?u32 = @splat(null);
-+        var reqs: [max_together]be.DraftRequest = undefined;
-+        var drawns: [max_together]u64 = undefined;
-+        var nr: usize = 0;
-+        for (ss, 0..) |s, i| {
++        for (ss, errs) |s, *x| {
 +            if (s.isCancelled()) { // cancelled in its pass: no first token
 +                e.backend.release(s);
-+                errs[i] = error.Cancelled;
++                x.* = error.Cancelled;
 +                continue;
 +            }
-+            s.context.shrinkRetainingCapacity(s.prompt_len);
-+            s.pending = null;
-+            s.cache_len = s.prompt_len;
-+            const position: u64 = s.prompt_len;
-+            const drawn = e.backend.first(s, position) catch |err| {
-+                errs[i] = err;
-+                continue;
-+            };
-+            drawns[i] = drawn;
-+            feeds[i] = .{ .handle = drawn };
-+            if (e.forcedNext(s) catch |err| {
-+                errs[i] = err;
-+                continue;
-+            }) |tk| feeds[i] = .{ .value = tk };
-+            if (e.cfg.family_mtp and s.drafts) {
-+                const d: u32 = @intCast(e.rule.depth(win.who(s)) catch |err| {
-+                    errs[i] = err;
-+                    continue;
-+                });
-+                asked[i] = d;
-+                reqs[nr] = .{ .stream = s, .follow = &.{}, .first = feeds[i], .rows = null, .start = s.prompt_len, .position = position + 1, .depth = d };
-+                nr += 1;
-+            } else if (e.cfg.pipelined) e.queueNext(s, feeds[i]) catch |err| {
-+                errs[i] = err;
-+            };
-+        }
-+        // the heads read each prompt's last row and first token, and draft the one after it: one batch for all
-+        if (nr > 0) e.backend.draft(reqs[0..nr]) catch |err| {
-+            for (reqs[0..nr]) |r| for (ss, 0..) |s, i| {
-+                if (s == r.stream) errs[i] = err;
-+            };
-+        };
-+        for (ss, 0..) |s, i| {
-+            if (errs[i] != null) continue;
-+            if (asked[i]) |d| {
-+                s.dropHeld(e.gpa);
-+                s.next = .{ .count = d };
-+            }
-+            const value = e.readFeed(feeds[i]) catch |err| {
-+                errs[i] = err;
-+                continue;
-+            };
-+            const position: u64 = s.prompt_len;
-+            if (asked[i]) |d| trail.event(e, &.{ f("ev", str("draft")), f("stream", str(s.id)), f("depth", int(d)), f("position", int(position + 1)), f("follow", .{ .u32s = &.{value} }), f("rows", .null) }) catch {};
-+            if (e.log != null) {
-+                const first = if (feeds[i] == .handle) value else e.backend.read(drawns[i]) catch value;
-+                trail.event(e, &.{ f("ev", str("first")), f("stream", str(s.id)), f("position", int(position)), f("drawn", int(first)), f("token", int(value)) }) catch {};
-+            }
-+            _ = s.commit(e.gpa, &.{value}, &.{}) catch |err| {
-+                errs[i] = err;
-+                continue;
-+            };
-+            s.pending = value;
-+            trail.resolve(e) catch {};
-+            if (s.finished) {
-+                trail.finish(e, s) catch {};
-+                e.release(s);
-+                continue;
-+            }
-+            e.live.append(e.gpa, s) catch |err| {
-+                errs[i] = err;
++            open.opened(e, s) catch |err| {
++                x.* = err;
 +            };
 +        }
 +    }
 +
-+    /// Streams a backend prefills in one pass at most.
-+    pub const max_together = 16;
-+
 +    fn addEach(e: *Engine, ss: []const *Stream, errs: []?anyerror) void {
-+        for (ss, errs) |s, *x| e.addStream(s) catch |err| {
++        for (ss, errs) |s, *x| open.add(e, s) catch |err| {
 +            x.* = err;
 +        };
 +    }
@@ -3114,36 +2951,10 @@ index b752d84e..c8f0dcba 100644
      pub fn discard(e: *Engine, s: *Stream) void {
          s.finished = true;
 diff --git a/zig/src/core/lanes/fake.zig b/zig/src/core/lanes/fake.zig
-index 6ad22fcc..36297f43 100644
+index dd60ca7f..fb283748 100644
 --- a/zig/src/core/lanes/fake.zig
 +++ b/zig/src/core/lanes/fake.zig
-@@ -53,12 +53,16 @@ pub const Fake = struct {
-     prefill_hook: ?*const fn (ctx: *anyopaque, s: *Stream, chunk: usize) void = null,
-     prefill_hook_ctx: ?*anyopaque = null,
-     refuse_sampled: bool = false, // prefill refuses a sampled stream with error.SamplingRefused
-+    refuse_after: ?usize = null, // a round refuses a stream whose prompt starts with refuse_marker past this many tokens
-+    refuse_marker: u32 = 0,
-+    refused: std.ArrayList(*Stream) = .empty,
- 
-     pub fn deinit(x: *Fake) void {
-         var it = x.lanes.valueIterator();
-         while (it.next()) |l| freeLane(x.gpa, l);
-         x.lanes.deinit(x.gpa);
-         x.drawn.deinit(x.gpa);
-+        x.refused.deinit(x.gpa);
-     }
- 
-     fn freeLane(gpa: Allocator, l: *Lane) void {
-@@ -68,7 +72,7 @@ pub const Fake = struct {
-     }
- 
-     pub fn backend(x: *Fake) be.Backend {
--        return .{ .ptr = x, .vtable = &.{ .prefill = prefill, .first = first, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .features = features, .release = release, .first_row = firstRow } };
-+        return .{ .ptr = x, .vtable = &.{ .prefill = prefill, .first = first, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .features = features, .release = release, .first_row = firstRow, .refused = refusedFn } };
-     }
- 
-     fn self(ptr: *anyopaque) *Fake {
-@@ -173,8 +177,20 @@ pub const Fake = struct {
+@@ -240,6 +240,14 @@ pub const Fake = struct {
          return self(ptr).drawn.items[handle];
      }
  
@@ -3157,154 +2968,12 @@ index 6ad22fcc..36297f43 100644
 +
      fn verify(ptr: *anyopaque, windows: []const be.Window, out: []be.Verified) anyerror!void {
          const x = self(ptr);
-+        if (x.refuse_after) |after| { // the round refused before anything ran, for its marked streams alone
-+            for (windows) |w| if (w.stream.prompt()[0] == x.refuse_marker and x.lane(w.stream).history.items.len > after) try x.refused.append(x.gpa, w.stream);
-+            if (x.refused.items.len > 0) return error.OutOfDeviceMemory;
-+        }
          x.rounds += 1;
-         for (windows, out) |w, o| {
-             const l = x.lane(w.stream);
-diff --git a/zig/src/core/lanes/grammar.zig b/zig/src/core/lanes/grammar.zig
-new file mode 100644
-index 00000000..dff7ae78
---- /dev/null
-+++ b/zig/src/core/lanes/grammar.zig
-@@ -0,0 +1,126 @@
-+//! Structured output through libtfgrammar (xgrammar, zig/src/grammar/tf_grammar.cc), loaded when the first
-+//! structured request arrives: the server's compiler over the model's tokenizer, a request's compiled grammar (the
-+//! compiler caches it by its text, so the server's check and the engine's compile share it) and a reply's matcher.
-+
-+const std = @import("std");
-+
-+const Fns = struct {
-+    open: *const fn ([*]const u8, usize, c_int, [*]const i32, c_int, [*]u8, usize) callconv(.c) ?*anyopaque,
-+    close: *const fn (*anyopaque) callconv(.c) void,
-+    words: *const fn (*anyopaque) callconv(.c) c_int,
-+    compile: *const fn (*anyopaque, c_int, [*]const u8, usize, [*]u8, usize) callconv(.c) ?*anyopaque,
-+    free: *const fn (*anyopaque) callconv(.c) void,
-+    matcher: *const fn (*anyopaque) callconv(.c) ?*anyopaque,
-+    matcher_free: *const fn (*anyopaque) callconv(.c) void,
-+    accept: *const fn (*anyopaque, i32) callconv(.c) c_int,
-+    rollback: *const fn (*anyopaque, c_int) callconv(.c) c_int,
-+    terminated: *const fn (*anyopaque) callconv(.c) c_int,
-+    fill: *const fn (*anyopaque, [*]i32, c_int) callconv(.c) c_int,
-+};
-+
-+var lib: ?Fns = null;
-+var lib_failed = false;
-+
-+fn load() ?Fns {
-+    if (lib) |l| return l;
-+    if (lib_failed) return null;
-+    var dl = std.DynLib.open("libtfgrammar.so") catch {
-+        lib_failed = true;
-+        return null;
-+    };
-+    var f: Fns = undefined;
-+    const info = @typeInfo(Fns).@"struct";
-+    inline for (info.field_names, info.field_types) |name, T| {
-+        @field(f, name) = dl.lookup(T, "tfg_" ++ name) orelse {
-+            lib_failed = true;
-+            return null;
-+        };
-+    }
-+    lib = f;
-+    return f;
-+}
-+
-+pub const Kind = enum(u8) { json, json_schema, regex, choice, grammar };
-+
-+/// One tokenizer's grammar compiler (thread-safe in xgrammar; callers still serialize compiles, as Python does).
-+pub const Compiler = struct {
-+    f: Fns,
-+    h: *anyopaque,
-+    words: usize,
-+    mutex: std.Io.Mutex = .init,
-+
-+    /// ``tokenizer_json``: tokenizer.json's text; ``vocab``: the logits' width; ``stops``: the model's eos ids.
-+    pub fn open(tokenizer_json: []const u8, vocab: u32, stops: []const u32, err: *[512]u8) !Compiler {
-+        const f = load() orelse return error.NoGrammarLibrary;
-+        err[0] = 0;
-+        const h = f.open(tokenizer_json.ptr, tokenizer_json.len, @intCast(vocab), @ptrCast(stops.ptr), @intCast(stops.len), err, err.len) orelse return error.GrammarSetup;
-+        return .{ .f = f, .h = h, .words = @intCast(f.words(h)) };
-+    }
-+
-+    pub fn close(c: *Compiler) void {
-+        c.f.close(c.h);
-+    }
-+
-+    /// The compiled grammar, or error.Grammar with xgrammar's words in ``err``.
-+    pub fn compile(c: *Compiler, io: std.Io, kind: Kind, text: []const u8, err: *[512]u8) !Compiled {
-+        err[0] = 0;
-+        c.mutex.lockUncancelable(io);
-+        defer c.mutex.unlock(io);
-+        const g = c.f.compile(c.h, @intFromEnum(kind), text.ptr, text.len, err, err.len) orelse return error.Grammar;
-+        return .{ .f = c.f, .h = g };
-+    }
-+};
-+
-+pub const Compiled = struct {
-+    f: Fns,
-+    h: *anyopaque,
-+
-+    pub fn free(g: Compiled) void {
-+        g.f.free(g.h);
-+    }
-+
-+    pub fn matcher(g: Compiled) !Matcher {
-+        return .{ .f = g.f, .h = g.f.matcher(g.h) orelse return error.Grammar };
-+    }
-+};
-+
-+/// A reply's place in its grammar.
-+pub const Matcher = struct {
-+    f: Fns,
-+    h: *anyopaque,
-+
-+    pub fn free(m: Matcher) void {
-+        m.f.matcher_free(m.h);
-+    }
-+
-+    /// Whether the grammar takes ``token`` next (it then has).
-+    pub fn accept(m: Matcher, token: u32) !bool {
-+        return switch (m.f.accept(m.h, @intCast(token))) {
-+            1 => true,
-+            0 => false,
-+            else => error.Grammar,
-+        };
-+    }
-+
-+    pub fn rollback(m: Matcher, n: usize) !void {
-+        if (n > 0 and m.f.rollback(m.h, @intCast(n)) != 0) return error.Grammar;
-+    }
-+
-+    /// The grammar has taken its stop token.
-+    pub fn terminated(m: Matcher) bool {
-+        return m.f.terminated(m.h) == 1;
-+    }
-+
-+    /// The next token's allowed bits (token t: bit t % 32 of word t / 32).
-+    pub fn fill(m: Matcher, words: []u32) !void {
-+        if (m.f.fill(m.h, @ptrCast(words.ptr), @intCast(words.len)) != 0) return error.Grammar;
-+    }
-+};
-+
-+/// A request's grammar for the engine: the server's compiler, what to compile, the token it starts after.
-+pub const Structure = struct {
-+    compiler: *Compiler,
-+    kind: Kind,
-+    text: []const u8,
-+    after: ?u32 = null,
-+};
 diff --git a/zig/src/core/lanes/lanes.zig b/zig/src/core/lanes/lanes.zig
-index 6531f81c..91b6125c 100644
+index 910f5016..91b6125c 100644
 --- a/zig/src/core/lanes/lanes.zig
 +++ b/zig/src/core/lanes/lanes.zig
-@@ -25,9 +25,11 @@ pub const fake = @import("fake.zig");
- pub const drafter = @import("drafter.zig");
- pub const drafted = @import("drafted.zig");
- pub const logprob = @import("logprob.zig");
-+pub const grammar = @import("grammar.zig");
+@@ -29,6 +29,7 @@ pub const grammar = @import("grammar.zig");
  
  pub const Engine = engine.Engine;
  pub const Config = config.Config;
@@ -3313,17 +2982,10 @@ index 6531f81c..91b6125c 100644
  pub const Stream = stream.Stream;
  pub const Sampling = sampling.Sampling;
 diff --git a/zig/src/core/lanes/stream.zig b/zig/src/core/lanes/stream.zig
-index a91cff4d..63802066 100644
+index d43d01b1..9792604f 100644
 --- a/zig/src/core/lanes/stream.zig
 +++ b/zig/src/core/lanes/stream.zig
-@@ -1,5 +1,6 @@
- //! One stream (Python LaneStream) and the round loop's state for it (Python's dicts keyed by stream id).
- const std = @import("std");
-+const grammar = @import("grammar.zig");
- const shape = @import("shape.zig");
- const plan_lanes = @import("plan_lanes.zig");
- const Allocator = std.mem.Allocator;
-@@ -96,6 +97,10 @@ pub const Held = struct {
+@@ -97,6 +97,10 @@ pub const Held = struct {
      parents: ?[]i32 = null,
  };
  
@@ -3334,30 +2996,27 @@ index a91cff4d..63802066 100644
  pub const Spec = struct {
      id: []const u8,
      prompt: []const u32,
-@@ -114,6 +119,8 @@ pub const Spec = struct {
-     chunks: []const u32 = &.{}, // where prefill chunks start after 0 (Python's PrefillPlan); empty: the backend's step
-     reuse: Reuse = .{},
+@@ -121,6 +125,7 @@ pub const Spec = struct {
      logprobs: ?u8 = null, // the target's log probabilities for each committed token, with this many best tokens
+     grammar: ?*grammar.Constraint = null, // structured output: the reply stays in it (the creator frees it)
+     decode_spans: []const [2]u32 = &.{}, // prompt rows an earlier reply decoded (Request.decode_spans), for backends that keep their bits
 +    images: []const Image = &.{}, // an image prompt's inputs, in prompt order (the backend encodes them at prefill)
-+    structure: ?grammar.Structure = null, // the reply's grammar (Info.structures backends mask its rows)
  };
  
  pub const Stream = struct {
-@@ -130,6 +137,8 @@ pub const Stream = struct {
+@@ -138,6 +143,7 @@ pub const Stream = struct {
      think_close: []const u32,
      think_end: i64,
      think_open: bool,
 +    images: []const Image = &.{},
-+    structure: ?grammar.Structure = null,
      loop_guard: bool,
      loop_period: ?u32 = null,
      chunks: []const u32,
-@@ -182,6 +191,8 @@ pub const Stream = struct {
-             .stop_check = spec.stop_check,
+@@ -197,6 +203,7 @@ pub const Stream = struct {
              .cancel_check = spec.cancel_check,
+             .yield_check = spec.yield_check,
              .think_budget = spec.think_budget,
 +            .images = spec.images,
-+            .structure = spec.structure,
              .think_close = spec.think_close,
              .think_end = spec.think_end,
              .think_open = spec.think_open orelse (spec.think_budget > 0 or (spec.loop_guard and spec.think_end >= 0)),
@@ -3492,13 +3151,13 @@ index a5ad3e1b..a30bf604 100644
      pub fn update(self: Exec, g: Graph) Error!abi.ExecUpdateResult {
          var info: abi.ExecUpdateResultInfo = .{ .result = .success, .error_node = null, .error_from_node = null };
 diff --git a/zig/src/cuda/kernels.zig b/zig/src/cuda/kernels.zig
-index 10615552..1b8e8cf8 100644
+index 19ba7db2..1592d39e 100644
 --- a/zig/src/cuda/kernels.zig
 +++ b/zig/src/cuda/kernels.zig
-@@ -25,6 +25,16 @@ pub const nemotron_ops: []const u8 = if (available) &Blob("fatbin_nemotron_ops")
- pub const lane_gemv: []const u8 = if (available) &Blob("fatbin_lane_gemv").bytes else &.{};
- pub const sample: []const u8 = if (available) &Blob("fatbin_sample").bytes else &.{};
- pub const fp8_lane: []const u8 = if (available) &Blob("fatbin_fp8_lane").bytes else &.{};
+@@ -31,6 +31,16 @@ pub const train: []const u8 = if (available) &Blob("fatbin_train").bytes else &.
+ pub const qmmf: []const u8 = if (available) &Blob("fatbin_qmmf").bytes else &.{};
+ pub const prompt16: []const u8 = if (available) &Blob("fatbin_prompt16").bytes else &.{};
+ pub const modelopt_pack: []const u8 = if (available) &Blob("fatbin_modelopt_pack").bytes else &.{};
 +pub const fn_experts: []const u8 = if (available) &Blob("fatbin_fn_experts").bytes else &.{};
 +pub const fn_experts_prefill: []const u8 = if (available) &Blob("fatbin_fn_experts_prefill").bytes else &.{};
 +pub const fn_gdn_prefill: []const u8 = if (available) &Blob("fatbin_fn_gdn_prefill").bytes else &.{};
@@ -3513,7 +3172,7 @@ index 10615552..1b8e8cf8 100644
  pub const torch_topk: []const u8 = if (available) &Blob("fatbin_torch_topk").bytes else &.{};
  pub const torch_pointwise: []const u8 = if (available) &Blob("fatbin_torch_pointwise").bytes else &.{};
 diff --git a/zig/src/cuda/root.zig b/zig/src/cuda/root.zig
-index 6ee5648c..db671425 100644
+index ebbb12b9..3a9fbcba 100644
 --- a/zig/src/cuda/root.zig
 +++ b/zig/src/cuda/root.zig
 @@ -21,6 +21,7 @@ pub const Dim3 = launch.Dim3;
@@ -3524,10 +3183,10 @@ index 6ee5648c..db671425 100644
  pub const triton = @import("triton.zig");
  pub const aot = @import("aot.zig");
  pub const kernels = @import("kernels.zig");
-@@ -39,4 +40,5 @@ test {
-     _ = segments;
-     _ = @import("fp8.zig");
+@@ -47,4 +48,5 @@ test {
      _ = carveout;
+     _ = @import("nvfp4.zig");
+     _ = @import("modelopt.zig");
 +    _ = @import("tp_link.zig");
  }
 diff --git a/zig/src/cuda/tp_link.zig b/zig/src/cuda/tp_link.zig
@@ -83636,10 +83295,10 @@ index 00000000..8856c361
 +}
 diff --git a/zig/src/families/flashnext_cuda/forward.zig b/zig/src/families/flashnext_cuda/forward.zig
 new file mode 100644
-index 00000000..93c24f2a
+index 00000000..0db6525b
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/forward.zig
-@@ -0,0 +1,1933 @@
+@@ -0,0 +1,1956 @@
 +//! Flash Next (qwen4_exp) on CUDA, one rank of two: the forward the Python engine runs for our recipe (int8 dense
 +//! linears, affine 4-bit routed experts, the int8 shared expert, a 4-bit MTP draft head), as code. Each launch takes
 +//! the grid, constexprs and arguments the Python engine gives it (kern.zig), so every row equals Python's bit for bit.
@@ -83944,6 +83603,7 @@ index 00000000..93c24f2a
 +    ikc: [ATT + 1]u64 = undefined, pooled: [ATT + 1]u64 = undefined,
 +    ple_tail: u64 = 0,
 +    last_streams: u64 = 0,
++    first_logits: u64 = 0, // the prompt's last head row (firstAgain draws the first token again under a mask)
 +    grow: grow_mod.Range = undefined, // the caches that grow with the position (kc_*, ikc, pooled)
 +    img: ?Image = null, // an image prompt's rotary table and (until its prefill ends) its features
 +    sampling: ?lanes.Sampling = null, // the stream's draw (null: greedy); its rows step eagerly
@@ -83979,6 +83639,7 @@ index 00000000..93c24f2a
 +        _ = cap; // the position-sized caches live in ``grow`` (layGrow)
 +        s.ple_tail = c.take(9 * WIDE * 2);
 +        s.last_streams = c.take(WIDE * 2);
++        s.first_logits = c.take(HEAD_N * 2);
 +    }
 +
 +    /// Each attention layer's caches as regions of one reserved range (mapped as positions reach them).
@@ -84999,6 +84660,7 @@ index 00000000..93c24f2a
 +        if (final) { // the head on the last row, its candidates before the MTP head reuses the logits buffer
 +            _ = try finish(e, b, e.mixer, R, pending);
 +            try kern.matmul(&e.k, b.mixed, D, e.head, b.logits, HEAD_N, false, 1, b.kpart);
++            try e.k.copy(s.first_logits, b.logits, @intCast(HEAD_N * 2));
 +            _ = try applyMasks(e, b.logits, &.{.{ .s = s, .row0 = 0, .rows = 1 }});
 +            try candidates(e, b, b.logits, HEAD_N, 0, e.vocab_offset, 1);
 +            var picks: [1]Pick = undefined;
@@ -85200,6 +84862,26 @@ index 00000000..93c24f2a
 +/// A stream's grammar rows for its next forward: each row of its window the grammar constrains (in window order)
 +/// and that row's allowed bits over this rank's columns, MASK_WORDS words a row.
 +pub const Mask = struct { rows: []const u32, bits: []const u32 };
++
++/// The prompt's first token drawn again under a grammar's ``bits`` for its row (Backend.first_masked), on both
++/// ranks: the prompt's last head row (kept at prefill) masked, its candidates, the pick, the stream's draw.
++pub fn firstAgain(e: *Engine, s: *Seq, bits: []const u32, position: u64) !u32 {
++    const b = &e.pbuf;
++    try e.k.copy(b.logits, s.first_logits, @intCast(HEAD_N * 2));
++    const rows = [_]u32{0};
++    s.mask = .{ .rows = &rows, .bits = bits };
++    _ = try applyMasks(e, b.logits, &.{.{ .s = s, .row0 = 0, .rows = 1 }});
++    try candidates(e, b, b.logits, HEAD_N, 0, e.vocab_offset, 1);
++    var picks: [1]Pick = undefined;
++    try readPicks(e, b, 1, &picks);
++    var tok: u32 = @intCast(picks[0].tok);
++    if (s.sampling) |rule| {
++        var t: [1]u32 = .{tok};
++        try drawRows(e, b, b.logits, 1, &.{.{ .row = 0, .s = rule, .position = @intCast(position) }}, &t);
++        tok = t[0];
++    }
++    return tok;
++}
 +pub const MASK_WORDS: usize = @intCast(@divExact(HEAD_N, 32));
 +
 +/// Every segment's grammar rows to -inf in ``logits`` (both ranks, before the picks); whether any was masked.
@@ -86443,10 +86125,10 @@ index 00000000..1e725e63
 +}
 diff --git a/zig/src/families/flashnext_cuda/native.zig b/zig/src/families/flashnext_cuda/native.zig
 new file mode 100644
-index 00000000..2f0a033e
+index 00000000..b683f0e3
 --- /dev/null
 +++ b/zig/src/families/flashnext_cuda/native.zig
-@@ -0,0 +1,1459 @@
+@@ -0,0 +1,1438 @@
 +//! Flash Next (qwen4_exp) on two GB10s behind the native family interface: rank 0's lane core drives the engine
 +//! through a lane backend that first sends each call to rank 1, which replays it on its own half of the model
 +//! (``follow``). Every token is drawn inside the forward from both ranks' vocabulary shards (an NCCL exchange), so
@@ -86469,7 +86151,6 @@ index 00000000..2f0a033e
 +pub const two_ranks = true;
 +
 +/// Structured output: rank 0 masks each window's grammar rows (gramRows), rank 1 the same rows from its frames.
-+pub const structures = true;
 +
 +pub const Options = struct {
 +    context: usize,
@@ -86515,7 +86196,7 @@ index 00000000..2f0a033e
 +
 +// -- the protocol rank 0 sends rank 1 ---------------------------------------------------------------------------
 +
-+const Op = enum(u32) { prefill = 1, verify = 2, keep = 3, draft = 4, release = 5, stop = 6, ready = 7, shared = 8, drafts = 9, image = 10, keeps = 11, prefills = 12, grow = 13 };
++const Op = enum(u32) { prefill = 1, verify = 2, keep = 3, draft = 4, release = 5, stop = 6, ready = 7, shared = 8, drafts = 9, image = 10, keeps = 11, prefills = 12, grow = 13, first_masked = 14 };
 +
 +const Writer = struct {
 +    buf: std.ArrayList(u8) = .empty,
@@ -86573,16 +86254,7 @@ index 00000000..2f0a033e
 +    probs: [max_depth]f64 = undefined,  // the head's chance for each (0 past the confidence cut)
 +    nheld: u32 = 0,
 +    rows: u32 = 0,                      // the last verify's rows, not yet committed (0: nothing pending)
-+    g: ?Gram = null,                    // the reply's grammar (rank 0)
 +    first: u64 = 0,                     // the prompt's first token (a handle: readFn)
-+};
-+
-+/// A reply's grammar on rank 0 (engine/grammar.py's Constraint): its matcher at the reply's committed tokens.
-+const Gram = struct {
-+    m: lanes.grammar.Matcher,
-+    after: ?u32,          // with thinking on: the grammar starts after this token
-+    active: bool,
-+    fed: usize = 0,       // reply tokens the matcher has followed
 +};
 +
 +/// A released sequence kept to resume from (multi.py's kept): its prompt to the kept point, rank 1's id for it.
@@ -86612,41 +86284,18 @@ index 00000000..2f0a033e
 +
 +const MW = forward.MASK_WORDS;
 +
-+/// Follow the reply's committed tokens, then the rows of a window over ``ids`` (row 0 the pending token, drafts
-+/// after) the grammar constrains, as grammar.py's window(): each row the matcher reaches (a draft it rejects ends the
-+/// path: no later row can be accepted), its allowed bits. The matcher is rolled back to the committed tokens.
-+fn gramRows(g: *Gram, s: *const lanes.Stream, ids: []const u32, full: []u32, out: *Rows) !void {
++/// A window's grammar rows from the lane core's masks (rows x 2 MW words over the whole vocabulary): each row's
++/// bits as each rank's half.
++fn maskRows(masks: []const u32, rows: usize, out: *Rows) !void {
 +    out.n = 0;
-+    const emitted = s.context.items[s.prompt_len..];
-+    for (emitted[g.fed..]) |t| {
-+        if (!g.active) {
-+            g.active = g.after != null and t == g.after.?;
-+            continue;
-+        }
-+        if (g.m.terminated()) break;
-+        if (!try g.m.accept(t)) return error.GrammarRejected;
-+    }
-+    g.fed = emitted.len;
-+    var active = g.active;
-+    var taken: usize = 0;
-+    defer g.m.rollback(taken) catch {};
-+    for (0..ids.len) |r| {
-+        if (active and !g.m.terminated()) {
-+            const words = full[0 .. 2 * MW];
-+            try g.m.fill(words);
-+            @memcpy(out.bits[0][out.n * MW ..][0..MW], words[0..MW]);
-+            @memcpy(out.bits[1][out.n * MW ..][0..MW], words[MW..]);
-+            out.rows[out.n] = @intCast(r);
-+            out.n += 1;
-+        }
-+        if (r + 1 == ids.len) break;
-+        const next = ids[r + 1];
-+        if (!active) {
-+            active = g.after != null and next == g.after.?;
-+            continue;
-+        }
-+        if (g.m.terminated() or !try g.m.accept(next)) break;
-+        taken += 1;
++    if (masks.len == 0) return;
++    if (masks.len != rows * 2 * MW or rows > max_rows) return error.InvalidGrammarMasks;
++    for (0..rows) |r| {
++        const w = masks[r * 2 * MW ..][0 .. 2 * MW];
++        @memcpy(out.bits[0][out.n * MW ..][0..MW], w[0..MW]);
++        @memcpy(out.bits[1][out.n * MW ..][0..MW], w[MW..]);
++        out.rows[out.n] = @intCast(r);
++        out.n += 1;
 +    }
 +}
 +
@@ -87210,6 +86859,7 @@ index 00000000..2f0a033e
 +    .prefill = prefillFn,
 +    .prefill_many = prefillManyFn,
 +    .first = firstFn,
++    .first_masked = firstMaskedFn,
 +    .queue = queueFn,
 +    .read = readFn,
 +    .verify = verifyFn,
@@ -87323,20 +86973,7 @@ index 00000000..2f0a033e
 +    }
 +    const id = self.next_id;
 +    self.next_id += 1;
-+    // a grammar: compiled (the server's compile is cached), its first row when it starts with the reply
-+    var gram: ?Gram = null;
-+    errdefer if (gram) |g| g.m.free();
-+    var grows: Rows = .{};
-+    if (s.structure) |st| {
-+        try self.gramScratch();
-+        if (st.compiler.words != 2 * MW) return error.GrammarVocabulary;
-+        var err: [512]u8 = undefined;
-+        const compiled = try st.compiler.compile(self.io, st.kind, st.text, &err);
-+        defer compiled.free();
-+        gram = .{ .m = try compiled.matcher(), .after = st.after, .active = st.after == null };
-+        grows.bits = .{ self.gbits[0][at * MW ..], self.gbits[1][at * MW ..] };
-+        try gramRows(&gram.?, s, &.{0}, self.gfull, &grows);
-+    }
++    var grows: Rows = .{}; // a grammar's first row: first_masked draws the first token again under the lane core's mask
 +    try w.int(id);
 +    try w.tokens(ids);
 +    try writeSampling(w, s.sampling);
@@ -87362,9 +86999,7 @@ index 00000000..2f0a033e
 +        @memcpy(self.growsbuf[at..][0..grows.n], grows.rows[0..grows.n]);
 +        seq.mask = .{ .rows = self.growsbuf[at..][0..grows.n], .bits = grows.bits[0][0 .. grows.n * MW] };
 +    }
-+    if (gop.found_existing) if (gop.value_ptr.g) |g| g.m.free();
-+    gop.value_ptr.* = .{ .seq = seq, .id = id, .g = gram };
-+    gram = null;
++    gop.value_ptr.* = .{ .seq = seq, .id = id };
 +    return .{ .s = seq, .ids = ids, .start = start };
 +}
 +
@@ -87383,7 +87018,7 @@ index 00000000..2f0a033e
 +    var w: Writer = .{ .gpa = self.gpa };
 +    defer w.buf.deinit(self.gpa);
 +    try w.int(ss.len);
-+    for (ss) |s| if (s.structure != null) return false; // grammars one by one (a refused one stays alone)
++    for (ss) |s| if (s.grammar != null) return false; // grammars one by one (a refused one stays alone)
 +    var prompts: [max_streams]forward.Prompt = undefined;
 +    var resumed: [max_streams]u64 = undefined;
 +    for (ss, 0..) |s, k| prompts[k] = setupPrefill(self, s, &w, k, &resumed[k]) catch |err| {
@@ -87450,7 +87085,6 @@ index 00000000..2f0a033e
 +fn undoSetups(self: *Owned, ss: []const *lanes.Stream, resumed: []const u64) void {
 +    for (ss, resumed) |done, rid| {
 +        const kv = self.lanes_by.fetchRemove(done) orelse continue;
-+        if (kv.value.g) |g| g.m.free();
 +        if (rid != 0) {
 +            var wr: Writer = .{ .gpa = self.gpa };
 +            defer wr.buf.deinit(self.gpa);
@@ -87466,6 +87100,25 @@ index 00000000..2f0a033e
 +    const self = of(p);
 +    if (position != s.prompt_len) return error.PositionMismatch;
 +    return (self.lanes_by.get(s) orelse return error.NoLane).first;
++}
++
++/// The first token drawn again among ``mask``'s allowed tokens (prefill drew it unmasked), on both ranks.
++fn firstMaskedFn(p: *anyopaque, s: *lanes.Stream, position: u64, mask: []const u32) anyerror!u64 {
++    const self = of(p);
++    if (position != s.prompt_len) return error.PositionMismatch;
++    const l = self.lanes_by.getPtr(s) orelse return error.NoLane;
++    try self.gramScratch();
++    var grows: Rows = .{ .bits = .{ self.gbits[0], self.gbits[1] } };
++    try maskRows(mask, 1, &grows);
++    var w: Writer = .{ .gpa = self.gpa };
++    defer w.buf.deinit(self.gpa);
++    try w.int(l.id);
++    try w.int(position);
++    try writeRows(&w, &grows);
++    try self.send(.first_masked, &w);
++    const tok = try forward.firstAgain(self.e, l.seq, grows.bits[0][0..MW], position);
++    l.first = self.take(tok);
++    return l.first;
 +}
 +
 +fn queueFn(_: *anyopaque, _: *lanes.Stream, _: be.Feed, _: u64) anyerror!u64 {
@@ -87494,9 +87147,10 @@ index 00000000..2f0a033e
 +    ids[0] = win.pending;
 +    if (win.held > 0) @memcpy(ids[1..][0..win.held], l.held[0..win.held]) else @memcpy(ids[1..][0..win.tokens.len], win.tokens);
 +    var grows: Rows = .{};
-+    if (l.g) |*g| {
++    if (win.masks.len > 0) {
++        try self.gramScratch();
 +        grows.bits = .{ self.gbits[0], self.gbits[1] };
-+        try gramRows(g, win.stream, ids[0..rows], self.gfull, &grows);
++        try maskRows(win.masks, rows, &grows);
 +    }
 +    var w: Writer = .{ .gpa = self.gpa };
 +    defer w.buf.deinit(self.gpa);
@@ -87552,9 +87206,10 @@ index 00000000..2f0a033e
 +    for (windows, 0..) |win, k| {
 +        const rows = win.rows();
 +        grows[k] = .{};
-+        if (lanes_of[k].g) |*g| {
++        if (win.masks.len > 0) {
++            try self.gramScratch();
 +            grows[k].bits = .{ self.gbits[0][used * MW ..], self.gbits[1][used * MW ..] };
-+            try gramRows(g, win.stream, ids[k][0..rows], self.gfull, &grows[k]);
++            try maskRows(win.masks, rows, &grows[k]);
 +            used += grows[k].n;
 +        }
 +        try w.int(lanes_of[k].id);
@@ -87704,7 +87359,6 @@ index 00000000..2f0a033e
 +    const self = of(p);
 +    const kv = self.lanes_by.fetchRemove(s) orelse return;
 +    forward.logGraphs(self.e);
-+    if (kv.value.g) |g| g.m.free();
 +    var w: Writer = .{ .gpa = self.gpa };
 +    defer w.buf.deinit(self.gpa);
 +    const seq = kv.value.seq;
@@ -87809,6 +87463,13 @@ index 00000000..2f0a033e
 +                for (prompts[0..n], 0..) |*pr, k| pr.* = try followPrefill(self, &r, k, &grown);
 +                var firsts: [max_streams]u32 = undefined;
 +                if (try self.settleGrowth(grown, prompts[0..n])) try forward.prefillMany(self.e, prompts[0..n], firsts[0..n]);
++            },
++            .first_masked => {
++                const seq = self.by_id.get(try r.int()) orelse return error.NoSequence;
++                const position = try r.int();
++                try self.gramScratch();
++                const mk = (try readRows(&r, self.growsbuf[0..], self.gbits[1])) orelse return error.InvalidGrammarMasks;
++                _ = try forward.firstAgain(self.e, seq, mk.bits, position);
 +            },
 +            .verify => {
 +                const seq = self.by_id.get(try r.int()) orelse return error.NoSequence;
@@ -90188,190 +89849,18 @@ index 00000000..1f286602
 +    try build(&b, &c);
 +    return b.bytes;
 +}
-diff --git a/zig/src/grammar/tf_grammar.cc b/zig/src/grammar/tf_grammar.cc
-new file mode 100644
-index 00000000..c6055a9a
---- /dev/null
-+++ b/zig/src/grammar/tf_grammar.cc
-@@ -0,0 +1,173 @@
-+// libtfgrammar: structured output for the native server, through xgrammar's C++ library (the version the Python
-+// engine's image installs) as tensorfold/engine/grammar.py drives it: the tokenizer's vocabulary from tokenizer.json
-+// (its model vocabulary and added tokens: PreTrainedTokenizerFast.get_vocab), the vocabulary size the logits have,
-+// the model's stop tokens; json / json_schema through CompileJSONSchema (at most 32 blank characters between
-+// tokens), regex, a choice as an EBNF of JSON string literals, EBNF; a matcher per reply that takes tokens, rolls
-+// back and fills next-token bitmasks (int32 words, token t is bit t % 32 of word t / 32).
-+#include <dlpack/dlpack.h>
-+#include <picojson.h>
-+#include <xgrammar/xgrammar.h>
-+
-+#include <cstdint>
-+#include <cstring>
-+#include <exception>
-+#include <string>
-+#include <vector>
-+
-+namespace {
-+
-+void message(char* err, size_t len, const char* text) {
-+    if (!err || len == 0) return;
-+    std::strncpy(err, text, len - 1);
-+    err[len - 1] = 0;
-+}
-+
-+struct Compiler {
-+    xgrammar::TokenizerInfo info;
-+    xgrammar::GrammarCompiler compiler;
-+    int vocab;
-+};
-+
-+constexpr int BLANKS = 32;                      // grammar.py BLANKS
-+constexpr int64_t CACHE_BYTES = 256ll << 20;    // grammar.py CACHE_BYTES
-+const char* OBJECT = "{\"type\": \"object\"}";  // grammar.py OBJECT: json_object
-+
-+}  // namespace
-+
-+extern "C" {
-+
-+// tokenizer.json's text; vocab: the logits' width; stops: the model's eos ids. NULL with ``err`` on failure.
-+void* tfg_open(const char* tokenizer_json, size_t len, int vocab, const int32_t* stops, int nstops, char* err, size_t errlen) {
-+    try {
-+        std::string text(tokenizer_json, len);
-+        picojson::value v;
-+        std::string perr = picojson::parse(v, text);
-+        if (!perr.empty() || !v.is<picojson::object>()) { message(err, errlen, "tokenizer.json is not a JSON object"); return nullptr; }
-+        const auto& o = v.get<picojson::object>();
-+        std::vector<std::string> encoded(vocab);
-+        auto model = o.find("model");
-+        if (model == o.end() || !model->second.is<picojson::object>()) { message(err, errlen, "tokenizer.json has no model"); return nullptr; }
-+        const auto& mo = model->second.get<picojson::object>();
-+        auto vocab_it = mo.find("vocab");
-+        if (vocab_it == mo.end() || !vocab_it->second.is<picojson::object>()) { message(err, errlen, "tokenizer.json's model has no vocab"); return nullptr; }
-+        for (const auto& kv : vocab_it->second.get<picojson::object>()) {
-+            int64_t id = (int64_t)kv.second.get<double>();
-+            if (id >= 0 && id < vocab) encoded[id] = kv.first;
-+        }
-+        auto added = o.find("added_tokens");
-+        if (added != o.end() && added->second.is<picojson::array>())
-+            for (const auto& t : added->second.get<picojson::array>()) {
-+                if (!t.is<picojson::object>()) continue;
-+                const auto& to = t.get<picojson::object>();
-+                auto id = to.find("id"), content = to.find("content");
-+                if (id == to.end() || content == to.end() || !content->second.is<std::string>()) continue;
-+                int64_t i = (int64_t)id->second.get<double>();
-+                if (i >= 0 && i < vocab) encoded[i] = content->second.get<std::string>();
-+            }
-+        std::string metadata = xgrammar::TokenizerInfo::DetectMetadataFromHF(text);
-+        picojson::value mv;
-+        picojson::parse(mv, metadata);
-+        const auto& mo2 = mv.get<picojson::object>();
-+        auto type = (xgrammar::VocabType)(int)mo2.at("vocab_type").get<double>();
-+        bool prefix = mo2.at("add_prefix_space").get<bool>();
-+        std::vector<int32_t> stop(stops, stops + nstops);
-+        xgrammar::TokenizerInfo info(encoded, type, vocab, stop, prefix);
-+        return new Compiler{info, xgrammar::GrammarCompiler(info, 8, true, CACHE_BYTES), vocab};
-+    } catch (const std::exception& e) {
-+        message(err, errlen, e.what());
-+    } catch (...) {
-+        message(err, errlen, "xgrammar failed");
-+    }
-+    return nullptr;
-+}
-+
-+void tfg_close(void* c) { delete static_cast<Compiler*>(c); }
-+
-+// Words a row's bitmask holds.
-+int tfg_words(void* c) { return (static_cast<Compiler*>(c)->vocab + 31) / 32; }
-+
-+// kind: 0 json (any object), 1 json_schema, 2 regex, 3 choice (a JSON array of strings), 4 EBNF grammar.
-+void* tfg_compile(void* cp, int kind, const char* text, size_t len, char* err, size_t errlen) {
-+    auto* c = static_cast<Compiler*>(cp);
-+    try {
-+        std::string t(text, len);
-+        xgrammar::CompiledGrammar g = [&] {
-+            switch (kind) {
-+                case 0: return c->compiler.CompileJSONSchema(OBJECT, true, std::nullopt, std::nullopt, true, BLANKS);
-+                case 1: return c->compiler.CompileJSONSchema(t, true, std::nullopt, std::nullopt, true, BLANKS);
-+                case 2: return c->compiler.CompileRegex(t);
-+                case 3: {
-+                    picojson::value v;
-+                    std::string perr = picojson::parse(v, t);
-+                    if (!perr.empty() || !v.is<picojson::array>()) throw std::runtime_error("choices must be a JSON array");
-+                    std::string ebnf = "root ::= ";
-+                    bool first = true;
-+                    for (const auto& x : v.get<picojson::array>()) {
-+                        if (!first) ebnf += " | ";
-+                        first = false;
-+                        ebnf += x.serialize();
-+                    }
-+                    return c->compiler.CompileGrammar(ebnf);
-+                }
-+                default: return c->compiler.CompileGrammar(t);
-+            }
-+        }();
-+        return new xgrammar::CompiledGrammar(g);
-+    } catch (const std::exception& e) {
-+        message(err, errlen, e.what());
-+    } catch (...) {
-+        message(err, errlen, "xgrammar failed");
-+    }
-+    return nullptr;
-+}
-+
-+void tfg_free(void* g) { delete static_cast<xgrammar::CompiledGrammar*>(g); }
-+
-+void* tfg_matcher(void* g) {
-+    try {
-+        return new xgrammar::GrammarMatcher(*static_cast<xgrammar::CompiledGrammar*>(g));
-+    } catch (...) {
-+        return nullptr;
-+    }
-+}
-+
-+void tfg_matcher_free(void* m) { delete static_cast<xgrammar::GrammarMatcher*>(m); }
-+
-+// 1 taken, 0 rejected, -1 failed.
-+int tfg_accept(void* m, int32_t token) {
-+    try {
-+        return static_cast<xgrammar::GrammarMatcher*>(m)->AcceptToken(token) ? 1 : 0;
-+    } catch (...) {
-+        return -1;
-+    }
-+}
-+
-+int tfg_rollback(void* m, int n) {
-+    try {
-+        static_cast<xgrammar::GrammarMatcher*>(m)->Rollback(n);
-+        return 0;
-+    } catch (...) {
-+        return -1;
-+    }
-+}
-+
-+int tfg_terminated(void* m) { return static_cast<xgrammar::GrammarMatcher*>(m)->IsTerminated() ? 1 : 0; }
-+
-+// The next token's allowed bits into ``words`` (tfg_words of them). 0, or -1 when it failed.
-+int tfg_fill(void* m, int32_t* words, int n) {
-+    try {
-+        int64_t shape[2] = {1, n};
-+        DLTensor t{};
-+        t.data = words;
-+        t.device = {kDLCPU, 0};
-+        t.ndim = 2;
-+        t.dtype = {kDLInt, 32, 1};
-+        t.shape = shape;
-+        static_cast<xgrammar::GrammarMatcher*>(m)->FillNextTokenBitmask(&t, 0);
-+        return 0;
-+    } catch (...) {
-+        return -1;
-+    }
-+}
-+
-+}  // extern "C"
 diff --git a/zig/src/native/cuda.zig b/zig/src/native/cuda.zig
-index 4f702516..b8f28027 100644
+index ac76da05..a8945157 100644
 --- a/zig/src/native/cuda.zig
 +++ b/zig/src/native/cuda.zig
-@@ -4,12 +4,14 @@ const cuda = @import("cuda");
+@@ -1,16 +1,22 @@
+ //! CUDA family registration, device setup, memory admission and the native lane host.
++/// The serve flags this build's engine takes past the common ones (server/cli.zig served()): two GB10 ranks, the
++/// attention cache's codes.
++pub const serves: []const []const u8 = &.{ "--tp", "--kv-dtype" };
++
+ const std = @import("std");
+ const cuda = @import("cuda");
  const api = @import("engine_api");
  const lanes = @import("lanes");
  const nemotron = @import("nemotron");
@@ -90379,6 +89868,7 @@ index 4f702516..b8f28027 100644
 +const with_flashnext = @import("cuda_families").flashnext;
  const Allocator = std.mem.Allocator;
  const budget = @import("cuda_memory.zig");
+ const nemotron_slide = @import("nemotron_slide.zig");
  const Pool = budget.Pool;
  
  /// CUDA families provide metadata, open their lane backend and explain their refusals.
@@ -90387,10 +89877,10 @@ index 4f702516..b8f28027 100644
  
  /// Nemotron's prompt-cache copies. A file-level value so the store's pointer stays valid for the process.
  const nemotron_snaps: api.prompt_cache.Snapshots.VTable = .{
-@@ -156,6 +158,14 @@ const Host = struct {
-     startup: []u8 = &.{},
-     lone: ?LoneRun = null, // the family's driver for a lone drafted stream, called with `family`
-     store: ?*api.prompt_cache.Store = null, // kept Nemotron states; null when the budget is 0
+@@ -161,6 +167,14 @@ const Host = struct {
+     slide: ?*anyopaque = null, // that learner's adapter, freed by slide_free before the family
+     slide_free: ?*const fn (Allocator, *anyopaque) void = null,
+     dir: []u8 = &.{}, // the model folder the learner writes its lessons into
 +    follow_fn: ?*const fn (*anyopaque) anyerror!void = null, // rank 1 of two: the family's replay loop
 +
 +    /// Rank 1: the family replays rank 0's calls on this thread (the context was made current here at open).
@@ -90402,7 +89892,7 @@ index 4f702516..b8f28027 100644
  
      fn close(p: *anyopaque) void {
          const h: *Host = @ptrCast(@alignCast(p));
-@@ -217,6 +227,12 @@ const Host = struct {
+@@ -250,6 +264,12 @@ const Host = struct {
                      return x.inner.vtable.prefill(x.inner.ptr, s);
                  }
              }.f,
@@ -90415,7 +89905,7 @@ index 4f702516..b8f28027 100644
              .first = struct {
                  fn f(p: *anyopaque, s: *lanes.Stream, position: u64) anyerror!u64 {
                      const x = bind(p);
-@@ -289,6 +305,12 @@ const Host = struct {
+@@ -334,11 +354,33 @@ const Host = struct {
                      x.inner.vtable.release(x.inner.ptr, s);
                  }
              }.f,
@@ -90428,7 +89918,28 @@ index 4f702516..b8f28027 100644
          };
          return .{ .ptr = h, .vtable = &h.vtable };
      }
-@@ -349,13 +371,34 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+ };
+ 
++/// A tensor-parallel rank above 0 (server/engines.zig follow): the family opened as that rank, then its replay loop
++/// until rank 0 stops; false with ``problem`` set when it cannot.
++pub fn follow(a: Allocator, gpa: Allocator, io: std.Io, o: api.Open, problem: *[]const u8) !bool {
++    const opened = (try open(a, gpa, io, o, problem)) orelse return false;
++    defer opened.close(opened.ctx);
++    const f = opened.follow orelse {
++        problem.* = "this family has no tensor-parallel ranks";
++        return false;
++    };
++    f(opened.ctx) catch |e| {
++        problem.* = try std.fmt.allocPrint(a, "rank {d} stopped: {s}", .{ o.rank, @errorName(e) });
++        return false;
++    };
++    return true;
++}
++
+ /// The engine for `o.dir`, or null with `problem` set when no CUDA family reads the checkpoint.
+ pub fn open(a: Allocator, gpa: Allocator, io: std.Io, o: api.Open, problem: *[]const u8) !?api.Opened {
+     inline for (registry) |F| {
+@@ -412,20 +454,42 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
          },
      };
      const before = try pool(a, io, &g.ctx, problem) orelse return null;
@@ -90448,24 +89959,33 @@ index 4f702516..b8f28027 100644
          problem.* = try std.fmt.allocPrint(a, "the checkpoint's {d:.1} GiB of weights do not fit the {d:.1} GiB the CUDA memory budget grants ({d:.1} GiB free less a {d:.1} GiB reserve{s}); free device memory or adjust TENSORFOLD_MEMORY_RESERVE_GIB / TENSORFOLD_CUDA_MEMORY_LIMIT_GB", .{ toGib(weights), toGib(before.room(held0)), toGib(before.free), toGib(before.reserve), if (before.limit != null) ", under TENSORFOLD_CUDA_MEMORY_LIMIT_GB" else "" });
          return null;
      }
--    const loaded = F.open(gpa, io, &g.ctx, o.dir, kernels, .{ .context = @intCast(window), .drafts = o.drafts, .segments = segments }) catch |e| {
+-    const loaded = F.open(gpa, io, &g.ctx, o.dir, kernels, .{ .context = @intCast(window), .drafts = o.drafts, .segments = segments, .slide = o.slide }) catch |e| {
 +    var fo: F.Options = .{ .context = @intCast(window), .drafts = o.drafts, .segments = segments };
 +    if (@hasField(F.Options, "vision")) fo.vision = o.vision;
 +    if (@hasField(F.Options, "kv_bits")) fo.kv_bits = o.kv_bits else if (o.kv_bits != 8) {
 +        problem.* = try std.fmt.allocPrint(a, "{s} keeps an int8 attention cache only: drop --kv-dtype", .{F.model_type});
 +        return null;
 +    }
++    if (@hasField(F.Options, "slide")) fo.slide = o.slide;
 +    if (@hasField(F.Options, "rank")) {
-+        fo.tp = o.tp;
-+        fo.rank = o.rank;
-+        fo.master = o.master;
++        fo.tp = @intCast(o.tp);
++        fo.rank = @intCast(o.rank);
++        fo.master = if (o.master.len > 0) o.master else null;
 +        fo.master_port = o.master_port;
 +    }
 +    const loaded = F.open(gpa, io, &g.ctx, o.dir, kernels, fo) catch |e| {
          problem.* = try std.fmt.allocPrint(a, "the native CUDA engine cannot load {s} with {s} glue kernels ({s})", .{ o.dir, kernels orelse "its own", @errorName(e) });
          return null;
      };
-@@ -371,17 +414,19 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+     defer if (!opened) loaded.deinit(loaded.ctx);
+     const model = cuda.usage(false).device - held0;
+     const after = try pool(a, io, &g.ctx, problem) orelse return null;
+-    const room = after.room(model) -| loaded.learn_bytes;
++    const room = after.room(model) -| learnBytes(loaded);
+     const free = loaded.free_streams;
+     const streams = budget.admit(room, loaded.stream_bytes, free, o.lanes, o.lanes_fixed) catch |e| {
+         problem.* = switch (e) {
+@@ -434,16 +498,18 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
          };
          return null;
      };
@@ -90476,10 +89996,10 @@ index 4f702516..b8f28027 100644
 -    const cache = budget.cacheBytes(o.prompt_cache_gib, room, loaded.stream_bytes * (streams -| free));
 +    // the lane core's kept states (Nemotron's snapshots); a family that keeps its own prompt states has no `target`
 +    const cache = if (@hasField(@TypeOf(loaded), "target")) budget.cacheBytes(o.prompt_cache_gib, room, loaded.stream_bytes * (streams -| free)) else 0;
-     h.startup = try std.fmt.allocPrint(gpa, "CUDA sm_{d} device {d} ({s}{s}): model {d:.2} GiB; {d} stream{s} at once, {d:.2} GiB each at a {d}-token window, of {d:.1} GiB left after a {d:.1} GiB reserve; prompts in {d}-row chunks{s}{s}; {s}", .{
-         capability,                                                                                                   device, name, if (after.unified) ", memory shared with the host" else "", toGib(model), streams, if (streams == 1) "" else "s", toGib(loaded.stream_bytes), window, toGib(room), toGib(after.reserve), F.prompt_rows, if (segments > 1) try std.fmt.allocPrint(a, ", {d} staggered segments a call", .{segments}) else "",
-         if (cache > 0) try std.fmt.allocPrint(a, ", a {d:.1} GiB prompt cache", .{toGib(cache)}) else ", no prompt cache",
-         if (kernels) |dir| try std.fmt.allocPrint(a, "glue kernels captured at {s}", .{dir}) else "own glue kernels",
+     h.startup = try std.fmt.allocPrint(gpa, "CUDA sm_{d} device {d} ({s}{s}): model {d:.2} GiB{s}; {d} stream{s} at once, {d:.2} GiB each at a {d}-token window, of {d:.1} GiB left after a {d:.1} GiB reserve; prompts in {d}-row chunks{s}{s}; {s}", .{
+-        capability,                                                                                                        device,                                                                                                       name, if (after.unified) ", memory shared with the host" else "", toGib(model), if (loaded.learn_bytes > 0) try std.fmt.allocPrint(a, " and {d:.2} GiB kept for --slide's trainer", .{toGib(loaded.learn_bytes)}) else "", streams, if (streams == 1) "" else "s", toGib(loaded.stream_bytes), window, toGib(room), toGib(after.reserve), F.prompt_rows, if (segments > 1) try std.fmt.allocPrint(a, ", {d} staggered segments a call", .{segments}) else "",
++        capability,                                                                                                        device,                                                                                                       name, if (after.unified) ", memory shared with the host" else "", toGib(model), if (learnBytes(loaded) > 0) try std.fmt.allocPrint(a, " and {d:.2} GiB kept for --slide's trainer", .{toGib(learnBytes(loaded))}) else "", streams, if (streams == 1) "" else "s", toGib(loaded.stream_bytes), window, toGib(room), toGib(after.reserve), F.prompt_rows, if (segments > 1) try std.fmt.allocPrint(a, ", {d} staggered segments a call", .{segments}) else "",
+         if (cache > 0) try std.fmt.allocPrint(a, ", a {d:.1} GiB prompt cache", .{toGib(cache)}) else ", no prompt cache", if (kernels) |dir| try std.fmt.allocPrint(a, "glue kernels captured at {s}", .{dir}) else "own glue kernels",
      });
      errdefer gpa.free(h.startup);
 -    if (cache > 0) {
@@ -90487,21 +90007,46 @@ index 4f702516..b8f28027 100644
          const pc = api.prompt_cache;
          const store = try gpa.create(pc.Store);
          // states kept and resumed on the family's grid, where a cache-off pass cuts; the head reads one token on
-@@ -393,8 +438,13 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+@@ -454,7 +520,8 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+         store.deinit();
          gpa.destroy(store);
      };
+-    if (loaded.learns != null) {
++    if (comptime @hasField(@TypeOf(loaded), "learns")) { // a family with a Living Weights learner
++        if (loaded.learns != null) {
+         const Slide = nemotron_slide.Adapter(F.slide);
+         h.dir = try gpa.dupe(u8, o.dir);
+         const s = try gpa.create(Slide);
+@@ -468,17 +535,28 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+             }
+         }.f;
+         h.learn = s.hook();
++        }
+     }
+     errdefer if (h.slide) |s| {
+         h.slide_free.?(gpa, s);
+         gpa.free(h.dir);
+     };
      // the family cuts its own prompt grid from position 0, as `tensorfold run` does: prefill_step 0
--    try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(window), .startup = h.startup, .prompt_cache = h.store != null, .logprobs = loaded.backend.vtable.first_row != null }, .{ .ctx = loaded.ctx, .text = F.explain });
-+    try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(window), .startup = h.startup, .prompt_cache = h.store != null, .logprobs = loaded.backend.vtable.first_row != null, .vision = o.vision and @hasField(F.Options, "vision"), .structures = @hasDecl(F, "structures") and F.structures }, .{ .ctx = loaded.ctx, .text = F.explain });
+-    try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(window), .startup = h.startup, .prompt_cache = h.store != null, .logprobs = loaded.backend.vtable.first_row != null, .structures = loaded.backend.vtable.first_masked != null }, .{ .ctx = loaded.ctx, .text = F.explain });
++    try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(window), .startup = h.startup, .prompt_cache = h.store != null, .logprobs = loaded.backend.vtable.first_row != null, .structures = loaded.backend.vtable.first_masked != null, .vision = o.vision and @hasField(F.Options, "vision") }, .{ .ctx = loaded.ctx, .text = F.explain });
      opened = true;
-+    const follow: ?*const fn (*anyopaque) anyerror!void = if (@hasField(@TypeOf(loaded), "follow")) loaded.follow else null;
-+    if (follow) |f| {
++    const follow_loop: ?*const fn (*anyopaque) anyerror!void = if (@hasField(@TypeOf(loaded), "follow")) loaded.follow else null;
++    if (follow_loop) |f| {
 +        h.follow_fn = f;
 +        return .{ .engine = h.host.engine(), .close = Host.close, .ctx = h, .follow = Host.followFamily };
 +    }
      return .{ .engine = h.host.engine(), .close = Host.close, .ctx = h };
  }
  
++/// A family's bytes kept for --slide (0 for families without a learner).
++fn learnBytes(loaded: anytype) u64 {
++    return if (@hasField(@TypeOf(loaded), "learn_bytes")) loaded.learn_bytes else 0;
++}
++
+ fn toGib(bytes: u64) f64 {
+     return @as(f64, @floatFromInt(bytes)) / gib;
+ }
 diff --git a/zig/src/native/no_family.zig b/zig/src/native/no_family.zig
 new file mode 100644
 index 00000000..d81d7567
@@ -90511,7 +90056,7 @@ index 00000000..d81d7567
 +//! Stands in for a CUDA family the build leaves out (-Dflashnext=false): nothing is registered.
 +pub const native = struct {};
 diff --git a/zig/src/server/chat.zig b/zig/src/server/chat.zig
-index f68d0969..32f8e324 100644
+index 6315e329..22a9ea94 100644
 --- a/zig/src/server/chat.zig
 +++ b/zig/src/server/chat.zig
 @@ -32,6 +32,8 @@ pub const Input = struct {
@@ -90585,12 +90130,12 @@ index f68d0969..32f8e324 100644
 +        .chunks = try chunk_plan.withCut(a, try srv.chunks.starts(a, rendered.ids), if (srv.chunks.step > 0) @intCast(@max(system_len, 1) - 1) else 0, rendered.ids.len, srv.chunks.min_chunk),
          .decode_spans = try prompt_mod.replySpans(srv, cx, rendered.ids), // from the tokens alone, for every request: cached states are keyed by tokens
          .tools_json = if (input.tools.len > 0) try json.stringify(a, .{ .array = @constCast(input.tools) }, .{ .ascii = false }) else "",
-     };
+         .decide = if (input.prompt == null and !background) prompt_mod.decideOf(srv, rendered.ids) else null,
 diff --git a/zig/src/server/cli.zig b/zig/src/server/cli.zig
-index ecf96361..de1760a2 100644
+index 40ee1e0e..8ac149c2 100644
 --- a/zig/src/server/cli.zig
 +++ b/zig/src/server/cli.zig
-@@ -37,15 +37,16 @@ pub const flags = [_]Flag{
+@@ -49,15 +49,16 @@ pub const flags = [_]Flag{
      .{ .name = "--api-key-file", .native = true },
      .{ .name = "--metrics-open", .kind = .store_true, .native = true },
      .{ .name = "--dashboard", .kind = .store_true, .native = true },
@@ -90611,25 +90156,16 @@ index ecf96361..de1760a2 100644
      .{ .name = "--top-p", .native = true },
      .{ .name = "--top-k", .native = true },
      .{ .name = "--min-p", .native = true },
-@@ -81,11 +82,12 @@ pub const flags = [_]Flag{
-     .{ .name = "--ple-on-ssd", .kind = .store_true },
-     .{ .name = "--no-update-check", .kind = .store_true, .native = true },
-     .{ .name = "--backend", .choices = &.{ "auto", "mlx", "cuda" }, .native = true, .native_values = backend_values },
--    .{ .name = "--tp", .choices = &.{ "1", "2" } },
--    .{ .name = "--rank", .choices = &.{ "0", "1" } },
--    .{ .name = "--master" },
--    .{ .name = "--master-port" },
+@@ -99,7 +100,7 @@ pub const flags = [_]Flag{
+     .{ .name = "--master-port", .native = served("--tp") },
+     // the GPU engine's policy switches as key=value pairs, repeatable
+     .{ .name = "--policy", .kind = .append, .native = served("--policy") },
 -    .{ .name = "--kv-dtype", .choices = &.{ "bf16", "int8", "int4" } },
-+    // two GB10s (CUDA): rank 0 serves, rank 1 follows it (Flash Next)
-+    .{ .name = "--tp", .choices = &.{ "1", "2" }, .native = cuda_build },
-+    .{ .name = "--rank", .choices = &.{ "0", "1" }, .native = cuda_build },
-+    .{ .name = "--master", .native = cuda_build },
-+    .{ .name = "--master-port", .native = cuda_build },
-+    .{ .name = "--kv-dtype", .choices = &.{ "bf16", "int8", "int4" }, .native = cuda_build, .native_values = &.{ "int8", "int4" } },
++    .{ .name = "--kv-dtype", .choices = &.{ "bf16", "int8", "int4" }, .native = served("--kv-dtype"), .native_values = &.{ "int8", "int4" } },
      .{ .name = "--prefill-fp8", .kind = .store_true },
      .{ .name = "--no-prefill-fp8", .kind = .store_true },
      .{ .name = "--precision", .choices = &.{ "checkpoint", "full" } },
-@@ -124,6 +126,11 @@ pub const Args = struct {
+@@ -138,6 +139,11 @@ pub const Args = struct {
      learn_gib: f64 = 32, // disk for learned states, every model and build together
      max_tokens: i64 = 4096,
      temperature: ?f64 = null,
@@ -90641,19 +90177,15 @@ index ecf96361..de1760a2 100644
      top_p: ?f64 = null,
      top_k: ?i64 = null,
      min_p: ?f64 = null,
-@@ -145,6 +152,11 @@ pub const Args = struct {
-     backend: []const u8 = "auto",
-     device: ?u32 = null,
-     segments: ?u32 = null,
+@@ -167,6 +173,7 @@ pub const Args = struct {
+     master: []const u8 = "",
+     master_port: u16 = 29551,
+     policy: []const u8 = "", // every --policy joined by commas
 +    kv_dtype: []const u8 = "int8", // --kv-dtype (CUDA): the attention cache's codes, int8 or int4
-+    tp: u8 = 1,
-+    rank: u8 = 0,
-+    master: ?[]const u8 = null,
-+    master_port: u16 = 29600,
  };
  
  /// A usage error's message (argparse's ``error:`` line); the caller exits 2.
-@@ -239,7 +251,7 @@ fn apply(a: Allocator, out: *Args, name: []const u8, value: ?[]const u8, u: *Usa
+@@ -262,7 +269,7 @@ fn apply(a: Allocator, out: *Args, name: []const u8, value: ?[]const u8, u: *Usa
      } else if (is(name, "--learn-gib")) {
          out.learn = true;
          out.learn_gib = try gib(u, a, name, v);
@@ -90662,7 +90194,7 @@ index ecf96361..de1760a2 100644
          if (std.mem.eql(u8, v, "auto")) out.compact_auto = true else {
              const f = try float(u, a, name, v);
              if (!(f > 0 and f <= 1)) return fail(u, a, "argument --compact-at: expected auto or a fraction in (0, 1]: '{s}'", .{v});
-@@ -256,9 +268,19 @@ fn apply(a: Allocator, out: *Args, name: []const u8, value: ?[]const u8, u: *Usa
+@@ -279,9 +286,19 @@ fn apply(a: Allocator, out: *Args, name: []const u8, value: ?[]const u8, u: *Usa
  fn cudaFlag(a: Allocator, out: *Args, name: []const u8, v: []const u8, u: *Usage) error{ Usage, OutOfMemory }!bool {
      if (std.mem.eql(u8, name, "--device")) {
          out.device = std.math.cast(u32, try int(u, a, name, v)) orelse return fail(u, a, "argument --device: a GPU ordinal from 0: '{s}'", .{v});
@@ -90682,34 +90214,20 @@ index ecf96361..de1760a2 100644
      } else return false;
      return true;
  }
-diff --git a/zig/src/server/engines.zig b/zig/src/server/engines.zig
-index db75d871..3d798489 100644
---- a/zig/src/server/engines.zig
-+++ b/zig/src/server/engines.zig
-@@ -23,6 +23,8 @@ pub fn open(a: Allocator, gpa: Allocator, io: std.Io, dir: []const u8, model_typ
-         .drafts = !args.no_drafts,
-         .drafter = args.drafter,
-         .drafter_bits = args.drafter_bits,
+@@ -359,6 +376,8 @@ pub fn request(a: Allocator, dir: []const u8, model_type: []const u8, args: Args
+         .mtp_drafts = args.mtp_drafts,
+         .mtp_confidence = args.mtp_confidence,
+         .keep = args.checkpoint_slots,
 +        .vision = args.vision,
 +        .kv_bits = if (std.mem.eql(u8, args.kv_dtype, "int4")) 4 else 8,
-         .speed_up = args.speed_up,
-         .prompt_cache_gib = args.prompt_cache_gib,
-         .prompt_cache_over_cap = args.prompt_cache_over_cap,
-@@ -32,5 +34,9 @@ pub fn open(a: Allocator, gpa: Allocator, io: std.Io, dir: []const u8, model_typ
-         .slide = args.slide,
-         .device = args.device,
-         .segments = args.segments,
-+        .tp = args.tp,
-+        .rank = args.rank,
-+        .master = args.master,
-+        .master_port = args.master_port,
-     }, problem);
- }
+         .tp = args.tp,
+         .rank = args.rank,
+         .master = args.master,
 diff --git a/zig/src/server/main.zig b/zig/src/server/main.zig
-index 1d172348..4408c106 100644
+index 5ca1fd32..76169b54 100644
 --- a/zig/src/server/main.zig
 +++ b/zig/src/server/main.zig
-@@ -69,10 +69,15 @@ pub fn main(init: std.process.Init) !u8 {
+@@ -76,6 +76,10 @@ pub fn main(init: std.process.Init) !u8 {
      } orelse return fail(problem);
      defer up.text.deinit();
      defer up.engine.close(up.engine.ctx);
@@ -90720,11 +90238,6 @@ index 1d172348..4408c106 100644
      return serve.run(gpa, io, args, .{
          .engine = up.engine.engine,
          .text = up.text.text(),
-         .served = hub.servedName(args.name, args.model, dir),
-+        .model_dir = dir,
-         .sampling = try sampling(a, io, dir, args),
-         .environ = init.environ_map,
-         .started = started,
 diff --git a/zig/src/server/media_fetch.zig b/zig/src/server/media_fetch.zig
 new file mode 100644
 index 00000000..e175033b
@@ -91068,7 +90581,7 @@ index 00000000..e175033b
 +    try std.testing.expectEqualStrings("https://e.com/z", try join(a, "https://e.com/b/a.png", "/z"));
 +}
 diff --git a/zig/src/server/openai.zig b/zig/src/server/openai.zig
-index 6bcc7908..4a154414 100644
+index 91d02cce..d760f25f 100644
 --- a/zig/src/server/openai.zig
 +++ b/zig/src/server/openai.zig
 @@ -125,7 +125,12 @@ fn plan(srv: *Server, cx: *Cx, is_chat: bool, raw: Value) errors.Refused!Plan {
@@ -91086,23 +90599,11 @@ index 6bcc7908..4a154414 100644
      } else if (body.get("messages")) |m| if (m == .array and m.array.len > 0) {
          input.messages = try messages.normalize(cx, m, "system", srv.needs_user_after_tool);
 diff --git a/zig/src/server/serve.zig b/zig/src/server/serve.zig
-index d03230c4..e07835e7 100644
+index 967c0979..05155bd7 100644
 --- a/zig/src/server/serve.zig
 +++ b/zig/src/server/serve.zig
-@@ -65,6 +65,8 @@ pub const Setup = struct {
-     engine: api.Engine,
-     text: model_text.Text,
-     served: []const u8,
-+    /// The checkpoint's folder (structured output reads its tokenizer.json and config.json).
-+    model_dir: []const u8 = "",
-     /// Sampling defaults from generation_config.json and the flags, as a JSON object; null: greedy.
-     sampling: ?json.Value = null,
-     environ: ?*const std.process.Environ.Map = null,
-@@ -104,8 +106,13 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
-     } else 0;
-     const config: server_mod.Config = .{
-         .served_name = s.served,
-+        .model_dir = s.model_dir,
+@@ -109,6 +109,10 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
+         .model_dir = s.model_dir,
          .model_ids = ids.items,
          .default_max_tokens = args.max_tokens,
 +        .vision_max_images = @intCast(@max(args.vision_max_images, 1)),
@@ -91113,14 +90614,10 @@ index d03230c4..e07835e7 100644
          .reasoning_effort = args.reasoning_effort,
          .thinking_budget = args.thinking_budget,
 diff --git a/zig/src/server/server.zig b/zig/src/server/server.zig
-index 48854d56..abdfe34b 100644
+index 255b02a2..9cbad518 100644
 --- a/zig/src/server/server.zig
 +++ b/zig/src/server/server.zig
-@@ -30,9 +30,14 @@ pub const CompactAt = union(enum) { auto, fraction: f64 };
- 
- pub const Config = struct {
-     served_name: []const u8,
-+    model_dir: []const u8 = "",
+@@ -35,6 +35,10 @@ pub const Config = struct {
      /// The served name first, then aliases, without repeats.
      model_ids: []const []const u8,
      default_max_tokens: i64 = 4096,
@@ -91131,77 +90628,14 @@ index 48854d56..abdfe34b 100644
      enable_thinking: bool = true,
      reasoning_effort: ?[]const u8 = null,
      thinking_budget: i64 = 0,
-@@ -85,6 +90,10 @@ pub const Server = struct {
-     /// The facts the learner was taught and whether the weights recall them.
-     slide: slide_graph.Graph,
-     teacher: slide_lesson.Teacher, // what every Sliding Weights lesson shares: keep prompts, the turn's end
-+    /// Structured output's compiler, opened by the first structured request (Python's grammar.compiler).
-+    grammars: ?*api.grammar.Compiler = null,
-+    grammar_problem: ?[]const u8 = null,
-+    grammar_mutex: std.Io.Mutex = .init,
- 
-     /// Reads what the template and tokenizer decide once: late system role, think markers, efforts, the forced close.
-     pub fn init(gpa: Allocator, io: std.Io, engine: api.Engine, text: model_text.Text, config: Config, keys: ?*auth.Store) !*Server {
-@@ -119,6 +128,7 @@ pub const Server = struct {
-     pub fn deinit(srv: *Server) void {
+@@ -126,6 +130,7 @@ pub const Server = struct {
          if (srv.keepalive) |k| k.stop(); // before the engine's queue goes away
+         if (srv.grammars) |g| g.close();
          srv.metrics.deinit();
 +        if (srv.grammars) |g| g.close();
          srv.arena.deinit();
          srv.store.deinit();
          srv.slide.deinit();
-@@ -177,10 +187,50 @@ pub const Server = struct {
-         }
-         if (try grammar.spec(cx, f)) |s| {
-             if (!srv.info.structures) return cx.refuse("structured output (response_format and the guided_* fields) is not supported by this engine yet");
--            request.structure = .{ .kind = s.kind, .text = s.text, .after = if (thinking) srv.text.tokenId(srv.markers.close) else null };
-+            const c = srv.grammarCompiler() orelse return cx.fail(.request, "structured output: {s}", .{srv.grammar_problem.?});
-+            var err: [512]u8 = undefined;
-+            const compiled = c.compile(srv.io, @enumFromInt(@intFromEnum(s.kind)), s.text, &err) catch
-+                return cx.fail(.request, "{s}: the grammar cannot be enforced: {s}", .{ s.field, std.mem.sliceTo(&err, 0) });
-+            compiled.free();
-+            request.structure = .{ .kind = s.kind, .text = s.text, .after = if (thinking) srv.text.tokenId(srv.markers.close) else null, .compiler = c };
-         }
-     }
- 
-+    /// The model's grammar compiler: tokenizer.json, config.json's vocab_size (text_config first), the eos ids.
-+    fn grammarCompiler(srv: *Server) ?*api.grammar.Compiler {
-+        srv.grammar_mutex.lockUncancelable(srv.io);
-+        defer srv.grammar_mutex.unlock(srv.io);
-+        if (srv.grammars) |g| return g;
-+        if (srv.grammar_problem != null) return null;
-+        const a = srv.arena.allocator();
-+        srv.grammar_problem = blk: {
-+            const tok = std.Io.Dir.cwd().readFileAlloc(srv.io, std.fs.path.join(a, &.{ srv.config.model_dir, "tokenizer.json" }) catch break :blk "out of memory", a, .limited(256 << 20)) catch break :blk "the checkpoint has no tokenizer.json";
-+            const cfg_text = std.Io.Dir.cwd().readFileAlloc(srv.io, std.fs.path.join(a, &.{ srv.config.model_dir, "config.json" }) catch break :blk "out of memory", a, .limited(16 << 20)) catch break :blk "the checkpoint has no config.json";
-+            const cfg = switch (json.parse(a, cfg_text) catch break :blk "out of memory") {
-+                .ok => |v| v,
-+                .err => break :blk "config.json is not JSON",
-+            };
-+            var vocab: ?u32 = null;
-+            if (cfg.get("text_config")) |tc| if (tc.get("vocab_size")) |v| if (v.int64()) |n| {
-+                vocab = @intCast(n);
-+            };
-+            if (vocab == null) if (cfg.get("vocab_size")) |v| if (v.int64()) |n| {
-+                vocab = @intCast(n);
-+            };
-+            if (vocab == null) break :blk "structured output needs the checkpoint's config.json vocab_size";
-+            var err: [512]u8 = undefined;
-+            const c = a.create(api.grammar.Compiler) catch break :blk "out of memory";
-+            c.* = api.grammar.Compiler.open(tok, vocab.?, srv.eos, &err) catch |e| break :blk switch (e) {
-+                error.NoGrammarLibrary => "the server cannot load libtfgrammar (xgrammar)",
-+                else => a.dupe(u8, std.mem.sliceTo(&err, 0)) catch "out of memory",
-+            };
-+            srv.grammars = c;
-+            log.line("structured output: xgrammar over {d} tokens", .{vocab.?});
-+            break :blk null;
-+        };
-+        return srv.grammars;
-+    }
-+
-     const Form = struct { opener: []const u8, lead: ?[]const u8, tail: ?[]const u8 };
- 
-     /// (opener, lead, tail) of this template's tool calls, read from a rendered probe call.
 diff --git a/zig/src/server/vision_inputs.zig b/zig/src/server/vision_inputs.zig
 new file mode 100644
 index 00000000..e887c36f
@@ -96091,7 +95525,7 @@ index 00000000..24bc2622
 +    }
 +}
 diff --git a/zig/tests/cuda/main.zig b/zig/tests/cuda/main.zig
-index 9451db61..3c6d09a6 100644
+index 262ab9dd..a84d87aa 100644
 --- a/zig/tests/cuda/main.zig
 +++ b/zig/tests/cuda/main.zig
 @@ -6,6 +6,9 @@ const check = @import("check.zig");
@@ -96104,7 +95538,7 @@ index 9451db61..3c6d09a6 100644
  const libs_tests = @import("libs_tests.zig");
  const sample_tests = @import("sample_tests.zig");
  const glue_tests = @import("glue_tests.zig");
-@@ -31,6 +34,8 @@ const usage =
+@@ -37,6 +40,8 @@ const usage =
      \\  gdn-replay <dir>          replay_kernel bits against the Python oracle's fixture
      \\  gdn-tree <dir>            tree_kernel bits against the Python oracle's fixture
      \\  triton <dir>              a Triton cubin's bits against the Python oracle's fixture
@@ -96113,7 +95547,7 @@ index 9451db61..3c6d09a6 100644
      \\  sample                    sample.cu's keyed draws against the Metal rule's host references (synthetic rows)
      \\  glue                      Nemotron's glue kernels against their host references at its shapes (synthetic rows)
      \\  window-profile MODEL WIDTHS IDS_FILE   a decode window's GPU ms by kernel class (WIDTHS like 1,4,16), beside its graph
-@@ -58,6 +63,7 @@ pub fn main(init: std.process.Init) !u8 {
+@@ -70,6 +75,7 @@ pub fn main(init: std.process.Init) !u8 {
  
      run(gpu, cmd, rest) catch |e| {
          std.debug.print("FAIL {s}: {t}\n", .{ cmd, e });
@@ -96121,10 +95555,10 @@ index 9451db61..3c6d09a6 100644
          return 1;
      };
      return 0;
-@@ -99,6 +105,31 @@ fn run(gpu: check.Gpu, cmd: []const u8, rest: []const [:0]const u8) !void {
-         const mib = if (rest.len > 0) try std.fmt.parseInt(usize, rest[0], 10) else cuda.carveout.default_bytes >> 20;
+@@ -117,6 +123,31 @@ fn run(gpu: check.Gpu, cmd: []const u8, rest: []const [:0]const u8) !void {
          return carveout_tests.run(gpu, if (rest.len > 1) rest[1] else cuda.carveout.default_card, mib);
      }
+     if (std.mem.eql(u8, cmd, "train-pack")) return train_pack.run(gpu, try arg(rest, 0), try arg(rest, 1), if (rest.len > 2) try std.fmt.parseInt(usize, rest[2], 10) else 24);
 +    if (std.mem.eql(u8, cmd, "fn-triton")) return fn_fixtures.tritonRegions(gpu, try arg(rest, 0));
 +    if (std.mem.eql(u8, cmd, "fn-ext")) return fn_ext.extCall(gpu, try arg(rest, 0));
 +    if (std.mem.eql(u8, cmd, "fn-aot")) return @import("fn_native.zig").aotLoad(gpu, try arg(rest, 0));

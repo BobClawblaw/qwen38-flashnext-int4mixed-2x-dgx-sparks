@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-11
+
+- **On TensorFold 1.0.7** (`main` e7c523eb; pin `5d14f71c`, image `native-v1.0.7`): the port rebased from 1.0.5 over the
+  225 upstream commits of 1.0.6 and 1.0.7 (Living Weights, structured output in the lane core, a kernel registry).
+  What changed in the port: structured output now rides the lane core's own grammar machinery (each verify window's
+  masks and a masked redraw of the first token on both ranks) instead of the family's matcher; the two-rank flags and
+  `--kv-dtype` are declared served by the CUDA root; a rank above 0 runs through the server's new `follow`; batched
+  prompt admission is re-done on top of upstream's admission flow (chunked prompts, warm passes and the lone driver
+  keep upstream's paths). Measured the same as 1.0.5 for one user (73 / 121 / 97 / 122 tok/s prose / code /
+  structured / lists) and on the suite (IFEval 130, tools 60/60, json 30/30, all behaviour checks); sixteen-stream
+  figures in the README.
+- **Measured again (2026-10-11)**: one stream and sixteen streams against Mia AI Lab's dual-Spark figures (README).
+
 ## 2026-10-10
 
 - **Native: a regenerate keeps its kept state** (pin `d5eacba9`). A request that resumed exactly at its own kept point (the same prompt sent again) restored the state and then kept none, so the turn after a regenerate read its whole history again. A resume at the kept point now keeps it: a 4.3k-token chat's turn after two regenerates resumes 4,356 tokens (was 0). Replies unchanged; exactness at int8 and int4 (resume after a repeat included), soak 60/60 equal and 60/60 resumed, drafts 12/12, concurrent 12/12, behaviour and server checks pass. One stream alternated against the previous image in one session measures the same (`evidence/2026-10-10-native-v1.0.5-kept/`).
