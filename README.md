@@ -101,6 +101,13 @@ How the speed got here, one user:
 | v2: dense linears as int8 + group scales, exact (serial) | 69.2 | 97.8 | 84.6 | 110.3 |
 | + int8 MTP layer, retuned tiles (serial) | 68.9 | 121.5 | 88.6 | 117.4 |
 | defaults (concurrent, 1M), + fused hyper-connection and shared-expert kernels | 68.7 | 109.0 | 89.0 | 109.9 |
+| the same, re-measured 2026-10-11 after a day of other serving (`evidence/2026-10-11-c16/`) | 72.4 | 120.4 | 95.3 | 121.7 |
+
+Sixteen streams at once on the same server (`evidence/2026-10-11-c16/`, per stream / aggregate): prose 18.4 / 295.6,
+code 30.2 / 507.1, structured 23.5 / 384.6, lists 31.3 / 516.4 tok/s, first token 0.5-0.6 s. For comparison, Mia AI
+Lab's dual-Spark Zig recipe for this model (their NVFP4 pack) reports 67 tok/s for one user and 390 tok/s aggregate at
+sixteen streams; this recipe measures 72 for one user and 296-516 aggregate by workload, so the two are at parity
+within the spread of the workloads.
 
 The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays. The table above is the
 Python engine's history; on the native engine the same sweep around 0.70 found nothing faster.
