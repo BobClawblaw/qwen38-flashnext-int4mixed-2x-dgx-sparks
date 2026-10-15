@@ -90870,6 +90870,68 @@ index 851f9194..c53c672a 100644
  fn toGib(bytes: u64) f64 {
      return @as(f64, @floatFromInt(bytes)) / gib;
  }
+diff --git a/zig/src/native/cuda_bound.zig b/zig/src/native/cuda_bound.zig
+index 40977dfa..488afea8 100644
+--- a/zig/src/native/cuda_bound.zig
++++ b/zig/src/native/cuda_bound.zig
+@@ -18,6 +18,12 @@ pub fn vtable(comptime H: type, v: be.Backend.VTable) be.Backend.VTable {
+                 return x.inner.vtable.prefill_step.?(x.inner.ptr, s);
+             }
+         }.f else null,
++        .prefill_many = if (v.prefill_many != null) struct {
++            fn f(p: *anyopaque, ss: []const *lanes.Stream) anyerror!bool {
++                const x = H.bind(p);
++                return x.inner.vtable.prefill_many.?(x.inner.ptr, ss);
++            }
++        }.f else null,
+         .first = struct {
+             fn f(p: *anyopaque, s: *lanes.Stream, position: u64) anyerror!u64 {
+                 const x = H.bind(p);
+@@ -115,6 +121,12 @@ pub fn vtable(comptime H: type, v: be.Backend.VTable) be.Backend.VTable {
+                 x.inner.vtable.release(x.inner.ptr, s);
+             }
+         }.f,
++        .refused = if (v.refused != null) struct {
++            fn f(p: *anyopaque, out: []*lanes.Stream) usize {
++                const x = H.bind(p);
++                return x.inner.vtable.refused.?(x.inner.ptr, out);
++            }
++        }.f else null,
+     };
+ }
+ 
+@@ -138,6 +150,31 @@ test "every entry the family's backend gives is forwarded, and none it leaves ou
+     try std.testing.expect(vtable(H, fake.stepped().vtable.*).prefill_step != null);
+ }
+ 
++test "a family's batched prompt pass and its refused streams reach the lane core" {
++    const H = struct {
++        inner: be.Backend,
++        pub fn bind(p: *anyopaque) *@This() {
++            return @ptrCast(@alignCast(p));
++        }
++    };
++    var fake: lanes.fake.Fake = .{ .gpa = std.testing.allocator };
++    defer fake.deinit();
++    var v = fake.backend().vtable.*;
++    v.prefill_many = struct {
++        fn f(_: *anyopaque, _: []const *lanes.Stream) anyerror!bool {
++            return true;
++        }
++    }.f;
++    v.refused = struct {
++        fn f(_: *anyopaque, _: []*lanes.Stream) usize {
++            return 0;
++        }
++    }.f;
++    const w = vtable(H, v);
++    try std.testing.expect(w.prefill_many != null);
++    try std.testing.expect(w.refused != null);
++}
++
+ test "each forwarded entry calls the family's entry of the same name, once" {
+     const S = lanes.Stream;
+     const Rec = struct {
 diff --git a/zig/src/native/no_family.zig b/zig/src/native/no_family.zig
 new file mode 100644
 index 00000000..d81d7567

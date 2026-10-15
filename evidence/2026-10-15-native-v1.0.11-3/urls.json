@@ -1,0 +1,17 @@
+{
+ "public": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png",
+  "status": 200,
+  "text": " This image features three colorful, glossy dice\u2014blue, green, and red\u2014arranged dynamically against a white background, with the red die in the foreground showing a five and a three, while the"
+ },
+ "loopback": {
+  "url": "https://127.0.0.1/x.png",
+  "status": 400,
+  "text": "{\"error\": {\"message\": \"image URLs must resolve only to public internet addresses\", \"type\": \"invalid_request_error\"}}"
+ },
+ "http": {
+  "url": "http://example.com/x.png",
+  "status": 400,
+  "text": "{\"error\": {\"message\": \"images require data URLs or public HTTPS URLs\", \"type\": \"invalid_request_error\"}}"
+ }
+}

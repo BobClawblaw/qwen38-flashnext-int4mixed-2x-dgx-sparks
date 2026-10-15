@@ -19,20 +19,27 @@ dependencies.
 
 ## Measured on this pair
 
-The defaults: TensorFold v1.0.11's native engine with this recipe's patch (measured on 1.0.5 at pin `8bea0406`; `d5eacba9` adds the
-kept-state fix below and measures the same, [`ab/`](evidence/2026-10-10-native-v1.0.5-kept/ab/)), sixteen concurrent
-streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link.
-`bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per stream, median of 3 runs. Receipts:
-[`evidence/2026-10-10-native-v1.0.5/`](evidence/2026-10-10-native-v1.0.5/).
+The defaults: TensorFold v1.0.11's native engine with this recipe's patch (pin `186193c6`, image `native-v1.0.11-3`),
+sixteen concurrent streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2
+over the RoCE link (small gathers as RDMA writes). `bench/ruler.py` through the recipe harness, greedy, thinking off,
+256-token replies, a distinct prompt per stream, median of 3 runs. Receipts:
+[`evidence/2026-10-15-native-v1.0.11-3/`](evidence/2026-10-15-native-v1.0.11-3/).
 
 | Users | prose | code | structured | list | first token |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 76.9 | 125.9 | 99.3 | 128.0 | 0.07-0.09 s |
-| 4 | 158.5 | 250.3 | 199.6 | 273.7 | 0.14-0.21 s |
-| 8 | 221.5 | 384.6 | 273.2 | 411.0 | 0.24-0.30 s |
-| 16 | 297.2 | 510.9 | 387.7 | 518.4 | 0.44-0.49 s |
+| 1 | 77.3 | 127.0 | 100.6 | 129.6 | 0.03-0.04 s |
+| 4 | 159.1 | 253.9 | 201.7 | 268.4 | 0.08-0.09 s |
+| 8 | 228.9 | 385.2 | 282.4 | 423.1 | 0.11-0.14 s |
+| 16 | 301.9 | 509.8 | 391.3 | 519.2 | 0.44-0.55 s |
 
-Aggregate tokens a second, on a fresh server; one stream after other traffic holds 76.5 / 124.6-126.4 / 97.8 / 125.1-126.9.
+Aggregate tokens a second, on a fresh server; after the whole suite and the serving checks, one stream holds 77.5 /
+125.9 / 99.2 / 129.7 and sixteen 302.3 / 509.5 / 389.8 / 520.4. The engine's own counters (the harness reads the
+server's log): one stream gets 3.6 tokens a round at 33 ms a round, 66% of drafts accepted; sixteen get 3.2 a stream
+a round at 123 ms a round, 77% accepted. On 1.0.5 (pin `8bea0406`,
+[`evidence/2026-10-10-native-v1.0.5/`](evidence/2026-10-10-native-v1.0.5/)): 76.9 / 125.9 / 99.3 / 128.0 at one user,
+297.2 / 510.9 / 387.7 / 518.4 at 16.
+
+On 1.0.5 one stream after other traffic held 76.5 / 124.6-126.4 / 97.8 / 125.1-126.9.
 On v1.0.4 (pin `ce40418a`, [`evidence/2026-10-10-native-v1.0.4-split-shared/`](evidence/2026-10-10-native-v1.0.4-split-shared/))
 the same: 77.1 / 125.7 / 99.1 / 125.7 at one user, 297.8 / 506.7 / 383.7 / 517.3 at 16. One
 stream gained 15-21% from two changes to how decode steps run as CUDA graphs, neither touching the arithmetic: each

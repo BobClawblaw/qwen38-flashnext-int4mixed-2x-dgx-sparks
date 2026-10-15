@@ -31,3 +31,8 @@ no harness dependencies, stdlib Python only.
   memory on each node beside the rank's weights.
 - Prefill checks stop at 64k tokens; the `long` profile exists for prompts beyond the trained window, it is not a
   benchmark.
+- **Keep the served-stats document current.** Measure kept numbers with the recipe harness
+  (github.com/BobClawblaw/recipe-harness, target `qwen38-int4mixed`). Every time this recipe's stats change (a run, an
+  evidence folder, a republish), update the harness's single served-stats document in all three formats, STATS.md,
+  STATS.txt and STATS.pdf (`python3 -m harness stats` there, or `harness export`, which records it), then scrub, commit
+  and push it there. Its AGENTS.md has the steps.

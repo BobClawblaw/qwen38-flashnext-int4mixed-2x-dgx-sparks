@@ -1,0 +1,71 @@
+{
+ "results": [
+  {
+   "i": 0,
+   "status": 200,
+   "s": 351.093,
+   "prompt_tokens": 192617,
+   "finish": "length",
+   "error": ""
+  },
+  {
+   "i": 1,
+   "status": 500,
+   "s": 350.24,
+   "prompt_tokens": null,
+   "finish": null,
+   "error": "{\"error\": {\"message\": \"the GPU had no memory left for this request's caches: retry once another request ends\"}}"
+  },
+  {
+   "i": 2,
+   "status": 200,
+   "s": 351.157,
+   "prompt_tokens": 192395,
+   "finish": "length",
+   "error": ""
+  },
+  {
+   "i": 3,
+   "status": 200,
+   "s": 351.076,
+   "prompt_tokens": 192531,
+   "finish": "stop",
+   "error": ""
+  },
+  {
+   "i": 4,
+   "status": 200,
+   "s": 351.083,
+   "prompt_tokens": 192432,
+   "finish": "length",
+   "error": ""
+  },
+  {
+   "i": 5,
+   "status": 500,
+   "s": 350.185,
+   "prompt_tokens": null,
+   "finish": null,
+   "error": "{\"error\": {\"message\": \"the GPU had no memory left for this request's caches: retry once another request ends\"}}"
+  }
+ ],
+ "after": {
+  "status": 200,
+  "s": 0.212,
+  "text": "Hello! How can I help you today?",
+  "reasoning": "",
+  "finish": "stop",
+  "usage": {
+   "prompt_tokens": 15,
+   "completion_tokens": 10,
+   "total_tokens": 25,
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "tool_calls": null
+ }
+}

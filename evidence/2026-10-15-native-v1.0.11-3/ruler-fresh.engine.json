@@ -1,0 +1,56 @@
+{
+ "levels": {
+  "1": {
+   "requests": 12,
+   "prompt": 456,
+   "cached": 296,
+   "tokens": 2607,
+   "rounds": 720,
+   "accepted": 1908,
+   "proposed": 2910,
+   "tokens_a_round": 3.621,
+   "drafts_a_round": 4.042,
+   "accept_rate": 0.6557,
+   "ms_a_round": 33.33
+  },
+  "4": {
+   "requests": 49,
+   "prompt": 1821,
+   "cached": 1265,
+   "tokens": 10399,
+   "rounds": 3277,
+   "accepted": 7202,
+   "proposed": 9665,
+   "tokens_a_round": 3.173,
+   "drafts_a_round": 2.949,
+   "accept_rate": 0.7452,
+   "ms_a_round": 58.64
+  },
+  "8": {
+   "requests": 100,
+   "prompt": 3669,
+   "cached": 2415,
+   "tokens": 21108,
+   "rounds": 6832,
+   "accepted": 14406,
+   "proposed": 18123,
+   "tokens_a_round": 3.09,
+   "drafts_a_round": 2.653,
+   "accept_rate": 0.7949,
+   "ms_a_round": 76.26
+  },
+  "16": {
+   "requests": 196,
+   "prompt": 7252,
+   "cached": 2423,
+   "tokens": 41848,
+   "rounds": 12988,
+   "accepted": 29106,
+   "proposed": 37984,
+   "tokens_a_round": 3.222,
+   "drafts_a_round": 2.925,
+   "accept_rate": 0.7663,
+   "ms_a_round": 122.65
+  }
+ }
+}

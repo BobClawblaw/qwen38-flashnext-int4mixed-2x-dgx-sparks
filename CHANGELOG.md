@@ -2,6 +2,15 @@
 
 ## 2026-10-15
 
+- **Sixteen streams back to 1.0.7's speed** (pin `186193c6`, image `native-v1.0.11-3`). 1.0.11's CUDA host wraps a
+  family's backend in a new forwarding layer that left out this port's batched prompt pass (`prefill_many`) and its
+  refused-streams entry, so a burst of 16 new requests was prefilled one at a time (16 passes of ~91 ms instead of one
+  of ~485 ms): 2-8% less throughput at 16 streams and a later first token, with every round's work the same. Both
+  entries are forwarded now (a host test pins it). 16 streams 301.9 / 509.8 / 391.3 / 519.2 tok/s (was 292.6 / 472.1 /
+  359.9 / 489.7 on `native-v1.0.11-2`), first token 0.44-0.55 s; one stream 77.3 / 127.0 / 100.6 / 129.6. Suite equal
+  on every check, the twelve snapshot replies byte-identical, structured, sampling, turns, URLs and capacity pass
+  (`evidence/2026-10-15-native-v1.0.11-3/`, measured with the recipe harness, which now also records the engine's
+  rounds).
 - **On TensorFold 1.0.11** (3a6d1f14; pin `f98b87e3`, image `native-v1.0.11`): the port (native-v1.0.7's net diff)
   rebased onto 1.0.11, whose changes beside it are security fixes for `--cortheon`'s web text. Branch `native-v1.0.11`
   on the fork.
