@@ -1,0 +1,4 @@
+quality suite: http://127.0.0.1:8888 as Qwen3.8-Flash-Next-INT4-Mixed; checks: json, tools
+json-guided       30/30     100.0%  (9s)  all valid
+tools             60/60     100.0%  (46s)  all exact
+report: evidence/2026-10-15-native-v1.0.11-2/suite-guided/report.md

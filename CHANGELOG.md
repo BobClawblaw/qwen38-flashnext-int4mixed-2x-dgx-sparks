@@ -14,9 +14,17 @@
 - **Suite on 1.0.11**: equal to 1.0.7 on every check (IFEval 130/150, GSM8K 241, MGSM 219, MMLU 283, HumanEval 157,
   long context 55/55, tools 60/60, json 30/30, soak 60/60, drafts, concurrent, behaviour); guided pass json 30/30,
   tools 60/60; twelve snapshot replies byte-identical to 1.0.7's (`evidence/2026-10-15-native-v1.0.11/`).
-- **Known issue: `drafts = false` faults.** Serving without drafts hits an illegal address while the engine
-  calibrates (two causes: one found and fixed on the port's development branch, one still open). Keep `drafts = true`;
-  outputs are equal to undrafted, and a request can still turn drafting off for itself.
+- **`drafts = false` serves again** (pin `8e8a0625`, image `native-v1.0.11-2`). Two faults while the engine calibrated:
+  the DeltaNet replay scratch was sized for one row without drafts, but calibration verifies windows of 1-16 rows (the
+  overrun gave NaN logits, an out-of-range token and a fault in the embedding); and a released sequence's caches were
+  unmapped while a queued keep could still write them (with drafts on, a readback always came first). Both fixed.
+- **Small gathers over RoCE.** A decode step's 97 all-gathers (a few rows of partials each) go as one-shot RDMA writes
+  over both halves of the port (TensorFold #852's exchange) instead of NCCL; larger ones stay on NCCL. One stream
+  2-5% faster than the 1.0.7 receipts (prose 75.5, code 123.4, structured 99.1, list 125.7 tok/s); sixteen streams
+  0.4-2% faster than 1.0.11 without it (291.5 / 472.9 / 360.1 / 490.3 aggregate). `extra_env = "TF_ROCE=0"` keeps NCCL.
+- **Suite on `native-v1.0.11-2`**: every check equal to 1.0.11's (IFEval 130/150, GSM8K 241, MGSM 219, MMLU 283,
+  HumanEval 157, long context 55/55, vision 12/12, tools 60/60, json 30/30, soak 60/60); the twelve snapshot replies
+  byte-identical; guided pass json 30/30, tools 60/60 (`evidence/2026-10-15-native-v1.0.11-2/`).
 
 ## 2026-10-11
 

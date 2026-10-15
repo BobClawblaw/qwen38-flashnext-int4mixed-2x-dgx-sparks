@@ -28,7 +28,8 @@ It adds:
 - Image and video inputs in the native server: `zig/src/vision/` and `zig/src/server/vision_inputs.zig`, with
   stb_image vendored under `zig/vendor/stb` (public domain/MIT) and libtfvideo against PyAV's FFmpeg. Public HTTPS
   URLs come through `zig/src/server/media_fetch.zig` (`--vision-urls`).
-- The two-rank link, and the tools under `tools/zig/` that capture and pack the kernels.
+- The two-rank link, its RoCE all-gather for small gathers (`zig/src/cuda/roce.zig`, `zig/kernels/cuda/roce_gather.cu`,
+  libibverbs opened at run time), and the tools under `tools/zig/` that capture and pack the kernels.
 
 The Triton kernels it launches are captured from the Python engine and shipped beside it (`docker/kernels/sm121`,
 217 variants, the int4 and multi-stream attention variants included). Pinned by sha256 in `recipe.toml`

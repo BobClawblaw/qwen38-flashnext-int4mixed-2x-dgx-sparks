@@ -135,6 +135,8 @@ TensorFold's Python engine, which the recipe served first, is frozen upstream an
 - Caches grow as they are used; both ranks agree on each growth before a round, so running out refuses one request
   cleanly and the server serves on (six ~192k-token prompts at once: four answered, two refused, then a short request
   served).
+- A decode step's small all-gathers go over RoCE as one-shot RDMA writes (TensorFold #852's exchange), NCCL the rest;
+  `extra_env = "TF_ROCE=0"` keeps NCCL for all of them, `TF_ROCE_MAX_KB` caps a gathered shard (512 KiB).
 
 Exactness: greedy tokens equal the Python engine's (the reference reply token for token with the same drafts and
 acceptances, at int8 and int4), shared rounds equal each stream alone, batched prompts equal prompts alone, a resumed

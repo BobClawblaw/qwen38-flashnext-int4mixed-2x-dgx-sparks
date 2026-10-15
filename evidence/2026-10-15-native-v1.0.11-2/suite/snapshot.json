@@ -1,0 +1,11 @@
+{
+ "name": "snapshot",
+ "score": 1.0,
+ "cases": 12,
+ "passed": 12,
+ "seconds": 18.360416650772095,
+ "notes": [
+  "replies written to evidence/2026-10-15-native-v1.0.11-2/suite/replies.json"
+ ],
+ "details": {}
+}
