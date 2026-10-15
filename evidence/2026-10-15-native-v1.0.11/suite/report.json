@@ -1,0 +1,2415 @@
+{
+ "url": "http://127.0.0.1:8888",
+ "model": "Qwen3.8-Flash-Next-INT4-Mixed",
+ "results": [
+  {
+   "name": "drafts",
+   "score": 1.0,
+   "cases": 12,
+   "passed": 12,
+   "seconds": 58.84931945800781,
+   "notes": [
+    "drafted 92 tok/s vs undrafted 41 tok/s"
+   ],
+   "details": {
+    "drafted": [
+     {
+      "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+      "sha": "f36d294aa7ea",
+      "tokens": 177,
+      "tok_s": 70.40246070655134,
+      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+     },
+     {
+      "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+      "sha": "a2de17a92857",
+      "tokens": 187,
+      "tok_s": 119.52639393259776,
+      "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+     },
+     {
+      "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+      "sha": "2125a9b7c96c",
+      "tokens": 168,
+      "tok_s": 64.62240703296744,
+      "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+     },
+     {
+      "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+      "sha": "9a37a0431d60",
+      "tokens": 21,
+      "tok_s": 66.52023113947696,
+      "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+     },
+     {
+      "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+      "sha": "de7ccced89ac",
+      "tokens": 300,
+      "tok_s": 127.79293906984444,
+      "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+     },
+     {
+      "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+      "sha": "054f893bb6fb",
+      "tokens": 177,
+      "tok_s": 108.73668150698765,
+      "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+     },
+     {
+      "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+      "sha": "09328242ac9b",
+      "tokens": 116,
+      "tok_s": 55.89619214370583,
+      "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+     },
+     {
+      "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+      "sha": "5dea0629376a",
+      "tokens": 120,
+      "tok_s": 124.45436393523376,
+      "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+     },
+     {
+      "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+      "sha": "2d78ae470d32",
+      "tokens": 42,
+      "tok_s": 64.33099520002914,
+      "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+     },
+     {
+      "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+      "sha": "c3e560f64dd2",
+      "tokens": 103,
+      "tok_s": 112.62493974061347,
+      "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+     },
+     {
+      "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+      "sha": "1ab435054414",
+      "tokens": 262,
+      "tok_s": 120.53673251419688,
+      "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+     },
+     {
+      "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+      "sha": "c903db274cd2",
+      "tokens": 28,
+      "tok_s": 72.4083517388277,
+      "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+     }
+    ],
+    "undrafted": [
+     {
+      "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+      "sha": "f36d294aa7ea",
+      "tokens": 177,
+      "tok_s": 41.62421705963234,
+      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+     },
+     {
+      "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+      "sha": "a2de17a92857",
+      "tokens": 187,
+      "tok_s": 41.98615809143331,
+      "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+     },
+     {
+      "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+      "sha": "2125a9b7c96c",
+      "tokens": 168,
+      "tok_s": 42.23614111414174,
+      "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+     },
+     {
+      "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+      "sha": "9a37a0431d60",
+      "tokens": 21,
+      "tok_s": 37.875338176457724,
+      "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+     },
+     {
+      "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+      "sha": "de7ccced89ac",
+      "tokens": 300,
+      "tok_s": 42.3262038868016,
+      "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+     },
+     {
+      "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+      "sha": "054f893bb6fb",
+      "tokens": 177,
+      "tok_s": 41.107454394901424,
+      "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+     },
+     {
+      "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+      "sha": "09328242ac9b",
+      "tokens": 116,
+      "tok_s": 41.9622883049321,
+      "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+     },
+     {
+      "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+      "sha": "5dea0629376a",
+      "tokens": 120,
+      "tok_s": 41.75724892659778,
+      "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+     },
+     {
+      "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+      "sha": "2d78ae470d32",
+      "tokens": 42,
+      "tok_s": 40.302471700208876,
+      "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+     },
+     {
+      "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+      "sha": "c3e560f64dd2",
+      "tokens": 103,
+      "tok_s": 41.367805607812336,
+      "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+     },
+     {
+      "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+      "sha": "1ab435054414",
+      "tokens": 262,
+      "tok_s": 42.347350441460165,
+      "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+     },
+     {
+      "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+      "sha": "c903db274cd2",
+      "tokens": 28,
+      "tok_s": 38.826843216032564,
+      "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+     }
+    ]
+   }
+  },
+  {
+   "name": "concurrent",
+   "score": 1.0,
+   "cases": 12,
+   "passed": 12,
+   "seconds": 28.952887773513794,
+   "notes": [
+    "4 streams together vs alone"
+   ],
+   "details": {
+    "alone": [
+     {
+      "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+      "sha": "f36d294aa7ea",
+      "tokens": 177,
+      "tok_s": 75.2762828730929,
+      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+     },
+     {
+      "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+      "sha": "a2de17a92857",
+      "tokens": 187,
+      "tok_s": 120.55442207690726,
+      "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+     },
+     {
+      "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+      "sha": "2125a9b7c96c",
+      "tokens": 168,
+      "tok_s": 65.08671983492943,
+      "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+     },
+     {
+      "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+      "sha": "9a37a0431d60",
+      "tokens": 21,
+      "tok_s": 66.38741212315962,
+      "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+     },
+     {
+      "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+      "sha": "de7ccced89ac",
+      "tokens": 300,
+      "tok_s": 128.7342185266236,
+      "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+     },
+     {
+      "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+      "sha": "054f893bb6fb",
+      "tokens": 177,
+      "tok_s": 108.01331019084441,
+      "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+     },
+     {
+      "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+      "sha": "09328242ac9b",
+      "tokens": 116,
+      "tok_s": 57.01088845062534,
+      "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+     },
+     {
+      "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+      "sha": "5dea0629376a",
+      "tokens": 120,
+      "tok_s": 114.71018018892347,
+      "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+     },
+     {
+      "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+      "sha": "2d78ae470d32",
+      "tokens": 42,
+      "tok_s": 61.218565425694386,
+      "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+     },
+     {
+      "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+      "sha": "c3e560f64dd2",
+      "tokens": 103,
+      "tok_s": 113.1159655487089,
+      "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+     },
+     {
+      "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+      "sha": "1ab435054414",
+      "tokens": 262,
+      "tok_s": 122.40375469497022,
+      "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+     },
+     {
+      "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+      "sha": "c903db274cd2",
+      "tokens": 28,
+      "tok_s": 74.46523542275165,
+      "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+     }
+    ],
+    "together": [
+     {
+      "prompt": "Explain, in about 150 words, why the sky is blue and sunsets are red.",
+      "sha": "f36d294aa7ea",
+      "tokens": 177,
+      "tok_s": 31.145343030811475,
+      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering. As sunlight reaches Earth\u2019s atmosphere, it collides with gas molecules and scatters in all directions. Shorter wavelengths, like blue and violet, scatter much more strongly than longer wavelengths, such as red and orange. Although violet scatters even more than blue, our eyes are more sensitive to blue, and some violet light is absorbed by the upper atmosphere, resulting in the familiar blue sky.\n\nDuring sunset, the sun is lower on the horizon, forcing its light to travel through a thicker layer of the atmosphere. This extended path causes most of the shorter blue and green wavelengths to scatter away completely before reaching your eyes. Consequently, only the longer red, orange, and yellow wavelengths remain visible, painting the sky in warm hues. This same principle explains why the sun itself often appears reddish at dawn and dusk."
+     },
+     {
+      "prompt": "Write a Python function that parses an ISO-8601 date string and returns the day of the week, with a docstring and two examples.",
+      "sha": "a2de17a92857",
+      "tokens": 187,
+      "tok_s": 57.180550177165095,
+      "text": "```python\ndef get_day_of_week(iso_date_string: str) -> str:\n    \"\"\"\n    Parse an ISO-8601 date string and return the day of the week.\n\n    Args:\n        iso_date_string: A string representing a date in ISO-8601 format (YYYY-MM-DD).\n\n    Returns:\n        A string representing the day of the week (e.g., 'Monday', 'Tuesday', etc.).\n\n    Examples:\n        >>> get_day_of_week(\"2023-10-01\")\n        'Sunday'\n        >>> get_day_of_week(\"2024-01-15\")\n        'Monday'\n    \"\"\"\n    from datetime import datetime\n\n    date_obj = datetime.strptime(iso_date_string, \"%Y-%m-%d\")\n    return date_obj.strftime(\"%A\")\n```"
+     },
+     {
+      "prompt": "List five differences between TCP and UDP as a numbered list, one sentence each.",
+      "sha": "2125a9b7c96c",
+      "tokens": 168,
+      "tok_s": 26.1423996354413,
+      "text": "1. TCP is connection-oriented, requiring a three-way handshake to establish a session before data transfer, whereas UDP is connectionless and sends data immediately without prior setup.\n2. TCP guarantees reliable delivery by using acknowledgments and retransmissions to ensure all packets arrive, while UDP provides no such reliability mechanisms and may drop packets silently.\n3. TCP ensures data arrives in the correct order through sequence numbers, but UDP does not maintain packet ordering, potentially delivering data out of sequence.\n4. TCP includes built-in flow and congestion control mechanisms to prevent network overload, whereas UDP lacks these features and can overwhelm the network if not managed by the application.\n5. TCP has higher overhead due to its complex header and reliability features, making it slower than UDP, which has a minimal header and lower latency suitable for real-time applications."
+     },
+     {
+      "prompt": "Translate to French: 'The committee postponed the vote until the engineers had finished their report.'",
+      "sha": "9a37a0431d60",
+      "tokens": 21,
+      "tok_s": 25.83088196099813,
+      "text": "Le comit\u00e9 a report\u00e9 le vote jusqu\u2019\u00e0 ce que les ing\u00e9nieurs aient termin\u00e9 leur rapport."
+     },
+     {
+      "prompt": "Write a bash script that renames every .jpeg file in a directory tree to .jpg, skipping files whose target name exists, and prints a summary.",
+      "sha": "de7ccced89ac",
+      "tokens": 300,
+      "tok_s": 58.25912321657141,
+      "text": "```bash\n#!/bin/bash\n\n# Script to rename .jpeg files to .jpg in a directory tree\n# Skips files whose target name already exists\n# Prints a summary at the end\n\ncount_renamed=0\ncount_skipped=0\ncount_errors=0\n\n# Find all .jpeg files in the current directory tree\nwhile IFS= read -r -d '' file; do\n    # Get the directory and base name\n    dir=$(dirname \"$file\")\n    base=$(basename \"$file\")\n    \n    # Replace .jpeg with .jpg\n    new_base=\"${base%.jpeg}.jpg\"\n    new_file=\"$dir/$new_base\"\n    \n    # Check if target file already exists\n    if [ -e \"$new_file\" ]; then\n        echo \"Skipping: $file (target $new_file already exists)\"\n        count_skipped=$((count_skipped + 1))\n    else\n        # Attempt to rename\n        if mv \"$file\" \"$new_file\" 2>/dev/null; then\n            echo \"Renamed: $file -> $new_file\"\n            count_renamed=$((count_renamed + 1))\n        else\n            echo \"Error: Failed to rename $file\"\n            count_errors=$((count_errors + 1))\n        fi\n    fi\ndone < <(find . -type f -name \"*.jpeg\" -print0)\n\n# Print summary\necho"
+     },
+     {
+      "prompt": "A train leaves at 09:40 and arrives at 14:05 after a 25-minute stop. What is its moving time? Show the steps briefly.",
+      "sha": "054f893bb6fb",
+      "tokens": 177,
+      "tok_s": 52.252224010076105,
+      "text": "Here is the step-by-step calculation to find the moving time:\n\n**Step 1: Calculate the total elapsed time.**\nFrom 09:40 to 14:05:\n*   From 09:40 to 13:40 is 4 hours.\n*   From 13:40 to 14:05 is 25 minutes.\n*   Total elapsed time = **4 hours and 25 minutes**.\n\n**Step 2: Subtract the stop time.**\n*   Total elapsed time: 4 hours 25 minutes\n*   Stop time: 25 minutes\n*   Moving time = (4 hours 25 minutes) - 25 minutes = **4 hours**.\n\n**Answer:**\nThe train's moving time is **4 hours**."
+     },
+     {
+      "prompt": "Summarize the plot of a heist film you invent, in exactly four sentences.",
+      "sha": "09328242ac9b",
+      "tokens": 116,
+      "tok_s": 24.369345656482242,
+      "text": "A disgraced former architect assembles a team of specialists to steal a legendary diamond from a high-security vault beneath the city's oldest library. They meticulously plan to exploit the building's unique acoustic properties to bypass the pressure-sensitive floor alarms without triggering the silent guards. However, the heist goes awry when a rival thief infiltrates the crew, forcing the team to improvise a dangerous escape through the flooded underground tunnels. In the final twist, the architect reveals he never intended to keep the diamond, but rather to expose the corrupt museum director who originally stole it decades ago."
+     },
+     {
+      "prompt": "Give a JSON array of three objects, each with keys city, country and population (integer), for three large Asian cities.",
+      "sha": "5dea0629376a",
+      "tokens": 120,
+      "tok_s": 54.69118709413147,
+      "text": "```json\n[\n  {\n    \"city\": \"Tokyo\",\n    \"country\": \"Japan\",\n    \"population\": 13960000\n  },\n  {\n    \"city\": \"Delhi\",\n    \"country\": \"India\",\n    \"population\": 16787941\n  },\n  {\n    \"city\": \"Shanghai\",\n    \"country\": \"China\",\n    \"population\": 24870895\n  }\n]\n```"
+     },
+     {
+      "prompt": "Rewrite this sentence in the passive voice and then in the imperative: 'The engineer calibrates the sensor every morning.'",
+      "sha": "2d78ae470d32",
+      "tokens": 42,
+      "tok_s": 29.900335134492735,
+      "text": "Here are the rewritten sentences based on your request:\n\n**Passive Voice:**\nThe sensor is calibrated by the engineer every morning.\n\n**Imperative:**\nCalibrate the sensor every morning."
+     },
+     {
+      "prompt": "What is 17 * 23? Then subtract 91 and divide by 5. Show each step.",
+      "sha": "c3e560f64dd2",
+      "tokens": 103,
+      "tok_s": 59.35764786739243,
+      "text": "Here is the step-by-step calculation:\n\n**Step 1: Multiply 17 by 23**\n$$17 \\times 23 = 391$$\n\n**Step 2: Subtract 91 from the result**\n$$391 - 91 = 300$$\n\n**Step 3: Divide the result by 5**\n$$300 \\div 5 = 60$$\n\n**Final Answer:**\n60"
+     },
+     {
+      "prompt": "Write a haiku about a lighthouse, then explain its syllable count.",
+      "sha": "1ab435054414",
+      "tokens": 262,
+      "tok_s": 83.03603211719916,
+      "text": "**Haiku:**\n\n> Old stone stands alone\n> Guiding ships through stormy night\n> Light cuts through the dark\n\n**Syllable Count Explanation:**\n\nA haiku traditionally follows a 5-7-5 syllable structure. Here is the breakdown:\n\n1.  **Line 1 (5 syllables):**\n    *   Old (1)\n    *   stone (1)\n    *   stands (1)\n    *   a (1)\n    *   lone (1)\n    *   *Total: 5*\n\n2.  **Line 2 (7 syllables):**\n    *   Guid (1)\n    *   ing (1)\n    *   ships (1)\n    *   through (1)\n    *   storm (1)\n    *   y (1)\n    *   night (1)\n    *   *Total: 7*\n\n3.  **Line 3 (5 syllables):**\n    *   Light (1)\n    *   cuts (1)\n    *   through (1)\n    *   the (1)\n    *   dark (1)\n    *   *Total: 5*"
+     },
+     {
+      "prompt": "Name the planets of the solar system in order from the Sun, one per line, and mark the gas giants with an asterisk.",
+      "sha": "c903db274cd2",
+      "tokens": 28,
+      "tok_s": 45.04670175689363,
+      "text": "Mercury\nVenus\nEarth\nMars\nJupiter*\nSaturn*\nUranus*\nNeptune*"
+     }
+    ]
+   }
+  },
+  {
+   "name": "streaming",
+   "score": 1.0,
+   "cases": 4,
+   "passed": 4,
+   "seconds": 10.665186405181885,
+   "notes": [
+    "identical"
+   ],
+   "details": {}
+  },
+  {
+   "name": "multiturn",
+   "score": 1.0,
+   "cases": 8,
+   "passed": 8,
+   "seconds": 11.773899555206299,
+   "notes": [
+    "recalled 8/8 facts"
+   ],
+   "details": {
+    "reply": "Name: Odile, City: Lyon\nCat: Pistache, Age: 7\nJob: Luthier (violin repair)\nFavourite Number: 314\nTravel: Montreal, Nov 14"
+   }
+  },
+  {
+   "name": "stop",
+   "score": 1.0,
+   "cases": 3,
+   "passed": 3,
+   "seconds": 0.6355743408203125,
+   "notes": [
+    "3/3 stopped before the string"
+   ],
+   "details": {}
+  },
+  {
+   "name": "thinking",
+   "score": 1.0,
+   "cases": 10,
+   "passed": 10,
+   "seconds": 11.396202325820923,
+   "notes": [
+    "0 replies without reasoning_content, 0 with think tags in content"
+   ],
+   "details": {}
+  },
+  {
+   "name": "copy",
+   "score": 1.0,
+   "cases": 2,
+   "passed": 2,
+   "seconds": 0.9597797393798828,
+   "notes": [
+    "2/2 byte-identical"
+   ],
+   "details": {}
+  },
+  {
+   "name": "max-tokens",
+   "score": 1.0,
+   "cases": 3,
+   "passed": 3,
+   "seconds": 0.8380906581878662,
+   "notes": [
+    "3/3 exact"
+   ],
+   "details": {}
+  },
+  {
+   "name": "tools",
+   "score": 1.0,
+   "cases": 60,
+   "passed": 60,
+   "seconds": 46.17471361160278,
+   "notes": [
+    "all exact"
+   ],
+   "details": {}
+  },
+  {
+   "name": "json",
+   "score": 1.0,
+   "cases": 30,
+   "passed": 30,
+   "seconds": 8.62625503540039,
+   "notes": [
+    "all valid"
+   ],
+   "details": {}
+  },
+  {
+   "name": "ifeval",
+   "score": 0.8666666666666667,
+   "cases": 150,
+   "passed": 130,
+   "seconds": 398.2062466144562,
+   "notes": [
+    "loose 130/150, strict 125/150, 150 covered prompts"
+   ],
+   "details": {
+    "strict": 125,
+    "loose": 130,
+    "n": 150
+   }
+  },
+  {
+   "name": "gsm8k",
+   "score": 0.964,
+   "cases": 250,
+   "passed": 241,
+   "seconds": 429.94680285453796,
+   "notes": [
+    "misses at [40, 85, 87, 93, 98, 119, 163, 187, 234]"
+   ],
+   "details": {
+    "n": 250,
+    "thinking": false,
+    "misses": [
+     40,
+     85,
+     87,
+     93,
+     98,
+     119,
+     163,
+     187,
+     234
+    ]
+   }
+  },
+  {
+   "name": "mgsm",
+   "score": 0.9125,
+   "cases": 240,
+   "passed": 219,
+   "seconds": 624.1142563819885,
+   "notes": [
+    "de 28/30, es 29/30, fr 26/30, ja 27/30, zh 27/30, ru 30/30, sw 27/30, bn 25/30"
+   ],
+   "details": {
+    "per_language": {
+     "de": 28,
+     "es": 29,
+     "fr": 26,
+     "ja": 27,
+     "zh": 27,
+     "ru": 30,
+     "sw": 27,
+     "bn": 25
+    },
+    "n": 30
+   }
+  },
+  {
+   "name": "mmlu",
+   "score": 0.827485380116959,
+   "cases": 342,
+   "passed": 283,
+   "seconds": 795.8434581756592,
+   "notes": [
+    "57 subjects x 6; weakest college_mathematics 1/6, high_school_mathematics 2/6, business_ethics 3/6"
+   ],
+   "details": {
+    "per_subject": {
+     "abstract_algebra": [
+      5,
+      6
+     ],
+     "anatomy": [
+      5,
+      6
+     ],
+     "astronomy": [
+      6,
+      6
+     ],
+     "business_ethics": [
+      3,
+      6
+     ],
+     "clinical_knowledge": [
+      5,
+      6
+     ],
+     "college_biology": [
+      6,
+      6
+     ],
+     "college_chemistry": [
+      3,
+      6
+     ],
+     "college_computer_science": [
+      5,
+      6
+     ],
+     "college_mathematics": [
+      1,
+      6
+     ],
+     "college_medicine": [
+      4,
+      6
+     ],
+     "college_physics": [
+      6,
+      6
+     ],
+     "computer_security": [
+      6,
+      6
+     ],
+     "conceptual_physics": [
+      6,
+      6
+     ],
+     "econometrics": [
+      4,
+      6
+     ],
+     "electrical_engineering": [
+      6,
+      6
+     ],
+     "elementary_mathematics": [
+      5,
+      6
+     ],
+     "formal_logic": [
+      5,
+      6
+     ],
+     "global_facts": [
+      3,
+      6
+     ],
+     "high_school_biology": [
+      5,
+      6
+     ],
+     "high_school_chemistry": [
+      6,
+      6
+     ],
+     "high_school_computer_science": [
+      6,
+      6
+     ],
+     "high_school_european_history": [
+      5,
+      6
+     ],
+     "high_school_geography": [
+      6,
+      6
+     ],
+     "high_school_government_and_politics": [
+      5,
+      6
+     ],
+     "high_school_macroeconomics": [
+      6,
+      6
+     ],
+     "high_school_mathematics": [
+      2,
+      6
+     ],
+     "high_school_microeconomics": [
+      5,
+      6
+     ],
+     "high_school_physics": [
+      4,
+      6
+     ],
+     "high_school_psychology": [
+      6,
+      6
+     ],
+     "high_school_statistics": [
+      4,
+      6
+     ],
+     "high_school_us_history": [
+      5,
+      6
+     ],
+     "high_school_world_history": [
+      6,
+      6
+     ],
+     "human_aging": [
+      5,
+      6
+     ],
+     "human_sexuality": [
+      5,
+      6
+     ],
+     "international_law": [
+      5,
+      6
+     ],
+     "jurisprudence": [
+      5,
+      6
+     ],
+     "logical_fallacies": [
+      5,
+      6
+     ],
+     "machine_learning": [
+      3,
+      6
+     ],
+     "management": [
+      6,
+      6
+     ],
+     "marketing": [
+      5,
+      6
+     ],
+     "medical_genetics": [
+      6,
+      6
+     ],
+     "miscellaneous": [
+      6,
+      6
+     ],
+     "moral_disputes": [
+      5,
+      6
+     ],
+     "moral_scenarios": [
+      5,
+      6
+     ],
+     "nutrition": [
+      3,
+      6
+     ],
+     "philosophy": [
+      6,
+      6
+     ],
+     "prehistory": [
+      6,
+      6
+     ],
+     "professional_accounting": [
+      6,
+      6
+     ],
+     "professional_law": [
+      4,
+      6
+     ],
+     "professional_medicine": [
+      6,
+      6
+     ],
+     "professional_psychology": [
+      6,
+      6
+     ],
+     "public_relations": [
+      4,
+      6
+     ],
+     "security_studies": [
+      6,
+      6
+     ],
+     "sociology": [
+      6,
+      6
+     ],
+     "us_foreign_policy": [
+      5,
+      6
+     ],
+     "virology": [
+      3,
+      6
+     ],
+     "world_religions": [
+      6,
+      6
+     ]
+    }
+   }
+  },
+  {
+   "name": "humaneval",
+   "score": 0.9573170731707317,
+   "cases": 164,
+   "passed": 157,
+   "seconds": 155.37430453300476,
+   "notes": [
+    "pass@1 greedy; failed ['HumanEval_116', 'HumanEval_129', 'HumanEval_132', 'HumanEval_140', 'HumanEval_145', 'HumanEval_147'] ..."
+   ],
+   "details": {
+    "verdicts": {
+     "HumanEval_0": "pass",
+     "HumanEval_1": "pass",
+     "HumanEval_10": "pass",
+     "HumanEval_100": "pass",
+     "HumanEval_101": "pass",
+     "HumanEval_102": "pass",
+     "HumanEval_103": "pass",
+     "HumanEval_104": "pass",
+     "HumanEval_105": "pass",
+     "HumanEval_106": "pass",
+     "HumanEval_107": "pass",
+     "HumanEval_108": "pass",
+     "HumanEval_109": "pass",
+     "HumanEval_11": "pass",
+     "HumanEval_110": "pass",
+     "HumanEval_111": "pass",
+     "HumanEval_112": "pass",
+     "HumanEval_113": "pass",
+     "HumanEval_114": "pass",
+     "HumanEval_115": "pass",
+     "HumanEval_116": "fail:   File \"/w/HumanEval_116.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n",
+     "HumanEval_117": "pass",
+     "HumanEval_118": "pass",
+     "HumanEval_119": "pass",
+     "HumanEval_12": "pass",
+     "HumanEval_120": "pass",
+     "HumanEval_121": "pass",
+     "HumanEval_122": "pass",
+     "HumanEval_123": "pass",
+     "HumanEval_124": "pass",
+     "HumanEval_125": "pass",
+     "HumanEval_126": "pass",
+     "HumanEval_127": "pass",
+     "HumanEval_128": "pass",
+     "HumanEval_129": "fail:   File \"/w/HumanEval_129.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n",
+     "HumanEval_13": "pass",
+     "HumanEval_130": "pass",
+     "HumanEval_131": "pass",
+     "HumanEval_132": "fail:   File \"/w/HumanEval_132.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n",
+     "HumanEval_133": "pass",
+     "HumanEval_134": "pass",
+     "HumanEval_135": "pass",
+     "HumanEval_136": "pass",
+     "HumanEval_137": "pass",
+     "HumanEval_138": "pass",
+     "HumanEval_139": "pass",
+     "HumanEval_14": "pass",
+     "HumanEval_140": "fail: s assert fails 3 (good for debugging!)\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: This prints if this assert fails 3 (good for debugging!)\n",
+     "HumanEval_141": "pass",
+     "HumanEval_142": "pass",
+     "HumanEval_143": "pass",
+     "HumanEval_144": "pass",
+     "HumanEval_145": "fail:  File \"/w/HumanEval_145.py\", line 28, in check\n    assert candidate([1, 11, -1, -11, -12]) == [-1, -11, 1, -12, 11]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+     "HumanEval_146": "pass",
+     "HumanEval_147": "fail:   File \"/w/HumanEval_147.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n",
+     "HumanEval_148": "pass",
+     "HumanEval_149": "pass",
+     "HumanEval_15": "pass",
+     "HumanEval_150": "pass",
+     "HumanEval_151": "pass",
+     "HumanEval_152": "pass",
+     "HumanEval_153": "pass",
+     "HumanEval_154": "pass",
+     "HumanEval_155": "pass",
+     "HumanEval_156": "pass",
+     "HumanEval_157": "pass",
+     "HumanEval_158": "pass",
+     "HumanEval_159": "pass",
+     "HumanEval_16": "pass",
+     "HumanEval_160": "pass",
+     "HumanEval_161": "pass",
+     "HumanEval_162": "pass",
+     "HumanEval_163": "pass",
+     "HumanEval_17": "pass",
+     "HumanEval_18": "pass",
+     "HumanEval_19": "pass",
+     "HumanEval_2": "pass",
+     "HumanEval_20": "pass",
+     "HumanEval_21": "pass",
+     "HumanEval_22": "pass",
+     "HumanEval_23": "pass",
+     "HumanEval_24": "pass",
+     "HumanEval_25": "pass",
+     "HumanEval_26": "pass",
+     "HumanEval_27": "pass",
+     "HumanEval_28": "pass",
+     "HumanEval_29": "pass",
+     "HumanEval_3": "pass",
+     "HumanEval_30": "pass",
+     "HumanEval_31": "pass",
+     "HumanEval_32": "pass",
+     "HumanEval_33": "pass",
+     "HumanEval_34": "pass",
+     "HumanEval_35": "pass",
+     "HumanEval_36": "pass",
+     "HumanEval_37": "pass",
+     "HumanEval_38": "fail: lic)\n  File \"/w/HumanEval_38.py\", line 25, in check\n    encoded_str = encode_cyclic(str)\n                  ^^^^^^^^^^^^^\nNameError: name 'encode_cyclic' is not defined. Did you mean: 'decode_cyclic'?\n",
+     "HumanEval_39": "pass",
+     "HumanEval_4": "pass",
+     "HumanEval_40": "pass",
+     "HumanEval_41": "pass",
+     "HumanEval_42": "pass",
+     "HumanEval_43": "pass",
+     "HumanEval_44": "pass",
+     "HumanEval_45": "pass",
+     "HumanEval_46": "pass",
+     "HumanEval_47": "pass",
+     "HumanEval_48": "pass",
+     "HumanEval_49": "pass",
+     "HumanEval_5": "pass",
+     "HumanEval_50": "pass",
+     "HumanEval_51": "pass",
+     "HumanEval_52": "pass",
+     "HumanEval_53": "pass",
+     "HumanEval_54": "pass",
+     "HumanEval_55": "pass",
+     "HumanEval_56": "pass",
+     "HumanEval_57": "pass",
+     "HumanEval_58": "pass",
+     "HumanEval_59": "pass",
+     "HumanEval_6": "pass",
+     "HumanEval_60": "pass",
+     "HumanEval_61": "pass",
+     "HumanEval_62": "pass",
+     "HumanEval_63": "pass",
+     "HumanEval_64": "pass",
+     "HumanEval_65": "pass",
+     "HumanEval_66": "pass",
+     "HumanEval_67": "pass",
+     "HumanEval_68": "pass",
+     "HumanEval_69": "pass",
+     "HumanEval_7": "pass",
+     "HumanEval_70": "pass",
+     "HumanEval_71": "pass",
+     "HumanEval_72": "pass",
+     "HumanEval_73": "pass",
+     "HumanEval_74": "pass",
+     "HumanEval_75": "pass",
+     "HumanEval_76": "pass",
+     "HumanEval_77": "pass",
+     "HumanEval_78": "pass",
+     "HumanEval_79": "pass",
+     "HumanEval_8": "pass",
+     "HumanEval_80": "pass",
+     "HumanEval_81": "pass",
+     "HumanEval_82": "pass",
+     "HumanEval_83": "pass",
+     "HumanEval_84": "pass",
+     "HumanEval_85": "pass",
+     "HumanEval_86": "pass",
+     "HumanEval_87": "pass",
+     "HumanEval_88": "pass",
+     "HumanEval_89": "pass",
+     "HumanEval_9": "pass",
+     "HumanEval_90": "pass",
+     "HumanEval_91": "pass",
+     "HumanEval_92": "pass",
+     "HumanEval_93": "pass",
+     "HumanEval_94": "pass",
+     "HumanEval_95": "pass",
+     "HumanEval_96": "pass",
+     "HumanEval_97": "pass",
+     "HumanEval_98": "pass",
+     "HumanEval_99": "pass"
+    }
+   }
+  },
+  {
+   "name": "repetition",
+   "score": 1.0,
+   "cases": 8,
+   "passed": 8,
+   "seconds": 48.21592092514038,
+   "notes": [
+    "repeated 4-grams 0.40% mean, max 1.09%; 0 replies hit max_tokens"
+   ],
+   "details": {
+    "replies": [
+     {
+      "rate": 0.0038510911424903724,
+      "words": 774,
+      "finish": "stop",
+      "tokens": 978
+     },
+     {
+      "rate": 0.006134969325153374,
+      "words": 651,
+      "finish": "stop",
+      "tokens": 813
+     },
+     {
+      "rate": 0.0029411764705882353,
+      "words": 661,
+      "finish": "stop",
+      "tokens": 883
+     },
+     {
+      "rate": 0.010869565217391304,
+      "words": 638,
+      "finish": "stop",
+      "tokens": 907
+     },
+     {
+      "rate": 0.0,
+      "words": 556,
+      "finish": "stop",
+      "tokens": 683
+     },
+     {
+      "rate": 0.0015748031496062992,
+      "words": 617,
+      "finish": "stop",
+      "tokens": 816
+     },
+     {
+      "rate": 0.006420545746388443,
+      "words": 616,
+      "finish": "stop",
+      "tokens": 770
+     },
+     {
+      "rate": 0.0,
+      "words": 630,
+      "finish": "stop",
+      "tokens": 773
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-context",
+   "score": 1.0,
+   "cases": 55,
+   "passed": 55,
+   "seconds": 793.3967773914337,
+   "notes": [
+    "needles 15/15 to 224k, facts 10/10@28k, 10/10@57k, 10/10@114k, 10/10@225k, slowest prefill 2000 tok/s"
+   ],
+   "details": {
+    "needles": [
+     {
+      "tokens": 7121,
+      "depth": 0.1,
+      "found": true,
+      "seconds": 2.802474850002909,
+      "prefill_tok_s": 2540.9683872783403,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 7124,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 2.763945030979812,
+      "prefill_tok_s": 2577.475282666732,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 7152,
+      "depth": 0.9,
+      "found": true,
+      "seconds": 2.7833054430084303,
+      "prefill_tok_s": 2569.6065870045213,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 28509,
+      "depth": 0.1,
+      "found": true,
+      "seconds": 10.980091607983923,
+      "prefill_tok_s": 2596.42642501,
+      "reply": "74335"
+     },
+     {
+      "tokens": 28513,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 10.974355252023088,
+      "prefill_tok_s": 2598.14807751405,
+      "reply": "74335"
+     },
+     {
+      "tokens": 28538,
+      "depth": 0.9,
+      "found": true,
+      "seconds": 10.955822412011912,
+      "prefill_tok_s": 2604.8249895608997,
+      "reply": "74335"
+     },
+     {
+      "tokens": 56999,
+      "depth": 0.1,
+      "found": true,
+      "seconds": 22.761093744979007,
+      "prefill_tok_s": 2504.2293941860207,
+      "reply": "74335"
+     },
+     {
+      "tokens": 57047,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 22.789922608993948,
+      "prefill_tok_s": 2503.167780722811,
+      "reply": "74335"
+     },
+     {
+      "tokens": 56992,
+      "depth": 0.9,
+      "found": true,
+      "seconds": 22.736418428015895,
+      "prefill_tok_s": 2506.6393011915306,
+      "reply": "74335"
+     },
+     {
+      "tokens": 114584,
+      "depth": 0.02,
+      "found": true,
+      "seconds": 50.69399691701983,
+      "prefill_tok_s": 2260.3070771389494,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 114659,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 50.53820502999588,
+      "prefill_tok_s": 2268.7588514856548,
+      "reply": "74335"
+     },
+     {
+      "tokens": 114566,
+      "depth": 0.98,
+      "found": true,
+      "seconds": 50.545240850013215,
+      "prefill_tok_s": 2266.603107896162,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 224738,
+      "depth": 0.02,
+      "found": true,
+      "seconds": 112.35915680698236,
+      "prefill_tok_s": 2000.1752094497213,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 224825,
+      "depth": 0.5,
+      "found": true,
+      "seconds": 110.95935975198518,
+      "prefill_tok_s": 2026.1922969141651,
+      "reply": "7-4-3-3-5"
+     },
+     {
+      "tokens": 224752,
+      "depth": 0.98,
+      "found": true,
+      "seconds": 111.0001682100119,
+      "prefill_tok_s": 2024.7897244152823,
+      "reply": "7-4-3-3-5"
+     }
+    ],
+    "facts": [
+     {
+      "tokens": 28632,
+      "recalled": 10,
+      "of": 10,
+      "seconds": 11.612885178998113,
+      "prefill_tok_s": 2465.537164853824,
+      "reply": "Avery: 563\nBlake: 986\nCasey: 673\nDevin: 977\nEmery: 899\nFinley: 576\nHarper: 562\nJordan: 620\nKendall: 975\nMorgan: 701"
+     },
+     {
+      "tokens": 57099,
+      "recalled": 10,
+      "of": 10,
+      "seconds": 23.398323151981458,
+      "prefill_tok_s": 2440.30307766583,
+      "reply": "Avery: 563\nBlake: 986\nCasey: 673\nDevin: 977\nEmery: 899\nFinley: 576\nHarper: 562\nJordan: 620\nKendall: 975\nMorgan: 701"
+     },
+     {
+      "tokens": 114758,
+      "recalled": 10,
+      "of": 10,
+      "seconds": 50.8378450589953,
+      "prefill_tok_s": 2257.3340759591188,
+      "reply": "Avery: 563\nBlake: 986\nCasey: 673\nDevin: 977\nEmery: 899\nFinley: 576\nHarper: 562\nJordan: 620\nKendall: 975\nMorgan: 701"
+     },
+     {
+      "tokens": 225035,
+      "recalled": 10,
+      "of": 10,
+      "seconds": 111.81001679800102,
+      "prefill_tok_s": 2012.6550951741137,
+      "reply": "Avery: 563\nBlake: 986\nCasey: 673\nDevin: 977\nEmery: 899\nFinley: 576\nHarper: 562\nJordan: 620\nKendall: 975\nMorgan: 701"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vision",
+   "score": 1.0,
+   "cases": 12,
+   "passed": 12,
+   "seconds": 2.9863128662109375,
+   "notes": [
+    "all probes answered"
+   ],
+   "details": {
+    "probes": [
+     {
+      "name": "red-circle-blue-square",
+      "ok": true,
+      "reply": "There is a red circle and a blue square.",
+      "error": null
+     },
+     {
+      "name": "green-triangle",
+      "ok": true,
+      "reply": "Green triangle",
+      "error": null
+     },
+     {
+      "name": "three-circles",
+      "ok": true,
+      "reply": "3",
+      "error": null
+     },
+     {
+      "name": "two-squares",
+      "ok": true,
+      "reply": "2",
+      "error": null
+     },
+     {
+      "name": "left-right",
+      "ok": true,
+      "reply": "left",
+      "error": null
+     },
+     {
+      "name": "right-left",
+      "ok": true,
+      "reply": "right",
+      "error": null
+     },
+     {
+      "name": "yellow-circle",
+      "ok": true,
+      "reply": "Yellow",
+      "error": null
+     },
+     {
+      "name": "four-triangles",
+      "ok": true,
+      "reply": "4",
+      "error": null
+     },
+     {
+      "name": "blank",
+      "ok": true,
+      "reply": "The image is a solid, uniform white square with no discernible features, text, or objects.",
+      "error": null
+     },
+     {
+      "name": "black-square-top",
+      "ok": true,
+      "reply": "above",
+      "error": null
+     },
+     {
+      "name": "mixed-count",
+      "ok": true,
+      "reply": "2",
+      "error": null
+     },
+     {
+      "name": "colours-list",
+      "ok": true,
+      "reply": "red, green, blue",
+      "error": null
+     }
+    ]
+   }
+  },
+  {
+   "name": "soak",
+   "score": 1.0,
+   "cases": 60,
+   "passed": 60,
+   "seconds": 182.5703353881836,
+   "notes": [
+    "3 chats x 20 turns at once beside a decoding stream (5.2k-5.9k-token prompts): 60/60 equal to the same request alone, 0 errors, server answers after; 60/60 concurrent turns resumed a kept state"
+   ],
+   "details": {
+    "warm": [
+     {
+      "chat": 0,
+      "turn": 0,
+      "sha": "8346b54d91cf",
+      "prompt": 5191,
+      "cached": 0,
+      "error": null
+     },
+     {
+      "chat": 1,
+      "turn": 0,
+      "sha": "96ccc18a635a",
+      "prompt": 5180,
+      "cached": 0,
+      "error": null
+     },
+     {
+      "chat": 2,
+      "turn": 0,
+      "sha": "fe218c1bd708",
+      "prompt": 5174,
+      "cached": 0,
+      "error": null
+     }
+    ],
+    "rounds": [
+     {
+      "round": 1,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 1,
+        "sha": "4ff140f76ed8",
+        "prompt": 5225,
+        "cached": 5190,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 1,
+        "sha": "4ff140f76ed8",
+        "prompt": 5214,
+        "cached": 5179,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 1,
+        "sha": "4ff140f76ed8",
+        "prompt": 5208,
+        "cached": 5173,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 1,
+        "sha": "4ff140f76ed8",
+        "prompt": 5225,
+        "cached": 0,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 1,
+        "sha": "4ff140f76ed8",
+        "prompt": 5214,
+        "cached": 0,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 1,
+        "sha": "4ff140f76ed8",
+        "prompt": 5208,
+        "cached": 0,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 2,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 2,
+        "sha": "f7356eeaf0be",
+        "prompt": 5259,
+        "cached": 5224,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 2,
+        "sha": "f7356eeaf0be",
+        "prompt": 5248,
+        "cached": 5213,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 2,
+        "sha": "f7356eeaf0be",
+        "prompt": 5242,
+        "cached": 5207,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 2,
+        "sha": "f7356eeaf0be",
+        "prompt": 5259,
+        "cached": 5224,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 2,
+        "sha": "f7356eeaf0be",
+        "prompt": 5248,
+        "cached": 5213,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 2,
+        "sha": "f7356eeaf0be",
+        "prompt": 5242,
+        "cached": 5207,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 3,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 3,
+        "sha": "8346b54d91cf",
+        "prompt": 5295,
+        "cached": 5258,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 3,
+        "sha": "96ccc18a635a",
+        "prompt": 5284,
+        "cached": 5247,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 3,
+        "sha": "bebdc52c3610",
+        "prompt": 5278,
+        "cached": 5241,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 3,
+        "sha": "8346b54d91cf",
+        "prompt": 5295,
+        "cached": 5258,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 3,
+        "sha": "96ccc18a635a",
+        "prompt": 5284,
+        "cached": 5247,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 3,
+        "sha": "bebdc52c3610",
+        "prompt": 5278,
+        "cached": 5241,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 4,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 4,
+        "sha": "79f5a01bafd8",
+        "prompt": 5329,
+        "cached": 5294,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 4,
+        "sha": "79f5a01bafd8",
+        "prompt": 5318,
+        "cached": 5283,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 4,
+        "sha": "79f5a01bafd8",
+        "prompt": 5312,
+        "cached": 5277,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 4,
+        "sha": "79f5a01bafd8",
+        "prompt": 5329,
+        "cached": 5294,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 4,
+        "sha": "79f5a01bafd8",
+        "prompt": 5318,
+        "cached": 5283,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 4,
+        "sha": "79f5a01bafd8",
+        "prompt": 5312,
+        "cached": 5277,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 5,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 5,
+        "sha": "1863c2fc3be9",
+        "prompt": 5363,
+        "cached": 5328,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 5,
+        "sha": "1863c2fc3be9",
+        "prompt": 5352,
+        "cached": 5317,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 5,
+        "sha": "1863c2fc3be9",
+        "prompt": 5346,
+        "cached": 5311,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 5,
+        "sha": "1863c2fc3be9",
+        "prompt": 5363,
+        "cached": 5328,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 5,
+        "sha": "1863c2fc3be9",
+        "prompt": 5352,
+        "cached": 5317,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 5,
+        "sha": "1863c2fc3be9",
+        "prompt": 5346,
+        "cached": 5311,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 6,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 6,
+        "sha": "2720fa50ce65",
+        "prompt": 5399,
+        "cached": 5362,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 6,
+        "sha": "2720fa50ce65",
+        "prompt": 5388,
+        "cached": 5351,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 6,
+        "sha": "2720fa50ce65",
+        "prompt": 5382,
+        "cached": 5345,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 6,
+        "sha": "2720fa50ce65",
+        "prompt": 5399,
+        "cached": 5362,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 6,
+        "sha": "2720fa50ce65",
+        "prompt": 5388,
+        "cached": 5351,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 6,
+        "sha": "2720fa50ce65",
+        "prompt": 5382,
+        "cached": 5345,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 7,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 7,
+        "sha": "f10cb467c1b8",
+        "prompt": 5433,
+        "cached": 5398,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 7,
+        "sha": "f10cb467c1b8",
+        "prompt": 5422,
+        "cached": 5387,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 7,
+        "sha": "f10cb467c1b8",
+        "prompt": 5416,
+        "cached": 5381,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 7,
+        "sha": "f10cb467c1b8",
+        "prompt": 5433,
+        "cached": 5398,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 7,
+        "sha": "f10cb467c1b8",
+        "prompt": 5422,
+        "cached": 5387,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 7,
+        "sha": "f10cb467c1b8",
+        "prompt": 5416,
+        "cached": 5381,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 8,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 8,
+        "sha": "5f8a41e82d5f",
+        "prompt": 5467,
+        "cached": 5432,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 8,
+        "sha": "5f8a41e82d5f",
+        "prompt": 5456,
+        "cached": 5421,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 8,
+        "sha": "5f8a41e82d5f",
+        "prompt": 5450,
+        "cached": 5415,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 8,
+        "sha": "5f8a41e82d5f",
+        "prompt": 5467,
+        "cached": 5432,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 8,
+        "sha": "5f8a41e82d5f",
+        "prompt": 5456,
+        "cached": 5421,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 8,
+        "sha": "5f8a41e82d5f",
+        "prompt": 5450,
+        "cached": 5415,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 9,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 9,
+        "sha": "a33f20f7da87",
+        "prompt": 5503,
+        "cached": 5466,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 9,
+        "sha": "a33f20f7da87",
+        "prompt": 5492,
+        "cached": 5455,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 9,
+        "sha": "a33f20f7da87",
+        "prompt": 5486,
+        "cached": 5449,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 9,
+        "sha": "a33f20f7da87",
+        "prompt": 5503,
+        "cached": 5466,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 9,
+        "sha": "a33f20f7da87",
+        "prompt": 5492,
+        "cached": 5455,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 9,
+        "sha": "a33f20f7da87",
+        "prompt": 5486,
+        "cached": 5449,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 10,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 10,
+        "sha": "db71e6b42ba9",
+        "prompt": 5538,
+        "cached": 5502,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 10,
+        "sha": "db71e6b42ba9",
+        "prompt": 5527,
+        "cached": 5491,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 10,
+        "sha": "db71e6b42ba9",
+        "prompt": 5521,
+        "cached": 5485,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 10,
+        "sha": "db71e6b42ba9",
+        "prompt": 5538,
+        "cached": 5502,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 10,
+        "sha": "db71e6b42ba9",
+        "prompt": 5527,
+        "cached": 5491,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 10,
+        "sha": "db71e6b42ba9",
+        "prompt": 5521,
+        "cached": 5485,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 11,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 11,
+        "sha": "66210c651a36",
+        "prompt": 5574,
+        "cached": 5537,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 11,
+        "sha": "66210c651a36",
+        "prompt": 5563,
+        "cached": 5526,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 11,
+        "sha": "66210c651a36",
+        "prompt": 5557,
+        "cached": 5520,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 11,
+        "sha": "66210c651a36",
+        "prompt": 5574,
+        "cached": 5537,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 11,
+        "sha": "66210c651a36",
+        "prompt": 5563,
+        "cached": 5526,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 11,
+        "sha": "66210c651a36",
+        "prompt": 5557,
+        "cached": 5520,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 12,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 12,
+        "sha": "216e90b9f0e6",
+        "prompt": 5612,
+        "cached": 5573,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 12,
+        "sha": "216e90b9f0e6",
+        "prompt": 5601,
+        "cached": 5562,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 12,
+        "sha": "216e90b9f0e6",
+        "prompt": 5595,
+        "cached": 5556,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 12,
+        "sha": "216e90b9f0e6",
+        "prompt": 5612,
+        "cached": 5573,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 12,
+        "sha": "216e90b9f0e6",
+        "prompt": 5601,
+        "cached": 5562,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 12,
+        "sha": "216e90b9f0e6",
+        "prompt": 5595,
+        "cached": 5556,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 13,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 13,
+        "sha": "f90a608e64d0",
+        "prompt": 5648,
+        "cached": 5611,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 13,
+        "sha": "f90a608e64d0",
+        "prompt": 5637,
+        "cached": 5600,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 13,
+        "sha": "f90a608e64d0",
+        "prompt": 5631,
+        "cached": 5594,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 13,
+        "sha": "f90a608e64d0",
+        "prompt": 5648,
+        "cached": 5611,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 13,
+        "sha": "f90a608e64d0",
+        "prompt": 5637,
+        "cached": 5600,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 13,
+        "sha": "f90a608e64d0",
+        "prompt": 5631,
+        "cached": 5594,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 14,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 14,
+        "sha": "8cfc7759c212",
+        "prompt": 5684,
+        "cached": 5647,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 14,
+        "sha": "8cfc7759c212",
+        "prompt": 5673,
+        "cached": 5636,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 14,
+        "sha": "8cfc7759c212",
+        "prompt": 5667,
+        "cached": 5630,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 14,
+        "sha": "8cfc7759c212",
+        "prompt": 5684,
+        "cached": 5647,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 14,
+        "sha": "8cfc7759c212",
+        "prompt": 5673,
+        "cached": 5636,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 14,
+        "sha": "8cfc7759c212",
+        "prompt": 5667,
+        "cached": 5630,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 15,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 15,
+        "sha": "19a934f16d6b",
+        "prompt": 5722,
+        "cached": 5683,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 15,
+        "sha": "19a934f16d6b",
+        "prompt": 5711,
+        "cached": 5672,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 15,
+        "sha": "19a934f16d6b",
+        "prompt": 5705,
+        "cached": 5666,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 15,
+        "sha": "19a934f16d6b",
+        "prompt": 5722,
+        "cached": 5683,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 15,
+        "sha": "19a934f16d6b",
+        "prompt": 5711,
+        "cached": 5672,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 15,
+        "sha": "19a934f16d6b",
+        "prompt": 5705,
+        "cached": 5666,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 16,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 16,
+        "sha": "a5e6eaf8900a",
+        "prompt": 5758,
+        "cached": 5721,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 16,
+        "sha": "a5e6eaf8900a",
+        "prompt": 5747,
+        "cached": 5710,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 16,
+        "sha": "a5e6eaf8900a",
+        "prompt": 5741,
+        "cached": 5704,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 16,
+        "sha": "a5e6eaf8900a",
+        "prompt": 5758,
+        "cached": 5721,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 16,
+        "sha": "a5e6eaf8900a",
+        "prompt": 5747,
+        "cached": 5710,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 16,
+        "sha": "a5e6eaf8900a",
+        "prompt": 5741,
+        "cached": 5704,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 17,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 17,
+        "sha": "c67bf25c6981",
+        "prompt": 5794,
+        "cached": 5757,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 17,
+        "sha": "c67bf25c6981",
+        "prompt": 5783,
+        "cached": 5746,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 17,
+        "sha": "c67bf25c6981",
+        "prompt": 5777,
+        "cached": 5740,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 17,
+        "sha": "c67bf25c6981",
+        "prompt": 5794,
+        "cached": 5757,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 17,
+        "sha": "c67bf25c6981",
+        "prompt": 5783,
+        "cached": 5746,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 17,
+        "sha": "c67bf25c6981",
+        "prompt": 5777,
+        "cached": 5740,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 18,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 18,
+        "sha": "6f2d258bc9c8",
+        "prompt": 5832,
+        "cached": 5793,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 18,
+        "sha": "6f2d258bc9c8",
+        "prompt": 5821,
+        "cached": 5782,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 18,
+        "sha": "6f2d258bc9c8",
+        "prompt": 5815,
+        "cached": 5776,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 18,
+        "sha": "6f2d258bc9c8",
+        "prompt": 5832,
+        "cached": 5793,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 18,
+        "sha": "6f2d258bc9c8",
+        "prompt": 5821,
+        "cached": 5782,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 18,
+        "sha": "6f2d258bc9c8",
+        "prompt": 5815,
+        "cached": 5776,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 19,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 19,
+        "sha": "322ed0378752",
+        "prompt": 5868,
+        "cached": 5831,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 19,
+        "sha": "322ed0378752",
+        "prompt": 5857,
+        "cached": 5820,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 19,
+        "sha": "322ed0378752",
+        "prompt": 5851,
+        "cached": 5814,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 19,
+        "sha": "322ed0378752",
+        "prompt": 5868,
+        "cached": 5831,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 19,
+        "sha": "322ed0378752",
+        "prompt": 5857,
+        "cached": 5820,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 19,
+        "sha": "322ed0378752",
+        "prompt": 5851,
+        "cached": 5814,
+        "error": null
+       }
+      ]
+     },
+     {
+      "round": 20,
+      "together": [
+       {
+        "chat": 0,
+        "turn": 20,
+        "sha": "59888a74229b",
+        "prompt": 5904,
+        "cached": 5867,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 20,
+        "sha": "59888a74229b",
+        "prompt": 5893,
+        "cached": 5856,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 20,
+        "sha": "59888a74229b",
+        "prompt": 5887,
+        "cached": 5850,
+        "error": null
+       }
+      ],
+      "alone": [
+       {
+        "chat": 0,
+        "turn": 20,
+        "sha": "59888a74229b",
+        "prompt": 5904,
+        "cached": 5903,
+        "error": null
+       },
+       {
+        "chat": 1,
+        "turn": 20,
+        "sha": "59888a74229b",
+        "prompt": 5893,
+        "cached": 5892,
+        "error": null
+       },
+       {
+        "chat": 2,
+        "turn": 20,
+        "sha": "59888a74229b",
+        "prompt": 5887,
+        "cached": 5886,
+        "error": null
+       }
+      ]
+     }
+    ],
+    "errors": []
+   }
+  },
+  {
+   "name": "snapshot",
+   "score": 1.0,
+   "cases": 12,
+   "passed": 12,
+   "seconds": 18.55344820022583,
+   "notes": [
+    "replies written to evidence/2026-10-15-native-v1.0.11/suite/replies.json"
+   ],
+   "details": {}
+  }
+ ]
+}

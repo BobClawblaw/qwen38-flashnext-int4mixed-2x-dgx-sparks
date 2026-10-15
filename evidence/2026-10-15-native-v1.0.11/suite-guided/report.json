@@ -1,0 +1,28 @@
+{
+ "url": "http://127.0.0.1:8888",
+ "model": "Qwen3.8-Flash-Next-INT4-Mixed",
+ "results": [
+  {
+   "name": "json-guided",
+   "score": 1.0,
+   "cases": 30,
+   "passed": 30,
+   "seconds": 8.565999746322632,
+   "notes": [
+    "all valid"
+   ],
+   "details": {}
+  },
+  {
+   "name": "tools",
+   "score": 1.0,
+   "cases": 60,
+   "passed": 60,
+   "seconds": 45.781487703323364,
+   "notes": [
+    "all exact"
+   ],
+   "details": {}
+  }
+ ]
+}

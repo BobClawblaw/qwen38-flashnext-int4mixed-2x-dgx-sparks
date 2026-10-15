@@ -19,7 +19,7 @@ dependencies.
 
 ## Measured on this pair
 
-The defaults: TensorFold v1.0.7's native engine with this recipe's patch (measured on 1.0.5 at pin `8bea0406`; `d5eacba9` adds the
+The defaults: TensorFold v1.0.11's native engine with this recipe's patch (measured on 1.0.5 at pin `8bea0406`; `d5eacba9` adds the
 kept-state fix below and measures the same, [`ab/`](evidence/2026-10-10-native-v1.0.5-kept/ab/)), sixteen concurrent
 streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2 over the RoCE link.
 `bench/ruler.py`, greedy, thinking off, 256-token replies, a distinct prompt per stream, median of 3 runs. Receipts:
@@ -113,12 +113,12 @@ within the spread of the workloads.
 The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays. The table above is the
 Python engine's history; on the native engine the same sweep around 0.70 found nothing faster.
 
-## The engine (TensorFold 1.0.7, native)
+## The engine (TensorFold 1.0.11, native)
 
-The recipe serves the converted checkpoint on TensorFold v1.0.7 (its `main`, e7c523eb), the Zig engine, with
-[`docker/patches/tensorfold-native-v1.0.7.patch`](docker/patches/tensorfold-native-v1.0.7.patch): this project's
+The recipe serves the converted checkpoint on TensorFold v1.0.11 (3a6d1f14), the Zig engine, with
+[`docker/patches/tensorfold-native-v1.0.11.patch`](docker/patches/tensorfold-native-v1.0.11.patch): this project's
 Flash Next family for two CUDA ranks (the release serves Flash Next on Metal only; the port is on
-[BobClawblaw/TensorFold `native-v1.0.7`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.7)). On 1.0.7 the
+[BobClawblaw/TensorFold `native-v1.0.11`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.11)). Since 1.0.7 the
 port rides upstream's own structured-output machinery and admission flow; what it adds is the family itself (the
 two-rank CUDA forward, kernels, MTP and copy drafts, vision), batched prompt admission, and the two-rank serving.
 TensorFold's Python engine, which the recipe served first, is frozen upstream and was removed here on 2026-10-10.

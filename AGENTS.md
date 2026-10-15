@@ -7,7 +7,7 @@ no harness dependencies, stdlib Python only.
 - **Entry point:** `python3 -m spark up|down|status|logs|convert|image|validate`. Settings: `recipe.toml` defaults,
   `cluster.toml` per cluster (git-ignored), environment variables in upper case. `python3 -m spark validate` is the
   dry run; CI runs it on every profile and the refusals.
-- **The patch** (`docker/patches/tensorfold-native-v1.0.7.patch`, `git diff v1.0.7 native-v1.0.7` of the port on
+- **The patch** (`docker/patches/tensorfold-native-v1.0.11.patch`, `git diff v1.0.11 native-v1.0.11` of the port on
   github.com/BobClawblaw/TensorFold) is pinned by sha256 in `recipe.toml`. Never edit it in place: change the port's
   branch, run its host tests and the two-rank GPU exactness checks, regenerate, re-pin, `spark image --rebuild`,
   rerun the suite. The captured kernel set beside it (`docker/kernels/sm121`) changes the same way: recaptured, never
@@ -22,6 +22,9 @@ no harness dependencies, stdlib Python only.
   decoding stream, 20 rounds, every reply equal to the same request alone and the server answering afterwards. For
   an option that can be switched off, compare reply hashes with it off too. Single-stream exactness, a lone resume
   and fresh-prompt concurrency missed a graph-relocation fault upstream (TensorFold #615) that this pattern hits.
+- **Run structured output through the server's grammar too.** The suite's `json` check describes the schema in the
+  prompt; a rebase also needs `python3 -m quality.suite --only json tools --guided-json`, which sends
+  `response_format`. 1.0.11's first image failed every guided request after one token while the plain suite passed.
 - **Restarts:** `down` stamps the stop; `up` waits out `settle_seconds` before rank 1 starts. Do not shorten it on
   a GB10 pair: the worker refuses NCCL's first memory registration right after a rank frees its pages.
 - **Memory is unified:** read it with `free -h`, not `nvidia-smi`. The n-gram table (51 GB e4m3) is locked in host

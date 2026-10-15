@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-15
+
+- **On TensorFold 1.0.11** (3a6d1f14; pin `f98b87e3`, image `native-v1.0.11`): the port (native-v1.0.7's net diff)
+  rebased onto 1.0.11, whose changes beside it are security fixes for `--cortheon`'s web text. Branch `native-v1.0.11`
+  on the fork.
+- **Native: structured output and required tool calls work again with drafts on.** The lane core now holds a
+  grammar request's drafts and reads them back through the backend's `held`, which the Flash Next family did not
+  implement: `response_format`, `guided_*` and `tool_choice: "required"` failed with `HeldDraftsUnreadable` after
+  their first token. The family now returns its held drafts as host tokens. The suite missed it because its `json`
+  check describes the schema in the prompt and never sends `response_format`; AGENTS.md now asks for the guided pass
+  (`--only json tools --guided-json`) as well.
+- **Suite on 1.0.11**: equal to 1.0.7 on every check (IFEval 130/150, GSM8K 241, MGSM 219, MMLU 283, HumanEval 157,
+  long context 55/55, tools 60/60, json 30/30, soak 60/60, drafts, concurrent, behaviour); guided pass json 30/30,
+  tools 60/60; twelve snapshot replies byte-identical to 1.0.7's (`evidence/2026-10-15-native-v1.0.11/`).
+- **Known issue: `drafts = false` faults.** Serving without drafts hits an illegal address while the engine
+  calibrates (two causes: one found and fixed on the port's development branch, one still open). Keep `drafts = true`;
+  outputs are equal to undrafted, and a request can still turn drafting off for itself.
+
 ## 2026-10-11
 
 - **On TensorFold 1.0.7** (`main` e7c523eb; pin `5d14f71c`, image `native-v1.0.7`): the port rebased from 1.0.5 over the
