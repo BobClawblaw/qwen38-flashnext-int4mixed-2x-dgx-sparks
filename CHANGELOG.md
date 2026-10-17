@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-17
+
+- **On TensorFold 1.0.12** (833bbfcb; pin `47c78d3f`, image `native-v1.0.12`): the port rebased onto 1.0.12. 1.0.12
+  brought its own image pipeline (a shared decoder, `Request.images` for the GLM tower); this family keeps its own
+  image path beside it (`QImage`, `Request.qimages`, `Info.qvision`), so `--vision` and image/video requests behave
+  as before. The lane host keeps the port's batched prompt admission inside upstream's new recall and learner flow.
+  Branch `native-v1.0.12` on the fork.
+- **Measured with the recipe harness** (`evidence/2026-10-17-native-v1.0.12/`): one stream 78.0 / 127.0 / 102.1 /
+  130.5 tok/s, sixteen 304.2 / 516.3 / 391.6 / 524.9 with the first token in 0.45-0.54 s (1.0.11-3: 77.3 / 127.0 /
+  100.6 / 129.6 and 301.9 / 509.8 / 391.3 / 519.2). Soak 60/60, drafts and concurrent 12/12, streaming, multiturn,
+  stop, thinking, copy and max-tokens pass; through the server's grammar json 30/30 and tools 60/60; structured,
+  sampling and turns pass. Thinking on: the harness's word problems 10/10 with no leaks, GSM8K 234/250 (the first
+  thinking-on measurement of this recipe). Greedy replies to four prompts and a 10k-token prompt (fresh and resumed)
+  are byte-identical to 1.0.11-3's.
+
 ## 2026-10-15
 
 - **Sixteen streams back to 1.0.7's speed** (pin `186193c6`, image `native-v1.0.11-3`). 1.0.11's CUDA host wraps a

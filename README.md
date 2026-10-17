@@ -19,18 +19,19 @@ dependencies.
 
 ## Measured on this pair
 
-The defaults: TensorFold v1.0.11's native engine with this recipe's patch (pin `186193c6`, image `native-v1.0.11-3`),
+The defaults: TensorFold v1.0.12's native engine with this recipe's patch (pin `47c78d3f`, image `native-v1.0.12`),
 sixteen concurrent streams, a 1,048,576-token window (static YaRN x4), int8 KV, MTP drafts up to 15, vision on, TP=2
 over the RoCE link (small gathers as RDMA writes). `bench/ruler.py` through the recipe harness, greedy, thinking off,
-256-token replies, a distinct prompt per stream, median of 3 runs. Receipts:
+256-token replies, a distinct prompt per stream, median of 3 runs. Receipts: one and sixteen streams on 1.0.12,
+[`evidence/2026-10-17-native-v1.0.12/`](evidence/2026-10-17-native-v1.0.12/); four and eight on 1.0.11-3 (the same port),
 [`evidence/2026-10-15-native-v1.0.11-3/`](evidence/2026-10-15-native-v1.0.11-3/).
 
 | Users | prose | code | structured | list | first token |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 77.3 | 127.0 | 100.6 | 129.6 | 0.03-0.04 s |
+| 1 | 78.0 | 127.0 | 102.1 | 130.5 | 0.03-0.04 s |
 | 4 | 159.1 | 253.9 | 201.7 | 268.4 | 0.08-0.09 s |
 | 8 | 228.9 | 385.2 | 282.4 | 423.1 | 0.11-0.14 s |
-| 16 | 301.9 | 509.8 | 391.3 | 519.2 | 0.44-0.55 s |
+| 16 | 304.2 | 516.3 | 391.6 | 524.9 | 0.45-0.54 s |
 
 Aggregate tokens a second, on a fresh server; after the whole suite and the serving checks, one stream holds 77.5 /
 125.9 / 99.2 / 129.7 and sixteen 302.3 / 509.5 / 389.8 / 520.4. The engine's own counters (the harness reads the
@@ -120,12 +121,12 @@ within the spread of the workloads.
 The draft depth and confidence were swept (6 to 15 drafts, 0.55 to 0.80): 15 at 0.70 stays. The table above is the
 Python engine's history; on the native engine the same sweep around 0.70 found nothing faster.
 
-## The engine (TensorFold 1.0.11, native)
+## The engine (TensorFold 1.0.12, native)
 
-The recipe serves the converted checkpoint on TensorFold v1.0.11 (3a6d1f14), the Zig engine, with
-[`docker/patches/tensorfold-native-v1.0.11.patch`](docker/patches/tensorfold-native-v1.0.11.patch): this project's
+The recipe serves the converted checkpoint on TensorFold v1.0.12 (833bbfcb), the Zig engine, with
+[`docker/patches/tensorfold-native-v1.0.12.patch`](docker/patches/tensorfold-native-v1.0.12.patch): this project's
 Flash Next family for two CUDA ranks (the release serves Flash Next on Metal only; the port is on
-[BobClawblaw/TensorFold `native-v1.0.11`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.11)). Since 1.0.7 the
+[BobClawblaw/TensorFold `native-v1.0.12`](https://github.com/BobClawblaw/TensorFold/tree/native-v1.0.12)). Since 1.0.7 the
 port rides upstream's own structured-output machinery and admission flow; what it adds is the family itself (the
 two-rank CUDA forward, kernels, MTP and copy drafts, vision), batched prompt admission, and the two-rank serving.
 TensorFold's Python engine, which the recipe served first, is frozen upstream and was removed here on 2026-10-10.

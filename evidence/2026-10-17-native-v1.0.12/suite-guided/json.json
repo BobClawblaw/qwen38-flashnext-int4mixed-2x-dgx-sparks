@@ -1,0 +1,11 @@
+{
+ "name": "json-guided",
+ "score": 1.0,
+ "cases": 30,
+ "passed": 30,
+ "seconds": 8.402782917022705,
+ "notes": [
+  "all valid"
+ ],
+ "details": {}
+}

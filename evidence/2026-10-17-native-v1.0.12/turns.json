@@ -1,0 +1,87 @@
+{
+ "turn1": {
+  "status": 200,
+  "text": "Three major rivers in Europe are:\n\n1. **The Danube** \u2013 It flows through Central and Eastern Europe, passing through ten countries, including Germany, Austria, Hungary, and Romania, before emptying into the Black Sea.\n",
+  "ttft": 2.037,
+  "usage": {
+   "prompt_tokens": 5509,
+   "completion_tokens": 48,
+   "total_tokens": 5557,
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "s": 2.678
+ },
+ "turn2": {
+  "status": 200,
+  "text": "The **Danube** is the longest of the three rivers mentioned.\n\nIt is approximately **2,850 kilometers (1,770 miles)** long, making it the second-longest river in Europe after the Volga",
+  "ttft": 0.111,
+  "usage": {
+   "prompt_tokens": 5576,
+   "completion_tokens": 48,
+   "total_tokens": 5624,
+   "prompt_tokens_details": {
+    "cached_tokens": 5508
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "s": 0.549
+ },
+ "turn3": {
+  "status": 200,
+  "text": "The **Rhine**",
+  "ttft": 0.105,
+  "usage": {
+   "prompt_tokens": 5642,
+   "completion_tokens": 6,
+   "total_tokens": 5648,
+   "prompt_tokens_details": {
+    "cached_tokens": 5575
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "s": 0.225
+ },
+ "turn3_again": {
+  "status": 200,
+  "text": "The **Rhine**",
+  "ttft": 0.035,
+  "usage": {
+   "prompt_tokens": 5642,
+   "completion_tokens": 6,
+   "total_tokens": 5648,
+   "prompt_tokens_details": {
+    "cached_tokens": 5641
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "s": 0.139
+ },
+ "turn3_cold": {
+  "status": 200,
+  "text": "The **Rhine**",
+  "ttft": 0.035,
+  "usage": {
+   "prompt_tokens": 5642,
+   "completion_tokens": 6,
+   "total_tokens": 5648,
+   "prompt_tokens_details": {
+    "cached_tokens": 5641
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "s": 0.139
+ }
+}

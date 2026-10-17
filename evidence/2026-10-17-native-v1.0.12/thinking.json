@@ -1,0 +1,122 @@
+[
+ {
+  "q": "A train leaves at 9:40 and arrives at 13:15. How many minutes is the trip?",
+  "want": 215,
+  "status": 200,
+  "got": 215,
+  "finish": "stop",
+  "reasoning_chars": 303,
+  "leak": false,
+  "tokens": 161,
+  "text": "Answer: 215",
+  "error": null
+ },
+ {
+  "q": "A shop sells pens at 3 for $2. How many dollars do 27 pens cost?",
+  "want": 18,
+  "status": 200,
+  "got": 18,
+  "finish": "stop",
+  "reasoning_chars": 165,
+  "leak": false,
+  "tokens": 62,
+  "text": "Answer: 18",
+  "error": null
+ },
+ {
+  "q": "Tom has 5 times as many marbles as Ann. Together they have 84. How many does Tom have?",
+  "want": 70,
+  "status": 200,
+  "got": 70,
+  "finish": "stop",
+  "reasoning_chars": 191,
+  "leak": false,
+  "tokens": 81,
+  "text": "Tom has 70 marbles.\n\nAnswer: 70",
+  "error": null
+ },
+ {
+  "q": "A rectangle is 3 times as long as it is wide and its perimeter is 64 cm. What is its area in square cm?",
+  "want": 192,
+  "status": 200,
+  "got": 192,
+  "finish": "stop",
+  "reasoning_chars": 187,
+  "leak": false,
+  "tokens": 177,
+  "text": "Let the width be \\(w\\). Then the length is \\(3w\\).\n\nPerimeter:\n\\[\n2(w + 3w) = 64\n\\]\n\\[\n8w = 64\n\\]\n\\[\nw = 8\n\\]\n\nLength:\n\\[\n3w = 24\n\\]\n\nArea:\n\\[\n8 \\times 24 = 192\n\\]\n\nAnswer: 192",
+  "error": null
+ },
+ {
+  "q": "What is the sum of the first 20 odd numbers?",
+  "want": 400,
+  "status": 200,
+  "got": 400,
+  "finish": "stop",
+  "reasoning_chars": 154,
+  "leak": false,
+  "tokens": 58,
+  "text": "Answer: 400",
+  "error": null
+ },
+ {
+  "q": "A tank fills at 12 litres a minute and leaks 4 litres a minute. How many minutes to fill 200 litres?",
+  "want": 25,
+  "status": 200,
+  "got": 25,
+  "finish": "stop",
+  "reasoning_chars": 138,
+  "leak": false,
+  "tokens": 54,
+  "text": "Answer: 25",
+  "error": null
+ },
+ {
+  "q": "If 7 workers build 7 walls in 7 days, how many days do 14 workers take to build 14 walls?",
+  "want": 7,
+  "status": 200,
+  "got": 7,
+  "finish": "stop",
+  "reasoning_chars": 436,
+  "leak": false,
+  "tokens": 143,
+  "text": "Answer: 7",
+  "error": null
+ },
+ {
+  "q": "A book costs $40 after a 20% discount. What was its price in dollars before the discount?",
+  "want": 50,
+  "status": 200,
+  "got": 50,
+  "finish": "stop",
+  "reasoning_chars": 254,
+  "leak": false,
+  "tokens": 85,
+  "text": "Answer: 50",
+  "error": null
+ },
+ {
+  "q": "How many integers from 1 to 100 are divisible by 3 or 5?",
+  "want": 47,
+  "status": 200,
+  "got": 47,
+  "finish": "stop",
+  "reasoning_chars": 213,
+  "leak": false,
+  "tokens": 141,
+  "text": "There are 33 integers divisible by 3, 20 divisible by 5, and 6 divisible by both 3 and 5.\n\nUsing inclusion-exclusion: 33 + 20 - 6 = 47.\n\nAnswer: 47",
+  "error": null
+ },
+ {
+  "q": "A clock gains 3 minutes every hour. How many minutes ahead is it after 2 days?",
+  "want": 144,
+  "status": 200,
+  "got": 144,
+  "finish": "stop",
+  "reasoning_chars": 212,
+  "leak": false,
+  "tokens": 107,
+  "text": "The clock gains 3 minutes per hour. In 2 days (48 hours), it gains:\n\n3 \u00d7 48 = 144 minutes\n\nAnswer: 144",
+  "error": null
+ }
+]
