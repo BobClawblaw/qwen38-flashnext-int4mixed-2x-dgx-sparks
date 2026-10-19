@@ -38,7 +38,7 @@ def run_check(name: str, client: Client, out: Path, a) -> Result:
     if name == "ifeval":
         return ifeval.run(client, n=a.ifeval_n, workers=a.workers)
     if name == "gsm8k":
-        return gsm8k.run(client, n=a.gsm8k_n, workers=a.workers, thinking=a.thinking)
+        return gsm8k.run(client, n=a.gsm8k_n, workers=a.workers, thinking=a.thinking, reasoning_budget=a.reasoning_budget)
     if name == "repetition":
         return repetition.run(client, workers=a.workers)
     if name == "long-context":
@@ -70,6 +70,7 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=4, help="parallel requests where a check allows it")
     ap.add_argument("--streams", type=int, default=4)
     ap.add_argument("--gsm8k-n", type=int, default=250)
+    ap.add_argument("--reasoning-budget", type=int, default=49152, help="GSM8K with --thinking: reasoning tokens a reply may take before its answer")
     ap.add_argument("--ifeval-n", type=int, default=150)
     ap.add_argument("--mgsm-n", type=int, default=30, help="problems per MGSM language")
     ap.add_argument("--long-max", type=int, default=0, help="skip long-context documents above this many tokens (0: all, to 250k)")
