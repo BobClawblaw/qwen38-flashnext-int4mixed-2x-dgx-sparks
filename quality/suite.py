@@ -80,6 +80,8 @@ def main(argv=None) -> int:
     ap.add_argument("--soak-rounds", type=int, default=20)
     ap.add_argument("--thinking", action="store_true", help="GSM8K with thinking on")
     ap.add_argument("--guided-json", action="store_true", help="json through response_format (serial profile)")
+    ap.add_argument("--extra-body", type=json.loads, default=None, metavar="JSON",
+                    help='fields added to every request, e.g. {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5, "seed": 42}')
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A", "B"))
     a = ap.parse_args(argv)
     if a.compare:
@@ -87,7 +89,7 @@ def main(argv=None) -> int:
         print(r.line())
         return 0 if r.score == 1.0 else 1
     a.out.mkdir(parents=True, exist_ok=True)
-    client = Client(a.url, a.model)
+    client = Client(a.url, a.model, extra=a.extra_body)
     names = [c for c in (a.only or CHECKS) if c not in a.skip]
     results: list[Result] = []
     print(f"quality suite: {a.url} as {a.model}; checks: {', '.join(names)}")

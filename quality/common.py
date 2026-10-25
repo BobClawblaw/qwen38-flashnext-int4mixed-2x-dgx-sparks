@@ -17,8 +17,10 @@ CACHE = Path(os.environ.get("QUALITY_CACHE", Path.home() / ".cache" / "qwen38-in
 class Client:
     """OpenAI-style chat completions against one server; greedy by default, thinking off unless asked."""
 
-    def __init__(self, url: str, model: str = "default", timeout: int = 7200) -> None:
+    def __init__(self, url: str, model: str = "default", timeout: int = 7200, extra: dict | None = None) -> None:
         self.url, self.model, self.timeout = url.rstrip("/"), model, timeout
+        self.extra = extra or {}  # fields every request carries (a request's own `extra` wins): sampling, penalties
+
 
     def chat(self, messages: list[dict], *, max_tokens: int = 512, temperature: float = 0.0, thinking: bool = False,
              tools: list | None = None, response_format: dict | None = None, draft: bool | None = None,
@@ -31,6 +33,7 @@ class Client:
             body["response_format"] = response_format
         if draft is not None:
             body["draft"] = draft
+        body.update(self.extra)
         if extra:
             body.update(extra)
         req = urllib.request.Request(self.url + "/v1/chat/completions", data=json.dumps(body).encode(),
