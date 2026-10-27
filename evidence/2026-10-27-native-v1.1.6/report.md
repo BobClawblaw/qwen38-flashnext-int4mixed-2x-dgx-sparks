@@ -1,7 +1,5 @@
 | Check | Passed | Score | Time | Note |
 |---|---:|---:|---:|---|
-| vision | 12/12 | 100.0% | 3s | all probes answered |
-| soak | 60/60 | 100.0% | 176s | 3 chats x 20 turns at once beside a decoding stream (5.2k-5.9k-token prompts): 60/60 equal to the same request alone, 0 errors, server answers after; 60/60 concurrent turns resumed a kept state |
 | drafts | 12/12 | 100.0% | 57s | drafted 94 tok/s vs undrafted 43 tok/s |
 | concurrent | 12/12 | 100.0% | 28s | 4 streams together vs alone |
 | streaming | 4/4 | 100.0% | 10s | identical |
@@ -10,5 +8,15 @@
 | thinking | 10/10 | 100.0% | 11s | 0 replies without reasoning_content, 0 with think tags in content |
 | copy | 2/2 | 100.0% | 1s | 2/2 byte-identical |
 | max-tokens | 3/3 | 100.0% | 1s | 3/3 exact |
-| json | 30/30 | 100.0% | 8s | all valid |
 | tools | 60/60 | 100.0% | 46s | all exact |
+| json | 30/30 | 100.0% | 8s | all valid |
+| ifeval | 130/150 | 86.7% | 379s | loose 130/150, strict 125/150, 150 covered prompts |
+| gsm8k | 241/250 | 96.4% | 415s | misses at [40, 85, 87, 93, 98, 119, 163, 187, 234] |
+| mgsm | 219/240 | 91.2% | 600s | de 28/30, es 29/30, fr 26/30, ja 27/30, zh 27/30, ru 30/30, sw 27/30, bn 25/30 |
+| mmlu | 283/342 | 82.7% | 762s | 57 subjects x 6; weakest college_mathematics 1/6, high_school_mathematics 2/6, business_ethics 3/6 |
+| humaneval | 157/164 | 95.7% | 151s | pass@1 greedy; failed ['HumanEval_116', 'HumanEval_129', 'HumanEval_132', 'HumanEval_140', 'HumanEval_145', 'HumanEval_147'] ... |
+| repetition | 8/8 | 100.0% | 45s | repeated 4-grams 0.40% mean, max 1.09%; 0 replies hit max_tokens |
+| long-context | 55/55 | 100.0% | 797s | needles 15/15 to 224k, facts 10/10@28k, 10/10@57k, 10/10@114k, 10/10@225k, slowest prefill 2010 tok/s |
+| vision | 12/12 | 100.0% | 3s | all probes answered |
+| soak | 60/60 | 100.0% | 176s | 3 chats x 20 turns at once beside a decoding stream (5.2k-5.9k-token prompts): 60/60 equal to the same request alone, 0 errors, server answers after; 60/60 concurrent turns resumed a kept state |
+| snapshot | 12/12 | 100.0% | 18s | replies written to evidence/2026-10-27-native-v1.1.6/replies.json |
