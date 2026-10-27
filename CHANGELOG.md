@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-27
+
+- **On TensorFold 1.1.6 (main `8c36359d`)** (pin `8c36359d`, image `native-v1.1.6`, patch sha256 `e0a6634c`): the
+  port rebased onto the release's main line. The 75-file port was re-applied on top of 1.1.6: 25 files applied clean,
+  44 added, and six conflicts resolved by keeping both sides — upstream's new families and flags (qwen4,
+  gemma4/spark25/dory in the registry, `--loops`, `--thinking-reserve`, `--prompt-precision`, `--idle-unload`, the
+  runner's `dump.end`) beside the port's (the two-rank `flashnext_cuda` family registered ahead of the one-GPU one
+  under `-Dflashnext`, `--kv-dtype` → `kv_bits`, `--tool-system`, the qimage prompts' `history_len = 0`, the
+  weights-loader test module).
+- **Images on 1.1.6**: 1.1.2 encodes control-token spellings in request text as ordinary text, so the port's media
+  placeholders (written into the message as `<|vision_start|><|image_pad|>…<|vision_end|>`) lost their tokens and
+  vision refused `GridWithoutImage`. `prompt.zig` now leaves those placeholder byte ranges out of the masked request
+  spans, so their spellings stay special tokens; `--vision` answers again.
+- The patch applies cleanly to `8c36359d`, the image builds, and `spark up` serves it at 1M context on both ranks.
+- Suite on the deployed image (`evidence/2026-10-27-native-v1.1.6/`): drafts 12/12 (drafted 96 vs undrafted 43 tok/s),
+  concurrent 12/12, streaming 4/4, multiturn 8/8, stop 3/3, thinking 10/10, copy 2/2, max-tokens 3/3, tools 60/60,
+  json 30/30, IFEval 130/150, GSM8K 241/250, MGSM 219/240, MMLU 283/342, HumanEval 157/164, repetition 8/8,
+  long-context 55/55, soak 60/60, snapshot 12/12 — the same scores as the 1.0.11 baseline, so the rebase kept
+  behaviour — and vision 12/12 after the fix. (The captured kernel set `docker/kernels/sm121` was left as captured;
+  recapturing it for 1.1.6's faster kernels is a follow-up.)
+
 ## 2026-10-17
 
 - **On TensorFold 1.0.12** (833bbfcb; pin `47c78d3f`, image `native-v1.0.12`): the port rebased onto 1.0.12. 1.0.12

@@ -1,6 +1,7 @@
 """The engine image and its containers: build, label check, copy to the worker, start a rank, stop it."""
 
 from __future__ import annotations
+import os
 
 from .config import CONTAINER_HF, CONTAINER_TF, ROOT, Settings
 from .nodes import Node, log, pipe
@@ -83,7 +84,16 @@ def run_rank(s: Settings, node: Node, rank: int) -> None:
             "-v", f"{hf}:{CONTAINER_HF}:ro", "-v", f"{tf}:{CONTAINER_TF}"]
     for k, v in s.container_env().items():
         argv += ["-e", f"{k}={v}"]
-    argv += [s.image, "serve", s.model_in_container, *s.native_args(rank)]   # the entrypoint is tensorfold-native
+    if os.environ.get("SPARK_BIN"):   # dev: this host path's tensorfold-native (the same path on both nodes) over the image's
+        argv += ["-v", f"{os.environ['SPARK_BIN']}:/opt/tensorfold/native/bin/tensorfold-native:ro"]
+    nsys = os.environ.get("SPARK_NSYS") if rank == 0 else None   # dev: rank 0 under nsys, "DELAY:DURATION" seconds
+    if nsys:
+        delay, duration = nsys.split(":")
+        argv += ["--cap-add", "SYS_ADMIN", "--entrypoint", "nsys", s.image, "profile", "-o", f"{CONTAINER_TF}/prof-r0", "--force-overwrite", "true",
+                 "-t", "cuda,nvtx,osrt", "--cuda-graph-trace", "node", "--delay", delay, "--duration", duration,
+                 "--kill", "sigterm", "/opt/tensorfold/native/bin/tensorfold-native", "serve", s.model_in_container, *s.native_args(rank)]
+    else:
+        argv += [s.image, "serve", s.model_in_container, *s.native_args(rank)]   # the entrypoint is tensorfold-native
     # --init: rank 1 installs no SIGTERM handler (docker stop would wait out its timeout). memlock + IPC_LOCK: the
     # n-gram table pages are locked. --ulimit core=1: no multi-GiB core dumps in host memory.
     log(f"Starting {s.container} rank={rank} on {node.name}: {s.summary()}")
